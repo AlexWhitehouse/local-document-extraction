@@ -8,6 +8,7 @@ import { confirmDialog } from "../ui/confirm.jsx";
 import { ErrorState, ListStatus, Skeleton } from "../ui/States.jsx";
 import { CloseIcon, CopyIcon, EditIcon, PlusIcon } from "../layout/Icons.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { Badge } from "../ui/Status.jsx";
 import { SettingToggle } from "./SettingToggle.jsx";
 import "./WorkspacePages.css";
 
@@ -54,7 +55,7 @@ export function WorkspaceInvitationPage({
             <div>
               <dt>Offered role</dt>
               <dd>
-                <span className="status-chip busy">{formatRoleLabel(invitation.role)}</span>
+                <Badge tone="info">{formatRoleLabel(invitation.role)}</Badge>
               </dd>
             </div>
             <div>

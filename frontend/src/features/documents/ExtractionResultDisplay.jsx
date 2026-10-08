@@ -160,7 +160,7 @@ function ResultConfidence({ value }) {
   const percent = Math.min(100, Math.max(0, value * 100));
 
   return (
-    <span className={`studio-confidence ${confidenceTone(value)}`} aria-label={`Confidence ${percent.toFixed(1)}%`}>
+    <span className={`studio-confidence ui-tone-${confidenceTone(value)}`} aria-label={`Confidence ${percent.toFixed(1)}%`}>
       <span className="studio-confidence-track" aria-hidden="true">
         <i style={{ width: `${percent}%` }} />
       </span>
@@ -278,8 +278,9 @@ function isTableAnswer(value) {
   );
 }
 
+// Confidence bands on the shared tone vocabulary: above 90% success, 80 to 90% warning, below 80% danger.
 function confidenceTone(confidence) {
   const percent = confidence * 100;
 
-  return percent > 90 ? "good" : percent >= 80 ? "pending" : "bad";
+  return percent > 90 ? "success" : percent >= 80 ? "warning" : "danger";
 }

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { ChartTip, FigureStrip, Segmented, StageLegend, StageTipRows } from "./costShared.jsx";
+import { ChartTip, FigureStrip, StageLegend, StageTipRows } from "./costShared.jsx";
+import { Segmented } from "../../ui/Tabs.jsx";
 import { EmptyState } from "../../ui/States.jsx";
 import { costLabel, niceMax, percent, plural, shortDate, usd, weightedQuantile } from "./costFormat.js";
 import { useChartTip, useWidth } from "./costHooks.js";
@@ -64,7 +65,7 @@ export function OverviewTab({ data }) {
   ];
 
   return (
-    <div className="cp-tab-panel" role="tabpanel" aria-label="Overview">
+    <div className="cp-tab-panel">
       <FigureStrip figures={figures} label="Headline figures" />
       <SpendCharts buckets={buckets} unit={range.unit} totals={totals} />
       <CostSpread documents={samples} sampled={sampled} population={metrics.fullyCostedDocuments} />
@@ -156,7 +157,7 @@ function SpendCharts({ buckets, unit, totals }) {
             label="Display"
             value={view}
             onChange={setView}
-            options={[
+            items={[
               { value: "chart", label: "Chart" },
               { value: "table", label: "Table" },
             ]}
@@ -353,7 +354,7 @@ function CostSpread({ documents, sampled, population }) {
             label="Measure"
             value={metric}
             onChange={setMetric}
-            options={[
+            items={[
               { value: "document", label: "Per document" },
               { value: "page", label: "Per page" },
             ]}

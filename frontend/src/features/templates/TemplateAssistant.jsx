@@ -8,30 +8,32 @@ import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import "./TemplateAssistant.css";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { Badge, CountBadge } from "../ui/Status.jsx";
+import { Segmented, Tabs } from "../ui/Tabs.jsx";
 
 const TABS = [
-  { id: "explain", label: "Explain issues" },
-  { id: "edit", label: "Propose edits" },
+  { value: "explain", label: "Explain issues" },
+  { value: "edit", label: "Propose edits" },
 ];
 
 const OBSERVATION_LISTS = [
   {
     kind: "observation",
-    tone: "observed",
+    tone: "info",
     label: "Observed",
     title: "In the evidence",
     hint: "What the supplied result or sample shows. Results are model output, not verified answers.",
   },
   {
     kind: "hypothesis",
-    tone: "hypothesis",
+    tone: "warning",
     label: "Hypothesis",
     title: "Possible causes",
     hint: "The model’s inferences. Not verified against the Document.",
   },
   {
     kind: "suggestion",
-    tone: "suggestion",
+    tone: "neutral",
     label: "Suggestion",
     title: "Suggestions",
     hint: "Advice only. No change promises better accuracy without an Evaluation.",
@@ -72,27 +74,21 @@ export function TemplateAssistant({ assistant, draft, issues = [], isEditing = f
         </div>
         <IconButton label="Close assistant" icon={CloseIcon} onClick={assistant.onClose} />
       </header>
-      <div className="template-assistant-tabs" role="tablist" aria-label="Assistant mode">
-        {TABS.map((tab) => (
-          <Button
-            key={tab.id}
-            type="button"
-            role="tab"
-            id={`template-assistant-tab-${tab.id}`}
-            aria-selected={action === tab.id}
-            aria-controls="template-assistant-body"
-            disabled={pending && action !== tab.id}
-            onClick={() => action !== tab.id && assistant.onActionChange(tab.id)}
-          >
-            {tab.label}
-            {tab.id === "explain" && issues.length ? (
-              <span className="template-assistant-count">{issues.length}</span>
-            ) : null}
-          </Button>
-        ))}
+      <div className="template-assistant-tabs">
+        <Tabs
+          label="Assistant mode"
+          idPrefix="template-assistant"
+          items={TABS.map((tab) => ({
+            ...tab,
+            disabled: pending && action !== tab.value,
+            meta: tab.value === "explain" && issues.length ? <CountBadge count={issues.length} label={`${issues.length} issues`} tone="danger" /> : undefined,
+          }))}
+          value={action}
+          onChange={(value) => action !== value && assistant.onActionChange(value)}
+        />
       </div>
       <ScrollArea
-        id="template-assistant-body"
+        id={`template-assistant-panel-${action}`}
         className="template-assistant-body"
         role="tabpanel"
         aria-labelledby={`template-assistant-tab-${action}`}
@@ -200,11 +196,11 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                 {job.template_name || job.template_id} v{job.template_version}
               </strong>{" "}
               {job.template_id !== assistant.templateId ? (
-                <span className="status-chip warn">Different Template</span>
+                <Badge tone="warning">Different Template</Badge>
               ) : assistant.templateVersion && job.template_version !== assistant.templateVersion ? (
-                <span className="status-chip warn">Older version · latest is v{assistant.templateVersion}</span>
+                <Badge tone="warning">Older version · latest is v{assistant.templateVersion}</Badge>
               ) : (
-                <span className="status-chip good">Latest saved version</span>
+                <Badge tone="success">Latest saved version</Badge>
               )}
             </p>
             <p className="template-assistant-muted">
@@ -277,21 +273,17 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
         {job || file ? (
           <div className="template-assistant-binary">
             <span className="template-assistant-label-text">File sent to the model (one at most)</span>
-            <div className="segmented" role="radiogroup" aria-label="File sent to the model">
-              {binaryOptions.map((option) => (
-                <Button
-                  key={option.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={binary === option.id}
-                  disabled={!option.enabled}
-                  title={option.enabled ? undefined : "The original isn’t available for this job"}
-                  onClick={() => chooseBinary(option.id)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
+            <Segmented
+              label="File sent to the model"
+              value={binary}
+              onChange={chooseBinary}
+              items={binaryOptions.map((option) => ({
+                value: option.id,
+                label: option.label,
+                disabled: !option.enabled,
+                title: option.enabled ? undefined : "The original isn’t available for this job",
+              }))}
+            />
           </div>
         ) : null}
       </section>
@@ -344,9 +336,9 @@ function SuggestionCards({ suggestions, selected, onPick }) {
       <div className="template-assistant-suggestions-head">
         <span className="template-assistant-label-text">Suggested for this Template</span>
         {!isLoading && source ? (
-          <span className={source === "model" ? "template-assistant-tag observed" : "template-assistant-tag"}>
+          <Badge tone={source === "model" ? "info" : "neutral"} className="template-assistant-tag">
             {source === "model" ? "From the model" : "From the app’s checks"}
-          </span>
+          </Badge>
         ) : null}
       </div>
       {isLoading ? (
@@ -434,7 +426,8 @@ function ResultView({ assistant }) {
         <p className="template-assistant-summary">{response.explanation}</p>
         {checked.length ? (
           <EvidenceList
-            tone="checked"
+            kind="checked"
+            tone="neutral"
             label="Checked"
             title="Checked by the app"
             hint="Validation rules for the draft you sent. These are certain."
@@ -482,11 +475,13 @@ function ResultView({ assistant }) {
   );
 }
 
-function EvidenceList({ tone, label, title, hint, items }) {
+function EvidenceList({ kind, tone, label, title, hint, items }) {
   return (
-    <div className={`template-assistant-evidence-list ${tone}`}>
+    <div className={`template-assistant-evidence-list ${kind}`}>
       <div className="template-assistant-evidence-list-head">
-        <span className={`template-assistant-tag ${tone}`}>{label}</span>
+        <Badge tone={tone} className="template-assistant-tag">
+          {label}
+        </Badge>
         <strong>{title}</strong>
       </div>
       <p className="template-assistant-muted">{hint}</p>
@@ -519,10 +514,10 @@ function ChangeGroup({ base, group, groups, selected, disabled, isConflicting, o
           <strong id={id}>{group.title}</strong>
           <span className="template-assistant-group-tags">
             {group.operations.length > 1 ? (
-              <span className="status-chip">{group.operations.length} changes · applied together</span>
+              <Badge>{group.operations.length} changes · applied together</Badge>
             ) : null}
             {impacts.some((impact) => impact.kind !== "added") ? (
-              <span className="status-chip warn">Changes output keys</span>
+              <Badge tone="warning">Changes output keys</Badge>
             ) : null}
           </span>
         </span>
@@ -836,12 +831,12 @@ function JobPicker({ picker, selectedJobId }) {
                 <td>{formatDate(job.completed_at)}</td>
                 <td>
                   {job.template_name || job.template_id}{" "}
-                  <span className="template-assistant-version">v{job.template_version}</span>
+                  <Badge>v{job.template_version}</Badge>
                 </td>
                 <td>
-                  <span className={job.source_available ? "status-chip good" : "status-chip"}>
+                  <Badge tone={job.source_available ? "success" : "neutral"}>
                     {job.source_available ? "Original kept" : "Results only"}
-                  </span>
+                  </Badge>
                 </td>
                 <td>
                   <Button

@@ -4,6 +4,7 @@ import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 import { Chips } from "./EvaluationLibrary.jsx";
 import { documentChips, kilobytes, saveUnavailableMessage, unavailableText } from "./evaluationLibrary.js";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { Badge } from "../ui/Status.jsx";
 import { CloseIcon, PlusIcon } from "../layout/Icons.jsx";
 
 const MODES = [
@@ -382,7 +383,7 @@ export function EvaluationSetup({
                         }
                       />
                       {model.trim() && model.trim() === workspaceModel && (
-                        <small className="status-chip">Workspace default</small>
+                        <Badge>Workspace default</Badge>
                       )}
                       <IconButton
                         size="sm"

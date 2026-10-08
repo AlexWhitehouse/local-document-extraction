@@ -33,7 +33,7 @@
 
 /* Tabs, range and page rhythm */
 .cp-tab-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 -28px; padding: 0 28px; border-bottom: 1px solid var(--rule); }
-.cp-tab-row .packet-tabs { border-bottom: 0; }
+.cp-tab-row .ui-tabs { border-bottom: 0; }
 .cp-range-row { display: flex; align-items: center; gap: 12px; }
 .cp-range { position: relative; }
 .cp-range-popover { position: absolute; z-index: var(--z-popover); top: calc(100% + 6px); right: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 300px; padding: 14px; border: 1px solid var(--rule-strong); background: var(--pane-raised); box-shadow: var(--shadow-popover); }
@@ -52,10 +52,6 @@
 /* Study controls */
 
 /* Controls */
-.cp-segmented { display: inline-flex; padding: 2px; border: 1px solid var(--rule-strong); background: var(--field-bg); }
-.studio-main .cp-segmented button { height: 24px; min-height: 0; padding: 0 10px; border: 0; background: transparent; color: var(--text-2); font-size: var(--font-size-3); font-weight: 500; box-shadow: none; }
-.studio-main .cp-segmented button:hover:not(:disabled) { background: var(--row-hover); color: var(--text-1); }
-.studio-main .cp-segmented button[aria-checked="true"] { background: var(--pane-active); color: var(--text-0); }
 .cp-controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* Headline figures: one hairline strip like the Workspace facts, values like the Evaluation score. */
@@ -66,7 +62,7 @@
 .cp-figure dd { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin: 0; }
 .cp-figure strong { overflow: hidden; color: var(--text-0); font: 500 var(--font-size-7)/1.1 var(--font-body); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; text-overflow: ellipsis; }
 .cp-figure-hero strong { font-size: var(--font-size-display-lg); }
-.cp-figure dd .status-chip { flex-shrink: 0; align-self: center; }
+.cp-figure dd .ui-badge { flex-shrink: 0; align-self: center; }
 .cp-figure small { align-self: end; overflow: hidden; color: var(--text-3); font: var(--font-size-2) var(--font-mono); white-space: nowrap; text-overflow: ellipsis; }
 .cp-figure-hero { grid-template-rows: auto auto auto 1fr; }
 .cp-sparkline { display: block; width: 100%; max-width: 220px; height: 22px; overflow: visible; }

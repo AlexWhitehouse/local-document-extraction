@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
-import { statusLabel } from "../../lib/status.js";
+import React, { useEffect, useId, useRef, useState } from "react";
+import { isBusyStatus, statusLabel, statusTone } from "../../lib/status.js";
 import { ExtractionJobStatusDisplay, ExtractionResultDisplay } from "./ExtractionResultDisplay.jsx";
 import { SourceFilePreview } from "./SourceFilePreview.jsx";
 import "./DocumentViewing.css";
@@ -8,6 +8,8 @@ import { formatPages } from "./documentProcessing.js";
 import { isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
 import { ProcessingCost } from "./ProcessingCost.jsx";
 import { Button } from "../ui/Button.jsx";
+import { Segmented, Tabs } from "../ui/Tabs.jsx";
+import { StatusDot } from "../ui/Status.jsx";
 
 const NARROW_SPLIT_WIDTH = 600;
 
@@ -56,10 +58,11 @@ function SinglePacketDocument({ packetPage, ...detail }) {
       ) : (
         <section className="studio-document-page document-layout-results" aria-label="Document results">
           <div className="studio-document-summary">
-            <span className={`studio-document-status ${packet.status === "queued" ? "queued" : "processing"}`}>
-              <i aria-hidden="true" />
-              {packet.status === "queued" ? "Queued" : "Processing"}
-            </span>
+            <StatusDot
+              tone={packet.status === "queued" ? "neutral" : "info"}
+              pulse={packet.status !== "queued"}
+              label={packet.status === "queued" ? "Queued" : "Processing"}
+            />
           </div>
           <div className="job-status-stack">
             <div className="job-status-skeleton is-processing" role="status">
@@ -144,10 +147,7 @@ function DocumentDetail({
   return (
     <section className={`studio-document-page document-layout-${layout}`} aria-label="Document results">
       <div className="studio-document-summary">
-        <span className={`studio-document-status ${status}`}>
-          <i aria-hidden="true" />
-          {statusLabel(status)}
-        </span>
+        <StatusDot tone={statusTone(status)} pulse={isBusyStatus(status)} label={statusLabel(status)} />
         {results.length ? (
           <span>
             {results.length} {results.length === 1 ? "field" : "fields"} extracted
@@ -188,27 +188,22 @@ function DocumentDetail({
 
 function DocumentLayoutToggle({ layout, onChange }) {
   return (
-    <span className="segmented document-layout-toggle" role="radiogroup" aria-label="Document view">
-      {[
-        ["results", "Results"],
-        ["side-by-side", "Side by side"],
-      ].map(([value, label]) => (
-        <button
-          key={value}
-          type="button"
-          role="radio"
-          aria-checked={layout === value}
-          onClick={() => onChange?.(value)}
-        >
-          {label}
-        </button>
-      ))}
-    </span>
+    <Segmented
+      label="Document view"
+      className="document-layout-toggle"
+      items={[
+        { value: "results", label: "Results" },
+        { value: "side-by-side", label: "Side by side" },
+      ]}
+      value={layout}
+      onChange={(value) => onChange?.(value)}
+    />
   );
 }
 
 function SideBySide({ document, loadOriginal, children }) {
   const host = useRef(null);
+  const tabsId = useId();
   const [split, setSplit] = useState(50);
   const [isNarrow, setIsNarrow] = useState(false);
   // Narrow screens open on Results; the tab resets per Document and is never stored.
@@ -272,6 +267,12 @@ function SideBySide({ document, loadOriginal, children }) {
   const showDocument = !isNarrow || narrowTab === "document";
   const showResults = !isNarrow || narrowTab === "results";
 
+  // The narrow view's two panes are tab panels; the wide view has no tabs.
+  const paneProps = (value) =>
+    isNarrow
+      ? { role: "tabpanel", id: `${tabsId}-panel-${value}`, "aria-labelledby": `${tabsId}-tab-${value}` }
+      : {};
+
   return (
     <div
       ref={host}
@@ -279,25 +280,20 @@ function SideBySide({ document, loadOriginal, children }) {
       style={{ "--document-split": `${split}%` }}
     >
       {isNarrow ? (
-        <div className="document-split-tabs" role="tablist" aria-label="Document view">
-          {[
-            ["results", "Results"],
-            ["document", "Document"],
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-selected={narrowTab === value}
-              onClick={() => setNarrowTab(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          label="Document view"
+          idPrefix={tabsId}
+          className="document-split-tabs"
+          items={[
+            { value: "results", label: "Results" },
+            { value: "document", label: "Document" },
+          ]}
+          value={narrowTab}
+          onChange={setNarrowTab}
+        />
       ) : null}
       {showDocument ? (
-        <section className="document-split-source" aria-label="Original document">
+        <section className="document-split-source" aria-label="Original document" {...paneProps("document")}>
           <SourceFilePreview document={document} loadOriginal={loadOriginal} />
         </section>
       ) : null}
@@ -315,7 +311,11 @@ function SideBySide({ document, loadOriginal, children }) {
           onKeyDown={nudge}
         />
       ) : null}
-      {showResults ? <div className="document-split-results">{children}</div> : null}
+      {showResults ? (
+        <div className="document-split-results" {...paneProps("results")}>
+          {children}
+        </div>
+      ) : null}
     </div>
   );
 }

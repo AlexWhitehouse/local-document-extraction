@@ -142,6 +142,17 @@ describe("MainLayout icon navigation", () => {
     expect(container.querySelector(".sidebar-link-icon")?.textContent).toBe("");
   });
 
+  it("marks only the active sidebar link with aria-current=page", () => {
+    render(
+      <MainLayout activePage="templates" counts={{}} onNavigate={() => {}} profileSlot={null} contextSidebar={null}>
+        <p>Page</p>
+      </MainLayout>,
+    );
+
+    expect(screen.getByRole("button", { name: /^Templates/ }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: /^Documents/ }).getAttribute("aria-current")).toBeNull();
+  });
+
   it("gives the collapse toggle a shortcut tooltip and a plain accessible name", () => {
     render(
       <MainLayout activePage="documents" counts={{}} onNavigate={() => {}} profileSlot={null} contextSidebar={null}>

@@ -168,7 +168,7 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await page.reload();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("packet-document-tab.png"), fullPage: true });
-    await page.getByRole("tab", { name: "Overview", exact: true }).click();
+    await page.getByRole("tab", { name: /^Overview/ }).click();
     page.once("dialog", (dialog) => dialog.accept());
     await page
       .locator('header[aria-label="Workspace toolbar"]')
@@ -279,7 +279,7 @@ test("single-page uploads and one-document split plans display as ordinary docum
       });
       await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
       await expect(page.getByText("Tagged invoice · version 1", { exact: true })).toBeVisible();
-      await expect(page.getByRole("tab", { name: "Overview", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("tab", { name: /^Overview/ })).toHaveCount(0);
       await expect(page.getByRole("region", { name: "Documents in this packet" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "View parent packet", exact: true })).toHaveCount(0);
       let documentId = admission.job_id;
@@ -306,7 +306,7 @@ test("single-page uploads and one-document split plans display as ordinary docum
       await expect(row).toBeVisible();
       await row.click();
       await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
-      await expect(page.getByRole("tab", { name: "Overview", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("tab", { name: /^Overview/ })).toHaveCount(0);
       page.once("dialog", (dialog) => dialog.accept());
       await page
         .locator('header[aria-label="Workspace toolbar"]')

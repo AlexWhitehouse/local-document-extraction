@@ -6,6 +6,7 @@ import "./TemplateTags.css";
 import { CloseIcon, ChevronDownIcon, ChevronLeftIcon } from "../layout/Icons.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { ListAddButton } from "../ui/ListAddButton.jsx";
+import { Tag } from "../ui/Status.jsx";
 
 export function TemplateTags({
   value = [],
@@ -163,9 +164,9 @@ export function TemplateTags({
         {value.length ? (
           <span className="template-tags-chips">
             {value.map((tag) => (
-              <span key={tag} className="template-tag-chip">
+              <Tag key={tag} className="template-tag-chip">
                 {tag}
-              </span>
+              </Tag>
             ))}
           </span>
         ) : (

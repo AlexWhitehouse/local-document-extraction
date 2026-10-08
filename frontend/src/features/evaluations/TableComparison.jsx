@@ -6,6 +6,7 @@ import { Mark } from "./EvaluationParts.jsx";
 import { display } from "./evaluationFormat.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { CloseIcon } from "../layout/Icons.jsx";
+import { Segmented } from "../ui/Tabs.jsx";
 
 const blank = (value) => value === undefined || value === null || value === "";
 
@@ -157,17 +158,16 @@ export function TableComparison({
         ))}
       </div>
       <div className="evaluation-compare-toolbar">
-        <div className="segmented" role="group" aria-label="Table layout">
-          {[
-            ["rows", "By row"],
-            ["stacked", "Stacked"],
-            ["side", "Side by side"],
-          ].map(([id, label]) => (
-            <button key={id} type="button" aria-pressed={layout === id} onClick={() => setLayout(id)}>
-              {label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Table layout"
+          value={layout}
+          onChange={setLayout}
+          items={[
+            { value: "rows", label: "By row" },
+            { value: "stacked", label: "Stacked" },
+            { value: "side", label: "Side by side" },
+          ]}
+        />
         <label className="evaluation-check">
           <input
             type="checkbox"

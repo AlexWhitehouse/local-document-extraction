@@ -192,7 +192,7 @@ it("replaces a comparison candidate with a historical Template without running i
 
 it("keeps editing available during processing and applies full editor changes only to the candidate", async () => {
   const evaluation = setup();
-  expect(screen.getByRole("button", { name: "Run all 1" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Run all (1 candidate)" }).disabled).toBe(true);
   openMenu();
   fireEvent.click(screen.getByRole("button", { name: "Edit Template" }));
   const dialog = screen.getByRole("dialog", { name: "Edit Template" });
@@ -513,13 +513,13 @@ it("scores candidates, marks the leader and filters fields by disagreement and m
   expect(screen.getByText("0%")).toBeTruthy();
   expect(screen.getAllByText("Best")).toHaveLength(1);
   const matrix = screen.getByRole("region", { name: "Comparison matrix" });
-  fireEvent.click(screen.getByRole("button", { name: "Candidates differ" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Candidates differ" }));
   expect(within(matrix).getByText("Total")).toBeTruthy();
   expect(within(matrix).queryByText("Reference")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Unverified" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Unverified" }));
   expect(within(matrix).queryByText("Total")).toBeNull();
   expect(within(matrix).getByText("Reference")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Has mismatch" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Has mismatch" }));
   expect(within(matrix).getByText("Total")).toBeTruthy();
   expect(within(matrix).queryByText("Reference")).toBeNull();
 });
@@ -554,13 +554,13 @@ it("compares every candidate's table rows against the expected rows in one view"
   fireEvent.click(within(dialog).getByRole("checkbox", { name: "Only rows with differences" }));
   expect(within(rows).getAllByText("alpha")).toHaveLength(2);
   expect(within(dialog).queryByRole("button", { name: /Review as expected/ })).toBeNull();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Stacked" }));
+  fireEvent.click(within(dialog).getByRole("radio", { name: "Stacked" }));
   const betaTable = within(dialog).getByRole("table", { name: "beta table" });
   expect(within(dialog).getAllByRole("table", { name: /table$/ })).toHaveLength(3);
   expect(within(betaTable).getByText("Row missing")).toBeTruthy();
   expect(within(betaTable).getByTitle("Expected: 2").textContent).toBe("3");
   expect(within(within(dialog).getByRole("table", { name: "alpha table" })).queryByText("Row missing")).toBeNull();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Side by side" }));
+  fireEvent.click(within(dialog).getByRole("radio", { name: "Side by side" }));
   const side = within(dialog).getByRole("table", { name: "Candidates side by side" });
   expect(within(side).getAllByRole("columnheader", { name: "SKU" })).toHaveLength(3);
 });
@@ -788,7 +788,7 @@ it.each(["explicit", "embedded"])("reuses saved answers after instruction-only e
     })),
   });
 
-  expect(screen.getAllByLabelText("Match")).toHaveLength(4);
+  expect(screen.getAllByText("Match")).toHaveLength(4);
   expect(screen.queryByRole("button", { name: "Review template changes" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Review field changes" })).toBeNull();
   expect(screen.queryByText(/Needs review/)).toBeNull();
@@ -814,7 +814,7 @@ it.each(["explicit", "embedded"])("reuses saved answers after instruction-only e
   expect(editor.getByRole("combobox", { name: "Expected row 2 Quantity status" }).value).toBe("ignored");
   expect(editor.getByRole("combobox", { name: "Compare rows" }).value).toBe("sku");
   fireEvent.click(editor.getByRole("button", { name: "Cancel" }));
-  fireEvent.click(screen.getByRole("button", { name: "Template changes", exact: true }));
+  fireEvent.click(screen.getByRole("radio", { name: "Template changes", exact: true }));
   expect(screen.getByText("No fields match this filter.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Update saved answers…" })).toBeNull();
   expect(evaluation.setReference).not.toHaveBeenCalled();

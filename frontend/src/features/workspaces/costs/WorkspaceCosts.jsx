@@ -5,6 +5,7 @@ import { useCostResource } from "./useCostResource.js";
 import { OverviewTab } from "./OverviewTab.jsx";
 import { ErrorState, LoadingState } from "../../ui/States.jsx";
 import { Button } from "../../ui/Button.jsx";
+import { Tabs } from "../../ui/Tabs.jsx";
 import { ChevronLeftIcon } from "../../layout/Icons.jsx";
 import { DocumentsTab } from "./DocumentsTab.jsx";
 import "./workspaceCosts.css";
@@ -27,7 +28,7 @@ export function WorkspaceCosts({ workspaceId, workspaceName, role, tab = "overvi
       {["owner", "admin"].includes(role) ? (
         <CostViews workspaceId={workspaceId} request={request} tab={tab} onTab={onTab} />
       ) : (
-        <div className="cp-restricted" role="status">
+        <div className="cp-restricted">
           <strong>Costs are visible to Workspace owners and admins.</strong>
           <p>Ask an owner or admin if you need spend figures for this Workspace.</p>
         </div>
@@ -51,23 +52,28 @@ function CostViews({ workspaceId, request, tab, onTab }) {
   return (
     <>
       <div className="cp-tab-row">
-        <div className="packet-tabs" role="tablist" aria-label="Cost views">
-          {["overview", "documents"].map((value) => (
-            <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => onTab(value)}>
-              {value === "overview" ? "Overview" : "Documents"}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          label="Cost views"
+          idPrefix="cost-views"
+          items={[
+            { value: "overview", label: "Overview" },
+            { value: "documents", label: "Documents" },
+          ]}
+          value={tab}
+          onChange={onTab}
+        />
         <div className="cp-range-row">
           <span className="cp-muted">{rangeLabel(range)} · UTC</span>
           <RangePicker range={range} onChange={setRange} />
         </div>
       </div>
-      {tab === "documents" ? (
-        <DocumentsTab key={query} request={request} base={base} queryString={query} />
-      ) : (
-        <Overview request={request} path={`${base}/overview?${query}`} />
-      )}
+      <div role="tabpanel" id={`cost-views-panel-${tab}`} aria-labelledby={`cost-views-tab-${tab}`} tabIndex={0}>
+        {tab === "documents" ? (
+          <DocumentsTab key={query} request={request} base={base} queryString={query} />
+        ) : (
+          <Overview request={request} path={`${base}/overview?${query}`} />
+        )}
+      </div>
     </>
   );
 }

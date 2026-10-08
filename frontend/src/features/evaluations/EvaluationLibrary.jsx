@@ -20,19 +20,17 @@ import { confirmDialog } from "../ui/confirm.jsx";
 import { EmptyState, ErrorState } from "../ui/States.jsx";
 import { describeError } from "../../lib/describeError";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { Badge, StatusDot } from "../ui/Status.jsx";
 import { CloseIcon } from "../layout/Icons.jsx";
 
+// Document status chips: [tone, label, busy?] with tone neutral | info | success | warning | danger.
 export function Chips({ list }) {
   return (
     <span className="evaluation-chips">
-      {list.map(([tone, label]) => (
-        <span
-          key={label}
-          title={label}
-          className={["good", "warn", "bad", "busy"].includes(tone) ? `status-chip ${tone}` : "status-chip"}
-        >
+      {list.map(([tone, label, busy = false]) => (
+        <Badge key={label} tone={tone} busy={busy} title={label}>
           {label}
-        </span>
+        </Badge>
       ))}
     </span>
   );
@@ -795,15 +793,12 @@ export function LinkedNote({ savedName, fieldName, onUnlink }) {
 export function ReviewPrompt({ field, definition, reference, onReview }) {
   return (
     <div className="evaluation-review">
-      <span className="evaluation-mark evaluation-mark-review" aria-hidden="true">
-        !
-      </span>
       <span>
         {field.data_type === "array<object>" && definition?.data_type === "array<object>" ? (
-          "Needs review · Template columns changed"
+          <StatusDot tone="warning" label="Needs review · Template columns changed" />
         ) : (
           <>
-            Needs review
+            <StatusDot tone="warning" label="Needs review" />
             <span className="evaluation-muted evaluation-block">
               Previously saved as {getDataTypeLabel(definition?.data_type)}: “{refText(reference, definition)}”
             </span>
@@ -837,14 +832,14 @@ export function DocumentBanner({ evaluation, document, notify }) {
 
   if (document.availability === "deleted")
     return (
-      <div className="evaluation-banner bad" role="status">
+      <div className="evaluation-banner bad">
         Deleted from the Evaluation library. Results already shown stay visible in this tab, but it can’t run again.
       </div>
     );
 
   if (!documentRunnable(document))
     return (
-      <div className="evaluation-banner bad" role="status">
+      <div className="evaluation-banner bad">
         <span>{unavailableText(document)}</span>
         <Button variant="text" disabled={retrying} onClick={retry}>
           {retrying ? "Checking…" : "Retry original"}

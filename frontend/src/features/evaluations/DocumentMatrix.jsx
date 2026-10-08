@@ -14,6 +14,8 @@ import { MAX_CANDIDATES, candidateBusy } from "./useEvaluations.js";
 import { linkableFields, refText } from "./evaluationLibrary.js";
 import { adaptReferenceDraft } from "./referenceDraft.js";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { Badge } from "../ui/Status.jsx";
+import { Segmented } from "../ui/Tabs.jsx";
 import { CloseIcon, ExternalIcon, PlayIcon, PlusIcon } from "../layout/Icons.jsx";
 import {
   answerSignature,
@@ -42,16 +44,18 @@ const FILTERS = [
 const baseName = (identity) => identity.slice(0, identity.lastIndexOf(":"));
 
 export function FieldFilters({ value, onChange, editing = false }) {
+  const items = FILTERS.flatMap(([id, label]) =>
+    editing && ["differ", "mismatch"].includes(id) ? [] : [{ value: id, label }],
+  );
+
   return (
-    <div className="segmented evaluation-filter" role="group" aria-label="Filter fields">
-      {FILTERS.map(([id, label]) =>
-        editing && ["differ", "mismatch"].includes(id) ? null : (
-          <button key={id} type="button" aria-pressed={value === id} onClick={() => onChange(id)}>
-            {label}
-          </button>
-        ),
-      )}
-    </div>
+    <Segmented
+      label="Filter fields"
+      className="evaluation-filter"
+      items={items}
+      value={value}
+      onChange={onChange}
+    />
   );
 }
 
@@ -339,11 +343,7 @@ export function DocumentMatrix({
 
     return (
       <div className="evaluation-value">
-        <span
-          className={`evaluation-score ${score?.state === "Match" ? "match" : score?.state === "Mismatch" ? "mismatch" : ""}`}
-        >
-          {score?.state || "Unscored"}
-        </span>
+        <Mark state={score?.state} />
         {!["ok", "found"].includes(raw?.status) && (
           <small>{raw?.status === "not_found" || !raw ? "Not found in document" : statusLabel(raw.status)}</small>
         )}
@@ -512,7 +512,7 @@ export function DocumentMatrix({
                     >
                       <div className="evaluation-candidate-score">
                         <strong>{accuracy ? percent(accuracy.ratio) : "—"}</strong>
-                        {best && <span className="status-chip good">Best</span>}
+                        {best && <Badge tone="success">Best</Badge>}
                         <RunCost result={candidate.result} />
                         <Meter value={accuracy?.ratio} best={best} />
                       </div>

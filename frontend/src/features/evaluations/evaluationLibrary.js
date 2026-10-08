@@ -222,18 +222,18 @@ export function documentChips(document, fields) {
   if (document.kind === "upload")
     chips.push(
       document.save === "saving"
-        ? ["busy", "Saving…"]
+        ? ["info", "Saving…", true]
         : document.save === "failed"
-          ? ["bad", "Save failed · still in this tab"]
-          : ["warn", "Not saved · this tab only"],
+          ? ["danger", "Save failed · still in this tab"]
+          : ["warning", "Not saved · this tab only"],
     );
-  else if (document.availability === "deleted") chips.push(["bad", "Deleted from library"]);
-  else if (documentDirty(document)) chips.push(["warn", "Local changes"]);
-  else chips.push(["good", newerAvailable(document) ? "Saved · newer version available" : "Saved"]);
+  else if (document.availability === "deleted") chips.push(["danger", "Deleted from library"]);
+  else if (documentDirty(document)) chips.push(["warning", "Local changes"]);
+  else chips.push(["success", newerAvailable(document) ? "Saved · newer version available" : "Saved"]);
 
-  if (["missing", "unavailable"].includes(document.availability)) chips.push(["bad", "Original unavailable"]);
+  if (["missing", "unavailable"].includes(document.availability)) chips.push(["danger", "Original unavailable"]);
 
-  if (compatibility.review) chips.push(["warn", `${compatibility.review} needs review`]);
+  if (compatibility.review) chips.push(["warning", `${compatibility.review} to review`]);
 
   return chips;
 }

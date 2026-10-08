@@ -1,6 +1,7 @@
 import React from "react";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { Button } from "../ui/Button.jsx";
+import { Badge } from "../ui/Status.jsx";
 import { displayName, isApplicationAdmin, isEmailVerified, safeText, userIdOf } from "./adminAccounts.js";
 
 export function ApplicationAdminPage({ admin }) {
@@ -14,7 +15,7 @@ export function ApplicationAdminPage({ admin }) {
         <p className="studio-eyebrow">Admin / Accounts</p>
         <h1>{user ? displayName(user) : "Application admin"}</h1>
         <div className="studio-heading-actions">
-          {isCurrentUser ? <span className="status-chip good">Your account</span> : null}
+          {isCurrentUser ? <Badge tone="success">Your account</Badge> : null}
           {actions.map((action) => (
             <Button key={action.label} variant={action.variant} disabled={action.disabled} onClick={action.onClick}>
               {action.label}
@@ -47,9 +48,9 @@ export function ApplicationAdminPage({ admin }) {
               <div>
                 <dt>Email status</dt>
                 <dd>
-                  <span className={isEmailVerified(user) ? "status-chip good" : "status-chip warn"}>
+                  <Badge tone={isEmailVerified(user) ? "success" : "warning"}>
                     {isEmailVerified(user) ? "Verified" : "Unverified"}
-                  </span>
+                  </Badge>
                 </dd>
               </div>
               <div>
@@ -72,7 +73,7 @@ export function ApplicationAdminPage({ admin }) {
                 <dt>Application role</dt>
                 <dd>
                   {isApplicationAdmin(user) ? (
-                    <span className="status-chip busy">Application admin</span>
+                    <Badge tone="info">Application admin</Badge>
                   ) : (
                     "Regular user"
                   )}
@@ -81,9 +82,7 @@ export function ApplicationAdminPage({ admin }) {
               <div>
                 <dt>Access</dt>
                 <dd>
-                  <span className={user.banned ? "status-chip bad" : "status-chip"}>
-                    {user.banned ? "Banned" : "Active"}
-                  </span>
+                  <Badge tone={user.banned ? "danger" : "neutral"}>{user.banned ? "Banned" : "Active"}</Badge>
                 </dd>
               </div>
               <div>

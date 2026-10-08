@@ -141,7 +141,7 @@ it("selects the failing table row and shows its error beside the invalid cell", 
   verify();
   expect(screen.getByRole("alert").textContent).toMatch(/Row 2 · Quantity: Enter a valid number/);
   expect(screen.getByRole("textbox", { name: "Expected row 2 Quantity" }).getAttribute("aria-invalid")).toBe("true");
-  expect(screen.getByRole("button", { name: "Select row 2" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "Select row 2" }).getAttribute("aria-current")).toBe("true");
   expect(onSave).not.toHaveBeenCalled();
 });
 

@@ -89,7 +89,7 @@ describe("Extraction result display", () => {
     expect(screen.getByRole("rowheader", { name: "Patient Name" })).toBeTruthy();
     expect(screen.queryByText("ok")).toBeNull();
     expect(screen.queryByText("completed")).toBeNull();
-    expect(screen.getByLabelText("Confidence 93.2%")).toBeTruthy();
+    expect(screen.getByLabelText("Confidence 93.2%").className).toContain("ui-tone-success");
     expect(screen.getByText("Ada Lovelace")).toBeTruthy();
     expect(screen.getByRole("cell", { name: "Patient: Ada Lovelace" })).toBeTruthy();
   });

@@ -453,7 +453,7 @@ it("keeps the single-document Evaluation unchanged: no tabs or summary", async (
   fireEvent.click(screen.getByRole("button", { name: "Start and run" }));
   await waitFor(() => expect(streams).toHaveLength(1));
   expect(screen.queryByRole("navigation", { name: "Documents in this Evaluation" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Run all 2" }).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Run all (2 candidates)" }).disabled).toBe(true);
   await act(async () => {
     success(streams[0], 0, 5);
     success(streams[0], 1, 6);

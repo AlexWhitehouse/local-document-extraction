@@ -141,10 +141,6 @@ button.studio-text-button.studio-destructive { color: var(--tone-danger-text); }
 .studio-document-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; min-height: 47px; border-bottom: 1px solid var(--rule); padding: 10px 0; font: var(--font-size-2) var(--font-mono); color: var(--text-2); }
 .studio-document-summary strong { color: var(--text-1); font-weight: 500; }
 .studio-document-summary time { margin-left: auto; font-size: var(--font-size-2); }
-.studio-document-status { display: inline-flex; align-items: center; gap: 7px; color: var(--blue); }
-.studio-document-status i { height: 5px; width: 5px; background: currentColor; }
-.studio-document-status.completed { color: var(--tone-success-text); }
-.studio-document-status.failed { color: var(--tone-danger-text); }
 /* Leave a portion of the next typical result row visible inside the edge fade. */
 .studio-main .studio-results-scroll { margin-top: 0; max-height: min(64dvh, 560px); }
 .studio-main .studio-results-scroll[data-scroll-bottom="true"] { --scroll-fade-bottom: 48px; }
@@ -169,8 +165,8 @@ button.studio-text-button.studio-destructive { color: var(--tone-danger-text); }
 .studio-extracted-value .muted { color: var(--text-2); }
 .studio-evidence, .studio-main .studio-table .studio-evidence { color: var(--text-2); font-size: var(--font-size-3); line-height: 1.55; white-space: normal; overflow-wrap: anywhere; }
 .studio-confidence { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; font: var(--font-size-2) var(--font-mono); font-variant-numeric: tabular-nums; color: var(--tone-success-text); }
-.studio-confidence.pending { color: var(--tone-warning-text); }
-.studio-confidence.bad { color: var(--rose); }
+.studio-confidence.ui-tone-warning { color: var(--tone-warning-text); }
+.studio-confidence.ui-tone-danger { color: var(--tone-danger-text); }
 .studio-confidence-track { width: 32px; height: 3px; display: inline-block; background: var(--rule-strong); }
 .studio-confidence-track i { display: block; height: 100%; background: currentColor; }
 .studio-not-found { display: block; font-size: var(--font-size-2); color: var(--amber); margin-bottom: 6px; }

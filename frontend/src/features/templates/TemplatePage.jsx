@@ -7,6 +7,7 @@ import { DiagnosticMessages, TemplateProblems } from "./TemplateDiagnostics.jsx"
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 import { pluralize } from "../../lib/text.js";
 import { Button } from "../ui/Button.jsx";
+import { CountBadge } from "../ui/Status.jsx";
 import { AssistantIcon } from "../layout/Icons.jsx";
 
 export function TemplatePage({
@@ -172,7 +173,7 @@ export function TemplatePage({
             >
               <AssistantIcon />
               Assistant
-              {issues.length ? <span className="template-assistant-count">{issues.length}</span> : null}
+              {issues.length ? <CountBadge count={issues.length} label={`${issues.length} issues`} tone="danger" /> : null}
             </Button>
           </span>
         </footer>

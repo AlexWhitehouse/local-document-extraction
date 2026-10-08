@@ -46,11 +46,13 @@ export function WorkspaceContextList({
           emptyMessage={isSearching ? "No workspaces match this search." : "No workspaces yet."}
         >
             {workspaces.map((workspace) => {
-              const itemClassName = getWorkspaceItemClassName({
+              const isActive = isWorkspaceActive({
                 workspace,
                 selectedWorkspaceId,
                 selectedWorkspaceInvitationId,
               });
+
+              const itemClassName = getWorkspaceItemClassName({ workspace, isActive });
 
               return (
                 <div key={workspaceKey(workspace)} className={itemClassName + rowMotion(workspaceKey(workspace))}>
@@ -64,6 +66,7 @@ export function WorkspaceContextList({
                         : undefined
                     }
                     className={itemClassName.replace("context-item-card", "context-item-main")}
+                    aria-current={isActive ? "true" : undefined}
                     onClick={() => {
                       if (workspace.type === "invitation") {
                         onSelectInvitedWorkspace(workspace);
@@ -97,12 +100,13 @@ function workspaceKey(workspace) {
     : `workspace-${workspace.id}`;
 }
 
-function getWorkspaceItemClassName({ workspace, selectedWorkspaceId, selectedWorkspaceInvitationId }) {
-  const isActive =
-    workspace.type === "invitation"
-      ? workspace.invitation_id === selectedWorkspaceInvitationId
-      : workspace.id === selectedWorkspaceId && !selectedWorkspaceInvitationId;
+function isWorkspaceActive({ workspace, selectedWorkspaceId, selectedWorkspaceInvitationId }) {
+  return workspace.type === "invitation"
+    ? workspace.invitation_id === selectedWorkspaceInvitationId
+    : workspace.id === selectedWorkspaceId && !selectedWorkspaceInvitationId;
+}
 
+function getWorkspaceItemClassName({ workspace, isActive }) {
   return [
     "context-item-card context-item-workspace",
     workspace.type === "invitation" ? "invited" : "",

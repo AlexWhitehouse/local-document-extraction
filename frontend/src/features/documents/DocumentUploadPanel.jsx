@@ -3,6 +3,8 @@ import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 import { formatUploadLimit } from "./sourceFileValidation.js";
 import { pluralize } from "../../lib/text";
 import { Button } from "../ui/Button.jsx";
+import { Badge } from "../ui/Status.jsx";
+import { statusTone } from "../../lib/status.js";
 
 export function DocumentUploadPanel({
   label = "Source files",
@@ -82,9 +84,7 @@ export function DocumentUploadPanel({
                 {entry.file.name}
               </span>
               <div className="upload-file-actions">
-                <span className={`status-pill ${queueStatusTone(entry.queueStatus)}`}>
-                  {formatQueueStatus(entry.queueStatus)}
-                </span>
+                <Badge tone={statusTone(entry.queueStatus)}>{formatQueueStatus(entry.queueStatus)}</Badge>
                 {entry.queueStatus === "pending" ? (
                   <Button
                     variant="ghost"
@@ -104,14 +104,6 @@ export function DocumentUploadPanel({
       ) : null}
     </div>
   );
-}
-
-function queueStatusTone(status) {
-  if (status === "success") return "good";
-
-  if (status === "failed") return "bad";
-
-  return "pending";
 }
 
 function formatQueueStatus(status) {

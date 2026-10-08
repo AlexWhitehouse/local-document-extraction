@@ -417,7 +417,7 @@ function ReferenceEditor({
                       className="secondary"
                       key={i}
                       aria-label={`Select row ${i + 1}`}
-                      aria-pressed={selected === i}
+                      aria-current={selected === i ? "true" : undefined}
                       onClick={() => {
                         clearError();
                         setSelected(i);

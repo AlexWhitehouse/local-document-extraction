@@ -5,6 +5,8 @@ import { costLabel, percent } from "./costFormat.js";
 import { PRESETS, todayUTC, validCustomRange } from "./costRange.js";
 import { PlusIcon } from "../../layout/Icons.jsx";
 import { Button } from "../../ui/Button.jsx";
+import { Segmented } from "../../ui/Tabs.jsx";
+import { Badge } from "../../ui/Status.jsx";
 
 export function ChartTip({ tip }) {
   const ref = useRef(null);
@@ -124,24 +126,6 @@ export function StageBar({ costs, max, height = 8, label }) {
   );
 }
 
-export function Segmented({ label, value, options, onChange }) {
-  return (
-    <div className="cp-segmented" role="radiogroup" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={option.value === value}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /**
  * Headline figures in the Studio idiom: one hairline strip, mono labels, display-weight values.
  * `compact` is the same strip at document-header scale.
@@ -154,7 +138,7 @@ export function FigureStrip({ figures, compact = false, label }) {
           <dt>{figure.label}</dt>
           <dd>
             <strong>{figure.value}</strong>
-            {figure.chip ? <span className="status-chip">{figure.chip}</span> : null}
+            {figure.chip ? <Badge>{figure.chip}</Badge> : null}
           </dd>
           {figure.trend ? <Sparkline values={figure.trend} label={`${figure.label} trend`} /> : null}
           {figure.detail ? <small title={figure.detail}>{figure.detail}</small> : null}
@@ -210,36 +194,30 @@ export function RangePicker({ range, onChange }) {
 
   return (
     <div className="cp-range" ref={ref}>
-      <div className="cp-segmented" role="radiogroup" aria-label="Date range">
-        {PRESETS.map((preset) => (
-          <button
-            key={preset.value}
-            type="button"
-            role="radio"
-            aria-checked={range.preset === preset.value}
-            onClick={() => {
-              onChange({ preset: preset.value });
-              setOpen(false);
-            }}
-          >
-            {preset.label}
-          </button>
-        ))}
+      <Segmented
+        label="Date range"
+        value={range.preset}
+        items={PRESETS.map((preset) => ({ value: preset.value, label: preset.label }))}
+        onChange={(value) => {
+          onChange({ preset: value });
+          setOpen(false);
+        }}
+      >
+        {/* Custom opens a form, so it is a separate button rather than a radio option. */}
         <button
           type="button"
-          role="radio"
-          aria-checked={range.preset === "custom"}
+          aria-pressed={range.preset === "custom"}
           aria-expanded={open}
           aria-haspopup="dialog"
-          onClick={() => setOpen(!open)}
+          onClick={() => setOpen((current) => !current)}
         >
           {range.preset === "custom"
             ? range.from === range.to
               ? range.from.slice(5)
               : `${range.from.slice(5)} – ${range.to.slice(5)}`
-            : "Custom"}
+            : "Custom…"}
         </button>
-      </div>
+      </Segmented>
       {open ? (
         <form
           className="cp-range-popover"

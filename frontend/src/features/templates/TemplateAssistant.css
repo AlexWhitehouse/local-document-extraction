@@ -48,7 +48,6 @@
 .template-editor-workspace .studio-editor-footer { flex-wrap: wrap; row-gap: 6px; }
 .studio-main button.template-assistant-button { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
 .studio-main button.template-assistant-button[aria-expanded="true"] { border-color: var(--accent); color: var(--accent-strong); }
-.template-assistant-count { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border: 1px solid var(--tone-danger-border); background: var(--tone-danger-bg); color: var(--tone-danger-text); font: var(--font-size-1)/1 var(--font-mono); }
 
 /* ---- Assistant drawer. */
 .template-assistant { display: flex; flex-direction: column; min-height: 0; min-width: 0; margin-left: 20px; border-left: 1px solid var(--rule); background: var(--pane-raised); }
@@ -63,11 +62,9 @@
 .template-assistant-head h2 { margin: 4px 0 0; font: 500 var(--font-size-6)/1.3 var(--font-body); letter-spacing: -.01em; }
 
 /* Tabs inside the drawer: Explain issues / Propose edits. */
-.template-assistant-tabs { display: flex; padding: 0 16px; border-bottom: 1px solid var(--rule); background: var(--pane-nav); }
-.template-assistant-tabs button, .studio-main .template-assistant-tabs button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 2px; margin-right: 18px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-2); font-size: var(--font-size-3); font-weight: 500; }
-.template-assistant-tabs button:hover:not(:disabled) { background: transparent; color: var(--text-0); }
-.template-assistant-tabs button[aria-selected="true"] { color: var(--accent-strong); border-bottom-color: var(--accent); }
-.template-assistant-tabs button:focus-visible { box-shadow: none; }
+.template-assistant-tabs { padding: 0 16px; background: var(--pane-nav); }
+.template-assistant-tabs .ui-tabs { border-bottom: 1px solid var(--rule); }
+.template-assistant-tabs .ui-tabs button.ui-tab { height: 32px; min-height: 32px; margin-right: 18px; padding: 0 2px; font-size: var(--font-size-3); font-weight: 500; }
 
 .template-assistant-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px 18px; }
 .template-assistant-foot { display: grid; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--rule); background: var(--pane-nav); }
@@ -116,7 +113,7 @@ button.template-assistant-suggestion.selected { border-color: var(--tone-success
 .studio-main button.template-assistant-evidence-add { justify-self: start; height: var(--control-h-sm); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .template-assistant-evidence-card { display: grid; gap: 7px; padding: 9px 10px; border: 1px solid var(--rule-strong); background: var(--pane-main); font-size: var(--font-size-3); }
 .template-assistant-evidence-card p { margin: 0; color: var(--text-1); line-height: 1.5; }
-.template-assistant-evidence-card .status-chip { margin-left: 4px; vertical-align: 1px; }
+.template-assistant-evidence-card .ui-badge { margin-left: 4px; vertical-align: 1px; }
 .template-assistant-evidence-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .template-assistant-evidence-title div { display: grid; gap: 2px; min-width: 0; }
 .template-assistant-evidence-title strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -147,16 +144,13 @@ button.template-assistant-suggestion.selected { border-color: var(--tone-success
 .template-assistant-summary { margin: 0; font-size: var(--font-size-4); line-height: 1.55; color: var(--text-0); }
 .template-assistant-evidence-list { display: grid; gap: 4px; padding-left: 10px; border-left: 2px solid var(--rule-strong); }
 .template-assistant-evidence-list.checked { border-left-color: var(--text-3); }
-.template-assistant-evidence-list.observed { border-left-color: var(--blue); }
+.template-assistant-evidence-list.observation { border-left-color: var(--blue); }
 .template-assistant-evidence-list.hypothesis,
 .template-assistant-evidence-list.suggestion { border-left-color: var(--amber); border-left-style: dashed; }
 .template-assistant-evidence-list-head { display: flex; align-items: center; gap: 8px; font-size: var(--font-size-4); }
 .template-assistant-evidence-list-head strong { font-weight: 500; }
 .template-assistant-evidence-list ul { margin: 2px 0 0; padding-left: 16px; display: grid; gap: 4px; font-size: var(--font-size-3); line-height: 1.5; color: var(--text-1); }
-.template-assistant-tag { padding: 2px 5px; font: var(--font-size-1)/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--rule-strong); color: var(--text-2); }
-.template-assistant-tag.observed { border-color: var(--tone-info-border); color: var(--tone-info-text); background: var(--tone-info-bg); }
-.template-assistant-tag.hypothesis,
-.template-assistant-tag.suggestion { border-color: var(--tone-warning-border); border-style: dashed; color: var(--tone-warning-text); background: var(--tone-warning-bg-subtle); }
+.template-assistant-tag { font: var(--font-size-1)/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
 
 /* Change groups. */
 .template-assistant-groups { display: grid; gap: 10px; }
@@ -217,7 +211,6 @@ button.template-assistant-suggestion.selected { border-color: var(--tone-success
 .template-assistant-job-table tbody tr:hover :is(th, td) { background: var(--row-hover); }
 .template-assistant-job-table tbody tr.selected :is(th, td) { background: var(--row-selected); }
 .template-assistant-job-table button { height: 24px; font-size: var(--font-size-3); }
-.template-assistant-version { color: var(--text-2); font: var(--font-size-2) var(--font-mono); }
 .template-assistant-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-2); font: var(--font-size-2) var(--font-mono); }
 .template-assistant-pager .actions { display: flex; gap: 6px; margin: 0; }
 

@@ -143,7 +143,6 @@
 .field-detail,
 .field-nav,
 .packet-table-scroll,
-.packet-tabs,
 .scroll-thin,
 .studio-invitation-list,
 .studio-user-list,
@@ -715,16 +714,20 @@ button.danger:hover:not(:disabled) {
   grid-template-columns: 30px minmax(0, 1fr) 28px;
 }
 
-.context-item-document.status-completed {
-  box-shadow: inset 2px 0 0 0 var(--accent);
+.context-item-document.status-success {
+  box-shadow: inset 2px 0 0 0 var(--tone-success-fg);
 }
 
-.context-item-document.status-progress {
-  box-shadow: inset 2px 0 0 0 var(--blue);
+.context-item-document.status-info {
+  box-shadow: inset 2px 0 0 0 var(--tone-info-fg);
 }
 
-.context-item-document.status-failed {
-  box-shadow: inset 2px 0 0 0 var(--rose);
+.context-item-document.status-warning {
+  box-shadow: inset 2px 0 0 0 var(--tone-warning-fg);
+}
+
+.context-item-document.status-danger {
+  box-shadow: inset 2px 0 0 0 var(--tone-danger-fg);
 }
 
 /* Rows animate once when they arrive or when a document settles (useRowMotion). */
@@ -733,12 +736,17 @@ button.danger:hover:not(:disabled) {
     animation: context-row-in 220ms ease-out both;
   }
 
-  .context-item-document.row-changed.status-completed {
+  .context-item-document.row-changed.status-success {
     --row-flash: var(--tone-success-bg);
     animation: context-row-flash 1.4s ease-out;
   }
 
-  .context-item-document.row-changed.status-failed {
+  .context-item-document.row-changed.status-warning {
+    --row-flash: var(--tone-warning-bg);
+    animation: context-row-flash 1.4s ease-out;
+  }
+
+  .context-item-document.row-changed.status-danger {
     --row-flash: var(--tone-danger-bg);
     animation: context-row-flash 1.4s ease-out;
   }
@@ -1864,17 +1872,6 @@ button.modal-close:hover:not(:disabled) {
   margin-top: 1px;
 }
 
-.admin-account-flags em {
-  font: var(--font-size-1) var(--font-mono);
-  font-style: normal;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.admin-account-flags .busy { color: var(--tone-info-text); }
-.admin-account-flags .bad { color: var(--tone-danger-text); }
-.admin-account-flags .warn { color: var(--tone-warning-text); }
-
 .admin-context-pager {
   display: inline-flex;
   align-items: center;
@@ -1987,8 +1984,7 @@ button.modal-close:hover:not(:disabled) {
   gap: 8px;
 }
 
-.status-chip,
-.status-pill {
+.status-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2002,31 +1998,26 @@ button.modal-close:hover:not(:disabled) {
   color: var(--text-1);
 }
 
-.status-chip.good,
-.status-pill.good {
+.status-chip.good {
   border-color: var(--tone-success-border);
   background: var(--tone-success-bg);
   color: var(--tone-success-text);
 }
 
 .status-chip.warn,
-.status-chip.pending,
-.status-pill.warn,
-.status-pill.pending {
+.status-chip.pending {
   border-color: var(--tone-warning-border);
   background: var(--tone-warning-bg);
   color: var(--tone-warning-text);
 }
 
-.status-chip.bad,
-.status-pill.bad {
+.status-chip.bad {
   border-color: var(--tone-danger-border);
   background: var(--tone-danger-bg);
   color: var(--tone-danger-text);
 }
 
-.status-chip.busy,
-.status-pill.busy {
+.status-chip.busy {
   border-color: var(--tone-info-border);
   background: var(--tone-info-bg);
   color: var(--tone-info-text);

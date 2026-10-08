@@ -1701,7 +1701,7 @@ describe("Workspace action toast feedback", () => {
 
     await user.click(screen.getByRole("link", { name: /Documents/ }));
     await waitFor(() => {
-      expect(screen.getByText("job_failed_1")).toBeTruthy();
+      expect(screen.getByText("job_failed_1 · Failed")).toBeTruthy();
     });
     expectNoToasts();
   });

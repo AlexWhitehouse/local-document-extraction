@@ -3,6 +3,7 @@ import "./WorkspaceModelConfiguration.css";
 import { useUnsavedGuard } from "../../lib/unsavedChanges";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { Button } from "../ui/Button.jsx";
+import { Badge, StatusDot } from "../ui/Status.jsx";
 
 const TASK_ROLES = [
   ["assistant", "Template assistant", "Assistant, suggestions and Auto generate"],
@@ -30,6 +31,8 @@ export function WorkspaceModelConfiguration({ controller }) {
         : configured
           ? "Configured"
           : "Not configured";
+
+  const statusTone = unavailable ? "danger" : configured ? "success" : "neutral";
 
   // Every Workspace opens on the summary; editing is an explicit action.
   const showForm = canManage && Boolean(record) && (editing || conflict);
@@ -63,10 +66,7 @@ export function WorkspaceModelConfiguration({ controller }) {
         <div>
           <div className="workspace-model-title">
             <h2>Model gateway</h2>
-            <span className={`workspace-model-status ${unavailable ? "unavailable" : configured ? "configured" : ""}`}>
-              <i aria-hidden="true" />
-              {status}
-            </span>
+            <StatusDot tone={statusTone} label={status} />
           </div>
           <p>LLM Gateway settings for this workspace only.</p>
         </div>
@@ -124,9 +124,7 @@ export function WorkspaceModelConfiguration({ controller }) {
                 </div>
                 <div>
                   <dt>API key</dt>
-                  <dd className={unavailable ? "unavailable" : ""}>
-                    {unavailable ? "Unavailable" : configured ? "Saved" : "—"}
-                  </dd>
+                  <dd>{unavailable ? <Badge tone="danger">Unavailable</Badge> : configured ? "Saved" : "—"}</dd>
                 </div>
                 <div>
                   <dt>Calls</dt>

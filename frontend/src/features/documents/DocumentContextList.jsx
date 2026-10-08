@@ -1,4 +1,4 @@
-import { statusLabel } from "../../lib/status.js";
+import { statusLabel, statusTone } from "../../lib/status.js";
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
@@ -248,6 +248,7 @@ export function DocumentContextList({
                       : undefined
                   }
                   data-selected-document={isActive ? "true" : undefined}
+                  aria-current={isActive ? "true" : undefined}
                   className={isActive ? "context-item-main active" : "context-item-main"}
                   onClick={() => select(item)}
                   onKeyDown={(event) => {
@@ -357,15 +358,13 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
       displayId: child?.job_id || packet.packet_id,
       title: packet.source_name || packet.packet_id,
       detail: single
-        ? child?.job_id || (packet.status === "queued" ? "Queued" : "Processing")
+        ? [child?.job_id, document ? statusLabel(document.status) : packet.status === "queued" ? "Queued" : "Processing"]
+            .filter(Boolean)
+            .join(" · ")
         : childCount
           ? `${childCount} ${childCount === 1 ? "document" : "documents"} · ${status}`
           : status,
-      tone: document
-        ? documentStatusTone(document.status)
-        : childStatuses.some((childStatus) => documentStatusTone(childStatus) === "failed")
-          ? "failed"
-          : packetStatusTone(packet.status),
+      tone: document ? statusTone(document.status) : packetTone(packet.status, childStatuses),
     });
   }
 
@@ -379,41 +378,23 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
       displayKind: "document",
       displayId: job.job_id,
       title: job.source_name || defaultUploadedName(job.source_mime_type),
-      detail: job.job_id,
-      tone: documentStatusTone(job.status),
+      detail: `${job.job_id} · ${statusLabel(job.status || "queued")}`,
+      tone: statusTone(job.status),
     });
   }
 
   return items.sort((a, b) => (Date.parse(b.createdAt || "") || 0) - (Date.parse(a.createdAt || "") || 0));
 }
 
-function packetStatusTone(status) {
-  switch (status) {
-    case "completed":
-      return "completed";
-    case "awaiting_review":
-    case "failed":
-      return "failed";
-    default:
-      return "progress";
-  }
-}
+// A packet's row takes the most urgent tone among its documents, then its own status.
+function packetTone(status, childStatuses) {
+  const childTones = childStatuses.map(statusTone);
 
-function documentStatusTone(status) {
-  switch (String(status || "").toLowerCase()) {
-    case "completed":
-      return "completed";
-    case "queued":
-    case "processing":
-      return "progress";
-    case "awaiting_template":
-      return "failed";
-    case "error":
-    case "failed":
-      return "failed";
-    default:
-      return "";
-  }
+  if (childTones.includes("danger")) return "danger";
+
+  if (childTones.includes("warning")) return "warning";
+
+  return statusTone(status);
 }
 
 function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {

@@ -219,6 +219,7 @@ function SidebarNavigation({ activePage, counts, showAdminNavigation, onNavigate
             data-tour={`nav-${item.id}`}
             href={navigationHref?.(item.id)}
             className={item.id === activePage ? "sidebar-link active" : "sidebar-link"}
+            aria-current={item.id === activePage ? "page" : undefined}
             title={item.label}
             onClick={() => onNavigate(item.id)}
           >

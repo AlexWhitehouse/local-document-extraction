@@ -81,6 +81,7 @@ export function TemplateContextList({
                       : undefined
                   }
                   className={isActive ? "context-item-main active" : "context-item-main"}
+                  aria-current={isActive ? "true" : undefined}
                   onClick={() => {
                     if (template.is_draft) {
                       onSelectDraftTemplate();

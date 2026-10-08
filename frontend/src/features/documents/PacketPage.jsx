@@ -1,5 +1,5 @@
 import { describeError } from "../../lib/describeError";
-import { statusLabel } from "../../lib/status.js";
+import { isBusyStatus, statusLabel, statusTone } from "../../lib/status.js";
 import { isString } from "../../../../shared/json.ts";
 import React, { useEffect, useId, useState } from "react";
 import { formatPages, parsePageSelection, validateSplitPlan } from "./documentProcessing.js";
@@ -7,12 +7,14 @@ import { PACKET_STATUS_LABELS } from "./packetListing.js";
 import "./DocumentProcessing.css";
 import { ProcessingCost } from "./ProcessingCost.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { StatusDot } from "../ui/Status.jsx";
+import { Tabs } from "../ui/Tabs.jsx";
 import { ListAddButton } from "../ui/ListAddButton.jsx";
 import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
 
 const LIVE_CHILD_STATUSES = new Set(["queued", "processing"]);
 
-const ATTENTION_CHILD_STATUSES = new Set(["failed", "error", "awaiting_template", "awaiting_review"]);
+const OVERVIEW_TAB = "overview";
 
 export function PacketPage({
   packet,
@@ -26,6 +28,8 @@ export function PacketPage({
   onSelectDocument,
   ...overview
 }) {
+  const tabsId = useId();
+
   if (!packet)
     return (
       <p role="status" className="studio-empty-state">
@@ -40,36 +44,40 @@ export function PacketPage({
     ? pendingDocumentId
     : activeChild?.job_id || "";
 
+  const stage = packetStage(packet, children);
+  const selectedValue = selectedTabId || OVERVIEW_TAB;
+  // The panel is labelled by the tab that owns it: the opening document, the active document, or the Overview.
+  const panelValue = activeChild ? activeChild.job_id : isOpeningDocument ? selectedValue : OVERVIEW_TAB;
+
+  const tabItems = [
+    { value: OVERVIEW_TAB, label: "Overview", meta: stage.text, tone: stage.tone, busy: stage.busy },
+    ...children.map((child, index) => {
+      const status = String(child.status || "queued");
+
+      return {
+        value: child.job_id,
+        label: `Document ${index + 1}`,
+        meta: `${pagesLabel(child.source_pages)} · ${statusLabel(status)}`,
+        tone: statusTone(status),
+        busy: isBusyStatus(status),
+        loading: pendingDocumentId === child.job_id,
+      };
+    }),
+  ];
+
+  const panelId = `${tabsId}-panel-${panelValue}`;
+  const panelLabelledBy = `${tabsId}-tab-${panelValue}`;
+
   return (
     <section className="packet-page" aria-label="Document packet">
-      <div className="packet-tabs" role="tablist" aria-label="Documents in this packet">
-        <OverviewTab
-          packet={packet}
-          documents={children}
-          selected={!selectedTabId}
-          onSelect={() => onSelectDocument?.("")}
-        />
-        {children.map((child, index) => {
-          const status = String(child.status || "queued");
-
-          return (
-            <button
-              key={child.job_id}
-              type="button"
-              role="tab"
-              className={childTone(status)}
-              aria-selected={selectedTabId === child.job_id}
-              aria-busy={pendingDocumentId === child.job_id || undefined}
-              onClick={() => onSelectDocument?.(child.job_id)}
-            >
-              Document {index + 1}
-              <small>
-                {pagesLabel(child.source_pages)} · {statusLabel(status)}
-              </small>
-            </button>
-          );
-        })}
-      </div>
+      <Tabs
+        label="Documents in this packet"
+        variant="progress"
+        idPrefix={tabsId}
+        items={tabItems}
+        value={selectedValue}
+        onChange={(value) => onSelectDocument?.(value === OVERVIEW_TAB ? "" : value)}
+      />
       {documentError ? (
         <div className="packet-message is-error">
           <p role="alert">{documentError}</p>
@@ -81,9 +89,15 @@ export function PacketPage({
         </div>
       ) : null}
       {isOpeningDocument && !activeChild ? (
-        <div role="tabpanel" aria-busy="true" className="packet-panel-pending" />
+        <div
+          id={panelId}
+          role="tabpanel"
+          aria-labelledby={panelLabelledBy}
+          aria-busy="true"
+          className="packet-panel-pending"
+        />
       ) : activeChild ? (
-        <div role="tabpanel" aria-label={`Document ${children.indexOf(activeChild) + 1}`}>
+        <div id={panelId} role="tabpanel" aria-labelledby={panelLabelledBy}>
           {activeDocument?.job_id === activeChild.job_id && renderDocument ? (
             renderDocument(activeDocument)
           ) : (
@@ -93,7 +107,9 @@ export function PacketPage({
           )}
         </div>
       ) : (
-        <PacketOverview key={packet.packet_id} packet={packet} onSelectDocument={onSelectDocument} {...overview} />
+        <div id={panelId} role="tabpanel" aria-labelledby={panelLabelledBy}>
+          <PacketOverview key={packet.packet_id} packet={packet} onSelectDocument={onSelectDocument} {...overview} />
+        </div>
       )}
     </section>
   );
@@ -107,10 +123,11 @@ function PacketSummary({ packet, documents }) {
 
   return (
     <div className="studio-document-summary">
-      <span className={`studio-document-status ${packet.status}`}>
-        <i aria-hidden="true" />
-        {PACKET_STATUS_LABELS[packet.status] || packet.status}
-      </span>
+      <StatusDot
+        tone={statusTone(packet.status)}
+        pulse={isBusyStatus(packet.status)}
+        label={PACKET_STATUS_LABELS[packet.status] || statusLabel(packet.status)}
+      />
       {pages.length ? (
         <span>
           <strong>{pages.length}</strong> {pages.length === 1 ? "page" : "pages"}
@@ -142,68 +159,40 @@ function PacketSummary({ packet, documents }) {
   );
 }
 
-/** The Overview tab carries the packet's stage; its underline is the packet's progress. */
-function OverviewTab({ packet, documents, selected, onSelect }) {
-  const stageId = useId();
-  const stage = packetStage(packet, documents);
-
-  return (
-    <button
-      type="button"
-      role="tab"
-      className={`packet-tab-overview ${stage.tone}`}
-      aria-label="Overview"
-      aria-describedby={stageId}
-      aria-selected={selected}
-      onClick={onSelect}
-    >
-      Overview
-      {/* Keyed by its text so each new stage or count fades in. */}
-      <small key={stage.text} id={stageId}>
-        {stage.text}
-      </small>
-    </button>
-  );
-}
-
+// The Overview tab's stage: its meta line and tone, shared with the other status displays.
 function packetStage(packet, documents) {
   const done = documents.filter((child) => child.status === "completed").length;
   const failed = documents.filter((child) => child.status === "failed" || child.status === "error").length;
   const splitDone = packet.plan_accepted || documents.length > 0 || packet.outcome === "no_documents";
 
-  if (packet.status === "awaiting_review") return { text: "Split needs your review", tone: "is-attention" };
+  if (packet.status === "awaiting_review") return { text: "Split needs your review", tone: "warning" };
 
   if (!splitDone) {
-    if (packet.status === "failed") return { text: "Split failed", tone: "is-attention" };
+    if (packet.status === "failed") return { text: "Split failed", tone: "danger" };
 
     return packet.status === "queued"
-      ? { text: "Queued", tone: "" }
-      : { text: "Finding documents", tone: "is-working" };
+      ? { text: "Queued", tone: "neutral" }
+      : { text: "Finding documents", tone: "info", busy: true };
   }
 
-  if (packet.outcome === "no_documents") return { text: "No documents found", tone: "is-done" };
+  if (packet.outcome === "no_documents") return { text: "No documents found", tone: "success" };
 
-  if (packet.status === "materializing" || !documents.length) return { text: "Preparing documents", tone: "is-working" };
+  if (packet.status === "materializing" || !documents.length)
+    return { text: "Preparing documents", tone: "info", busy: true };
 
   if (packet.status === "completed")
     return failed
-      ? { text: `Finished · ${failed} failed`, tone: "is-attention" }
-      : { text: "All documents extracted", tone: "is-done" };
+      ? { text: `Finished · ${failed} failed`, tone: "danger" }
+      : { text: "All documents extracted", tone: "success" };
 
-  if (packet.status === "failed") return { text: `Failed · ${done} of ${documents.length} extracted`, tone: "is-attention" };
+  if (packet.status === "failed")
+    return { text: `Failed · ${done} of ${documents.length} extracted`, tone: "danger" };
 
   return {
-    text: `Split ✓ · Extracting ${done}/${documents.length}${failed ? ` · ${failed} failed` : ""}`,
-    tone: failed ? "is-attention" : "is-working",
+    text: `Split into ${documents.length} · ${done} of ${documents.length} extracted${failed ? ` · ${failed} failed` : ""}`,
+    tone: failed ? "danger" : "info",
+    busy: !failed,
   };
-}
-
-function childTone(status) {
-  if (status === "completed") return "is-done";
-
-  if (ATTENTION_CHILD_STATUSES.has(status)) return "is-attention";
-
-  return status === "processing" ? "is-working" : "";
 }
 
 function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, onSelectDocument, loadPagePreview }) {
@@ -231,7 +220,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
         </p>
       ) : null}
       {failure ? (
-        <p role="status" className="packet-message is-error">
+        <p className="packet-message is-error">
           {failure}
         </p>
       ) : null}
@@ -244,7 +233,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
           loadPagePreview={loadPagePreview}
         />
       ) : packet.outcome === "no_documents" ? (
-        <section className="packet-section" role="status">
+        <section className="packet-section">
           <h3 className="packet-section-title">No documents to extract</h3>
           <p className="studio-empty-state">Every page was verified blank, so no documents were created.</p>
         </section>
@@ -325,10 +314,7 @@ function PacketDocuments({ documents, templates, onSelectDocument }) {
                       (LIVE_CHILD_STATUSES.has(status) ? "Choosing template…" : "—")}
                   </td>
                   <td>
-                    <span className={`studio-document-status ${status}`}>
-                      <i aria-hidden="true" />
-                      {status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ")}
-                    </span>
+                    <StatusDot tone={statusTone(status)} pulse={isBusyStatus(status)} label={statusLabel(status)} />
                   </td>
                 </tr>
               );

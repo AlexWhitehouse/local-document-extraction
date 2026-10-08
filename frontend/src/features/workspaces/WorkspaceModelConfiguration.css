@@ -4,10 +4,6 @@
 .workspace-model h2 { font-family:var(--font-body); font-size:var(--font-size-7); letter-spacing:-.02em; margin:0; }
 .workspace-model p { color:var(--text-2); font-size:var(--font-size-4); line-height:1.6; }
 .workspace-model-header p { margin-bottom:0; }
-.workspace-model-status { display:inline-flex; align-items:center; gap:7px; font-size:var(--font-size-3); border:1px solid var(--rule-strong); padding:5px 9px; color:var(--text-2); white-space:nowrap; }
-.workspace-model-status i { width:5px; height:5px; background:currentColor; }
-.workspace-model-status.configured { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 25%,transparent); }
-.workspace-model-status.unavailable { color:var(--tone-danger-text); }
 .workspace-model-body { border-top:1px solid var(--rule-subtle); background:color-mix(in srgb,var(--pane-elevated) 45%,transparent); padding:25px; }
 .workspace-model-body>form { display:grid; gap:18px; max-width:870px; margin:auto; }
 .workspace-model fieldset { border:0; margin:0; padding:0; display:grid; gap:19px; min-width:0; }
@@ -23,7 +19,6 @@
 .workspace-model-connection > div { display:flex; gap:8px; align-items:baseline; min-width:0; }
 .workspace-model-connection dt { color:var(--text-3); font-size:var(--font-size-3); }
 .workspace-model-connection dd { margin:0; min-width:0; color:var(--text-1); }
-.workspace-model-connection dd.unavailable { color:var(--tone-danger-text); }
 .workspace-model code { font:var(--font-size-3) var(--font-mono); color:var(--text-1); overflow-wrap:anywhere; }
 .workspace-model-roles { width:100%; border-collapse:collapse; font-size:var(--font-size-4); }
 .workspace-model-body { container-type:inline-size; }

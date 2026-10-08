@@ -14,6 +14,7 @@ import {
 } from "./EvaluationLibrary.jsx";
 import { Meter } from "./EvaluationParts.jsx";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { pluralize } from "../../lib/text.js";
 import { createNotifier, defaultToast } from "../../lib/notify";
 import { describeError } from "../../lib/describeError";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
@@ -27,6 +28,7 @@ import "./evaluations.css";
 import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
 import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { Segmented } from "../ui/Tabs.jsx";
 import { CloseIcon, ExternalIcon } from "../layout/Icons.jsx";
 
 export function EvaluationsPage({
@@ -364,7 +366,7 @@ export function EvaluationsPage({
               <Button
                 disabled={runDisabled}
                 onClick={() => evaluation.run(state.candidates.map((c) => c.id))}
-              >{`Run all${state.candidates.length ? ` ${state.candidates.length}` : ""}${batch && state.candidates.length ? ` × ${runnable.length}` : ""}`}</Button>
+              >{`Run all${state.candidates.length ? ` (${pluralize(state.candidates.length, "candidate")}${batch ? ` × ${pluralize(runnable.length, "document")}` : ""})` : ""}`}</Button>
             )}
           </>
         }
@@ -461,22 +463,15 @@ export function EvaluationsPage({
             {!editingLibrary && (
               <div className="evaluation-context-item">
                 <small>Comparing</small>
-                <div className="segmented" role="group" aria-label="Comparison mode">
-                  {[
-                    ["models", "Models"],
-                    ["templates", "Templates"],
-                  ].map(([mode, label]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      disabled={anyBusy}
-                      aria-pressed={state.mode === mode}
-                      onClick={() => void evaluation.changeMode(mode)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  label="Comparison mode"
+                  value={state.mode}
+                  onChange={(mode) => void evaluation.changeMode(mode)}
+                  items={[
+                    { value: "models", label: "Models", disabled: anyBusy },
+                    { value: "templates", label: "Templates", disabled: anyBusy },
+                  ]}
+                />
               </div>
             )}
             {editingLibrary ? (
@@ -544,7 +539,7 @@ export function EvaluationsPage({
                 <>
                   <span className="evaluation-context-value">
                     {compatibility.verified} of {compatibility.total} verified
-                    {compatibility.review ? ` · ${compatibility.review} review` : ""}
+                    {compatibility.review ? `, ${compatibility.review} to review` : ""}
                   </span>
                   <Meter value={compatibility.total ? compatibility.verified / compatibility.total : 0} best />
                 </>

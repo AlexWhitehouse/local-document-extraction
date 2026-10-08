@@ -5,7 +5,8 @@ import { normalizeReferenceDates, scalarValue, validateReference } from "./evalu
 import { DateFormatSelect, DatePreview } from "./DateFormatSelect.jsx";
 import { display, dollars, seconds } from "./evaluationFormat.js";
 import { Button, IconButton } from "../ui/Button.jsx";
-import { ExternalIcon, MoreIcon } from "../layout/Icons.jsx";
+import { Badge, StatusDot } from "../ui/Status.jsx";
+import { CheckIcon, CloseIcon, ExternalIcon, MoreIcon } from "../layout/Icons.jsx";
 
 const SCALAR_TYPES = ["string", "number", "date", "boolean"];
 
@@ -23,50 +24,60 @@ const STATUS = {
 export function StatusLine({ candidate }) {
   const edited = candidate.result && candidate.revision !== candidate.result.revision;
 
-  const tone = candidateBusy(candidate)
-    ? "busy"
-    : edited
-      ? "warn"
-      : candidate.status === "success"
-        ? "good"
-        : ["failure", "interrupted"].includes(candidate.status)
-          ? "bad"
-          : "idle";
+  const busy = candidateBusy(candidate);
 
-  const label = candidateBusy(candidate)
+  const tone = busy
+    ? "info"
+    : edited
+      ? "warning"
+      : candidate.status === "success"
+        ? "success"
+        : ["failure", "interrupted"].includes(candidate.status)
+          ? "danger"
+          : "neutral";
+
+  const label = busy
     ? `${STATUS[candidate.status]}${candidate.attempt > 1 ? ` · attempt ${candidate.attempt}/3` : ""}`
     : edited
       ? "Edited · needs rerun"
       : STATUS[candidate.status] || candidate.status;
 
   return (
-    <span
-      role="status"
-      className={`evaluation-status evaluation-status-${tone}`}
-      title={candidate.message || undefined}
-    >
-      <i aria-hidden="true" />
+    <Badge tone={tone} busy={busy} className="evaluation-status" title={candidate.message || undefined}>
       {label}
       {candidate.status === "success" && !edited && candidate.result
         ? ` · ${seconds(candidate.result.processingMs)}`
         : ""}
-    </span>
+    </Badge>
   );
 }
 
-const MARKS = { Match: ["match", "✓"], Mismatch: ["mismatch", "✕"], "Needs review": ["review", "!"] };
+const MARKS = {
+  Match: { tone: "success", icon: CheckIcon },
+  Mismatch: { tone: "danger", icon: CloseIcon },
+  "Needs review": { tone: "warning" },
+};
 
+// The score of one field: an icon badge whose meaning is in its shape and its
+// screen-reader text, so the matrix stays dense. Review needs action, so it is spelled out.
 export function Mark({ state }) {
-  const [tone, glyph] = MARKS[state] || ["none", "·"];
+  const mark = MARKS[state];
+
+  if (!mark) return <StatusDot tone="neutral" label="Unscored" srOnlyLabel />;
+
+  const Icon = mark.icon;
 
   return (
-    <span
-      className={`evaluation-mark evaluation-mark-${tone}`}
-      title={state || "Unscored"}
-      aria-label={state || "Unscored"}
-    >
-      {glyph}
-    </span>
+    <Badge tone={mark.tone} className="evaluation-mark" title={state}>
+      {Icon ? (
+        <>
+          <Icon size={10} />
+          <span className="sr-only">{state}</span>
+        </>
+      ) : (
+        "Review"
+      )}
+    </Badge>
   );
 }
 
@@ -257,6 +268,7 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
         className={`evaluation-expected-button ${verified ? "verified" : ""}`}
         onClick={onOpenEditor}
       >
+        {verified ? <CheckIcon size={12} /> : null}
         <span>
           {verified
             ? reference.absent
@@ -283,6 +295,7 @@ export function ExpectedInline({ field, reference, onSave, onOpenEditor }) {
           setEditing(true);
         }}
       >
+        {verified ? <CheckIcon size={12} /> : null}
         <span className={verified ? "" : "evaluation-muted"}>
           {verified
             ? reference.absent

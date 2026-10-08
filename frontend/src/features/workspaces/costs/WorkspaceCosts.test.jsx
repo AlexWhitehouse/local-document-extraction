@@ -305,7 +305,7 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
 
   render(<WorkspaceCosts {...props} request={request} onTab={onTab} onBack={onBack} />);
   await screen.findByLabelText("Headline figures");
-  fireEvent.click(screen.getByRole("radio", { name: "Custom" }));
+  fireEvent.click(screen.getByRole("button", { name: "Custom…" }));
   fireEvent.change(screen.getByLabelText("From"), { target: { value: "2020-01-01" } });
   fireEvent.change(screen.getByLabelText("To"), { target: { value: "2021-01-01" } });
   expect(screen.getByRole("button", { name: "Apply" }).disabled).toBe(true);
@@ -320,10 +320,10 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
     unit: "day",
   });
   expect(screen.getByText("2020-01-01 to 2020-01-31 · UTC")).toBeTruthy();
-  fireEvent.click(screen.getByRole("radio", { name: "01-01 – 01-31" }));
+  fireEvent.click(screen.getByRole("button", { name: "01-01 – 01-31" }));
   fireEvent.keyDown(window, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
-  fireEvent.click(screen.getByRole("radio", { name: "01-01 – 01-31" }));
+  fireEvent.click(screen.getByRole("button", { name: "01-01 – 01-31" }));
   fireEvent.change(screen.getByLabelText("To"), { target: { value: "2020-01-01" } });
   expect(screen.getByText("One day is shown by hour, in UTC.")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Apply" }));
@@ -333,6 +333,20 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
   expect(onTab).toHaveBeenCalledWith("documents");
   fireEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
   expect(onBack).toHaveBeenCalledTimes(1);
+});
+
+it("links the cost view tabs to their panel and moves between views with arrow keys", async () => {
+  const request = vi.fn().mockResolvedValue(overview),
+    onTab = vi.fn();
+
+  render(<WorkspaceCosts {...props} request={request} onTab={onTab} />);
+  await screen.findByLabelText("Headline figures");
+  const overviewTab = screen.getByRole("tab", { name: "Overview" });
+  const panel = screen.getByRole("tabpanel");
+  expect(overviewTab.getAttribute("aria-selected")).toBe("true");
+  expect(panel.getAttribute("aria-labelledby")).toBe(overviewTab.id);
+  fireEvent.keyDown(overviewTab, { key: "ArrowRight" });
+  expect(onTab).toHaveBeenCalledWith("documents");
 });
 
 it("reconciles packet split shares, deleted children, and unallocated original pages", async () => {
@@ -402,7 +416,7 @@ it("reconciles packet split shares, deleted children, and unallocated original p
   fireEvent.focus(invoice);
   expect(screen.getByRole("tooltip").textContent).toContain("60% of total · deleted");
   fireEvent.blur(invoice);
-  fireEvent.click(screen.getByRole("radio", { name: "Multi" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Split PDFs" }));
   await waitFor(() => expect(request.mock.calls.some(([path]) => path.includes("kind=multi"))).toBe(true));
   fireEvent.change(screen.getByRole("combobox"), { target: { value: "perPage" } });
   await screen.findByText("$0.20/pg");

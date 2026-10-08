@@ -4,6 +4,7 @@ import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
 import { ListStatus } from "../ui/States.jsx";
 import { IconButton } from "../ui/Button.jsx";
+import { Badge } from "../ui/Status.jsx";
 import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
 import { accountFlags, displayName, isApplicationAdmin, safeText, userIdOf } from "./adminAccounts.js";
 
@@ -85,7 +86,7 @@ export function AdminContextFooter({ admin }) {
 
   return (
     <>
-      <span className="status-chip">Total users {admin.total}</span>
+      <Badge>Total users {admin.total}</Badge>
       {pageCount > 1 ? (
         <div className="admin-context-pager">
           <IconButton
@@ -115,9 +116,9 @@ function AccountFlags({ user }) {
   return flags.length ? (
     <span className="admin-account-flags">
       {flags.map((flag) => (
-        <em key={flag.label} className={flag.tone}>
+        <Badge key={flag.label} tone={flag.tone}>
           {flag.label}
-        </em>
+        </Badge>
       ))}
     </span>
   ) : null;

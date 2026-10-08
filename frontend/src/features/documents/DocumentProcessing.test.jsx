@@ -174,7 +174,7 @@ describe("Automatic document processing UI", () => {
     };
 
     const { rerender } = render(<PacketPage {...props} />);
-    expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^Overview/ }).getAttribute("aria-selected")).toBe("true");
     await userEvent.click(screen.getByRole("tab", { name: /Document 2/ }));
     expect(onSelectDocument).toHaveBeenCalledWith("child_2");
     rerender(<PacketPage {...props} pendingDocumentId="child_2" />);
@@ -187,8 +187,31 @@ describe("Automatic document processing UI", () => {
     rerender(<PacketPage {...props} activeDocumentId="child_2" activeDocument={{ job_id: "child_2" }} />);
     expect(screen.getByText("Results for child_2")).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Document 2/ }).getAttribute("aria-selected")).toBe("true");
-    await userEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Overview/ }));
     expect(onSelectDocument).toHaveBeenCalledWith("");
+  });
+
+  it("moves between packet tabs with the arrow keys", async () => {
+    const onSelectDocument = vi.fn();
+
+    const children = [
+      { job_id: "child_1", status: "completed", source_pages: [1] },
+      { job_id: "child_2", status: "processing", source_pages: [2] },
+    ];
+
+    render(
+      <PacketPage
+        packet={{ ...packet, status: "processing_children", plan_accepted: true, children }}
+        onSelectDocument={onSelectDocument}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Overview/ }));
+    await userEvent.keyboard("{ArrowRight}");
+    expect(onSelectDocument).toHaveBeenLastCalledWith("child_1");
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: /Document 1/ }));
+    await userEvent.keyboard("{End}");
+    expect(onSelectDocument).toHaveBeenLastCalledWith("child_2");
   });
 
   it("shows how many templates carry each tag and which templates a selection allows", async () => {
@@ -266,8 +289,8 @@ describe("Automatic document processing UI", () => {
     ];
 
     const { rerender } = render(<PacketPage packet={{ ...packet, status: "processing" }} />);
-    const overview = () => screen.getByRole("tab", { name: "Overview" });
-    expect(overview().getAttribute("aria-describedby")).toBeTruthy();
+    const overview = () => screen.getByRole("tab", { name: /^Overview/ });
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(overview().id);
     expect(overview().textContent).toContain("Finding documents");
     rerender(
       <PacketPage
@@ -275,8 +298,8 @@ describe("Automatic document processing UI", () => {
         templates={uploadProps.templates}
       />,
     );
-    expect(overview().textContent).toContain("Extracting 1/2");
-    expect(screen.getByRole("tab", { name: /Document 1/ }).className).toBe("is-done");
+    expect(overview().textContent).toContain("Split into 2 · 1 of 2 extracted");
+    expect(screen.getByRole("tab", { name: /Document 1/ }).className).toContain("ui-tone-success");
     expect(screen.getByRole("tab", { name: /Document 2/ }).textContent).toContain("Page 3 · Processing");
     const table = screen.getByRole("region", { name: "Documents in this packet" });
     expect(within(table).getByRole("row", { name: /Document 1 1, 2 Invoice Completed/ })).toBeTruthy();

@@ -1,13 +1,15 @@
 import { statusLabel } from "../../../lib/status.js";
 import React, { useEffect, useState } from "react";
 import { allocateCost, costAmount } from "../../../../../shared/processingCosts.ts";
-import { ChartTip, FigureStrip, Segmented, StageBar, StageLegend, StageTipRows } from "./costShared.jsx";
+import { ChartTip, FigureStrip, StageBar, StageLegend, StageTipRows } from "./costShared.jsx";
 import { costLabel, percent, plural, shortDate } from "./costFormat.js";
 import { useChartTip } from "./costHooks.js";
 import { useCostResource } from "./useCostResource.js";
 import { CostResourceStatus } from "./WorkspaceCosts.jsx";
 import { EmptyState } from "../../ui/States.jsx";
 import { Button } from "../../ui/Button.jsx";
+import { Badge } from "../../ui/Status.jsx";
+import { Segmented } from "../../ui/Tabs.jsx";
 
 const STACK = ["split", "auto_template", "extraction"];
 
@@ -37,7 +39,7 @@ export function DocumentsTab({ request, base, queryString }) {
   const filter = new URLSearchParams({ sort, kind, search }).toString();
 
   return (
-    <div className="cp-tab-panel" role="tabpanel" aria-label="Documents">
+    <div className="cp-tab-panel">
       <div className="cp-document-filters">
         <input
           type="search"
@@ -51,10 +53,10 @@ export function DocumentsTab({ request, base, queryString }) {
           label="Document type"
           value={kind}
           onChange={setKind}
-          options={[
+          items={[
             { value: "all", label: "All" },
-            { value: "multi", label: "Multi" },
-            { value: "single", label: "Single" },
+            { value: "multi", label: "Split PDFs" },
+            { value: "single", label: "Single documents" },
           ]}
         />
         <label className="cp-sort-select">
@@ -103,7 +105,7 @@ function DocumentResults({ request, base, queryString, sort }) {
                 <button
                   type="button"
                   className={item.id === selected?.id ? "cp-list-item active" : "cp-list-item"}
-                  aria-pressed={item.id === selected?.id}
+                  aria-current={item.id === selected?.id ? "true" : undefined}
                   onClick={() => setSelectedId(item.id)}
                 >
                   <span className="cp-list-name">
@@ -119,7 +121,7 @@ function DocumentResults({ request, base, queryString, sort }) {
                       : costLabel(item.costs.total)}
                   </strong>
                   <StageBar costs={item.costs} max={max} label={item.name} />
-                  {item.deleted ? <span className="status-chip cp-list-deleted">Deleted</span> : null}
+                  {item.deleted ? <Badge className="cp-list-deleted">Deleted</Badge> : null}
                 </button>
               </li>
             ))}
@@ -264,7 +266,7 @@ function CostAnatomy({ item }) {
         </p>
         <h3 title={item.name}>
           {item.name}
-          {item.deleted ? <span className="status-chip">Deleted</span> : null}
+          {item.deleted ? <Badge>Deleted</Badge> : null}
         </h3>
         <p className="cp-anatomy-meta">
           {shortDate(item.created_at)} {time(item.created_at)} UTC · {statusLabel(item.status)}
@@ -355,7 +357,7 @@ function CostAnatomy({ item }) {
               >
                 <td>
                   {part.label} <span className="cp-muted">{part.sub}</span>
-                  {part.deleted ? <span className="status-chip cp-row-chip">Deleted</span> : null}
+                  {part.deleted ? <Badge className="cp-row-chip">Deleted</Badge> : null}
                 </td>
                 <td className="cp-num">
                   {part.pages} <span className="cp-muted">/ {item.pages}</span>

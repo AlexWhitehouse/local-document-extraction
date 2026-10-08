@@ -13,6 +13,7 @@ import { AdminContextFooter, AdminContextList } from "./features/admin/AdminCont
 import { useApplicationAdminController } from "./features/admin/useApplicationAdminController.js";
 import { ContextSidebar } from "./features/context/ContextSidebar.jsx";
 import { DocumentContextList } from "./features/documents/DocumentContextList.jsx";
+import { DocumentLifecycleAnnouncer } from "./features/documents/DocumentLifecycleAnnouncer.jsx";
 import { DocumentPage } from "./features/documents/DocumentPage.jsx";
 import { DocumentUploadModal } from "./features/documents/DocumentUploadModal.jsx";
 import { createDocumentRequestAdapter } from "./features/documents/documentRequestAdapter.js";
@@ -42,6 +43,7 @@ import { WorkspaceCosts } from "./features/workspaces/costs/WorkspaceCosts.jsx";
 import { hasUnsavedEdits, runDiscardChecks } from "./lib/unsavedChanges.js";
 import { DISCARD_CHANGES, confirmDialog } from "./features/ui/confirm.jsx";
 import { LoadingState } from "./features/ui/States.jsx";
+import { Badge } from "./features/ui/Status.jsx";
 import { Button } from "./features/ui/Button.jsx";
 import "./features/layout/StudioLayouts.css";
 
@@ -615,26 +617,22 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
                 ) : visiblePage === "documents" ? (
                   <>
                     {documentToolbar.selectedDocumentCount ? (
-                      <span className="status-chip good">Selected {documentToolbar.selectedDocumentCount}</span>
+                      <Badge tone="success">Selected {documentToolbar.selectedDocumentCount}</Badge>
                     ) : null}
-                    <span className="status-chip" title="All queued documents in this workspace">
-                      Queued {documentStatusCounts.queued}
-                    </span>
+                    <Badge title="All queued documents in this workspace">Queued {documentStatusCounts.queued}</Badge>
                     {documentStatusCounts.awaiting_template ? (
-                      <span className="status-chip" title="Documents awaiting a template choice">
+                      <Badge tone="warning" title="Documents awaiting a template choice">
                         Needs template {documentStatusCounts.awaiting_template}
-                      </span>
+                      </Badge>
                     ) : null}
-                    <span className="status-chip good" title="All completed documents in this workspace">
+                    <Badge tone="success" title="All completed documents in this workspace">
                       Completed {documentStatusCounts.completed}
-                    </span>
+                    </Badge>
                   </>
                 ) : visiblePage === "templates" ? (
                   <>
-                    <span className="status-chip">Templates {templates.length}</span>
-                    <span className="status-chip good">
-                      {templateController.templatePage.isEditingTemplate ? "Editing" : "Draft"}
-                    </span>
+                    <Badge>Templates {templates.length}</Badge>
+                    <Badge tone="success">{templateController.templatePage.isEditingTemplate ? "Editing" : "Draft"}</Badge>
                   </>
                 ) : (
                   <WorkspaceSidebarFooter context={workspaceContext} />
@@ -803,12 +801,15 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               />
             ) : null}
             {!routeLoading && visiblePage === "documents" ? (
-              <DocumentPage
-                {...documentController.documentPage}
-                viewingLayout={documentViewingLayout}
-                onViewingLayoutChange={setDocumentViewingLayout}
-                sourceStorageConfigured={sourceStorageConfigured}
-              />
+              <>
+                <DocumentLifecycleAnnouncer documents={documentController.contextList.documents} />
+                <DocumentPage
+                  {...documentController.documentPage}
+                  viewingLayout={documentViewingLayout}
+                  onViewingLayoutChange={setDocumentViewingLayout}
+                  sourceStorageConfigured={sourceStorageConfigured}
+                />
+              </>
             ) : null}
           </>
         ) : null}
@@ -855,12 +856,8 @@ function WorkspaceSidebarFooter({ context }) {
 
   return (
     <>
-      <span className="status-chip">
-        Workspaces {isWorkspaceContextLoading || hasWorkspaceResolutionError ? 0 : availableWorkspaces.length}
-      </span>
-      <span className={`status-chip ${hasWorkspaceApiAccess ? "good" : hasWorkspaceResolutionError ? "bad" : "warn"}`}>
-        {status}
-      </span>
+      <Badge>Workspaces {isWorkspaceContextLoading || hasWorkspaceResolutionError ? 0 : availableWorkspaces.length}</Badge>
+      <Badge tone={hasWorkspaceApiAccess ? "success" : hasWorkspaceResolutionError ? "danger" : "warning"}>{status}</Badge>
     </>
   );
 }
