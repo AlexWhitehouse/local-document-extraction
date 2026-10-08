@@ -573,7 +573,9 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       : visiblePage === "documents"
         ? documentController.documentPage.selectedDocumentTemplateName ||
           (openPacket ? `${packetDocumentCount} ${packetDocumentCount === 1 ? "document" : "documents"}` : "")
-        : "";
+        : visiblePage === "workspace"
+          ? "Your extraction environment, connections and people."
+          : "";
 
   const workspaceCrumb = workspaceName ? { label: workspaceName, href: pagePath("workspace"), onClick: () => setActivePage("workspace") } : null;
   const sectionCrumb = (page) => ({ label: PAGE_TITLES[page], href: pagePath(page), onClick: () => setActivePage(page) });
