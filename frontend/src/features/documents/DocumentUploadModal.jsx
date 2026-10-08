@@ -30,7 +30,8 @@ export function DocumentUploadModal({
     return null;
   }
 
-  const isDirty = !isUploadingDocuments && sourceFiles.length > 0;
+  // Only files still waiting to be uploaded count as unsaved. Queued and failed rows do not.
+  const isDirty = !isUploadingDocuments && sourceFiles.some((entry) => entry.queueStatus === "pending");
   const hintId = `${titleId}-submit-hint`;
   // The hint names what is missing; a template chosen without tags is explained by the tag picker.
   const submitBlocked = !isUploadingDocuments && (!selectedTemplateId || !sourceFiles.length);

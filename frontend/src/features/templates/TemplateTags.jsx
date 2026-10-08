@@ -159,7 +159,7 @@ export function TemplateTags({
               <span className="template-tags-placeholder">Add tags</span>
             )}
             {value.length > 1 ? <span className="template-tags-count">{value.length}</span> : null}
-            <ChevronDownIcon className="template-tags-chevron" size={10} />
+            <ChevronDownIcon className="template-tags-chevron" size={18} />
           </button>
         )}
       >

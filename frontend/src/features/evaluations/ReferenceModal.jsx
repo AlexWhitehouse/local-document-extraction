@@ -19,7 +19,7 @@ import { adaptReferenceDraft, draftValue } from "./referenceDraft.js";
 import { display } from "./evaluationFormat.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { CloseIcon } from "../layout/Icons.jsx";
-import { Field, Select, TextInput, Textarea } from "../ui/Field.jsx";
+import { CheckboxField, Field, Select, TextInput, Textarea } from "../ui/Field.jsx";
 import { DataTable } from "../ui/DataTable.jsx";
 import { Callout } from "../ui/Callout.jsx";
 
@@ -302,7 +302,7 @@ function ReferenceEditor({
             </Select>
           </Field>
         ) : (
-          <p className="evaluation-muted">Using {schemas[schema].label}</p>
+          <p className="evaluation-muted evaluation-source-note">{sourceNote(schemas[schema].label)}</p>
         )}
         {previousField.data_type !== row.field.data_type && (
           <Callout
@@ -342,29 +342,23 @@ function ReferenceEditor({
           </Callout>
         )}
         <div className="evaluation-reference-options">
-          <label>
-            <input
-              type="checkbox"
-              checked={absent}
-              onChange={(event) => {
+          <CheckboxField
+            label="Not present in document"
+            checked={absent}
+            onChange={(checked) => {
+              clearError();
+              setAbsent(checked);
+            }}
+          />
+          {!absent && ["string", "array<object>"].includes(row.field.data_type) && (
+            <CheckboxField
+              label="Exact text match"
+              checked={exact}
+              onChange={(checked) => {
                 clearError();
-                setAbsent(event.target.checked);
+                setExact(checked);
               }}
             />
-            Not present in document
-          </label>
-          {!absent && ["string", "array<object>"].includes(row.field.data_type) && (
-            <label>
-              <input
-                type="checkbox"
-                checked={exact}
-                onChange={(event) => {
-                  clearError();
-                  setExact(event.target.checked);
-                }}
-              />
-              Exact text match
-            </label>
           )}
         </div>
         {!absent && (row.field.data_type === "date" || (table && columns.some((c) => c.data_type === "date"))) && (
@@ -582,6 +576,11 @@ function ReferenceEditor({
       </div>
     </ModalDialog>
   );
+}
+
+// One short line naming the template the expected answer is checked against.
+function sourceNote(label) {
+  return label === "Template draft" ? "Using the template draft" : `Using ${label}`;
 }
 
 // Reference problems come from the local validator (referenceProblem), so their

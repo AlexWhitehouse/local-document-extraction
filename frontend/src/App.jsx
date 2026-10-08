@@ -87,7 +87,7 @@ export function App({
 
   return (
     <>
-      <Toaster richColors closeButton theme="dark" />
+      <Toaster richColors closeButton theme="dark" position="top-center" />
       {resetPasswordRoute ? (
         <AccountPasswordResetRoute
           authOptions={configuration.auth}
@@ -492,9 +492,11 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
   const documentUnavailable = activePage === "documents" && route.documentId && documentController.navigation.error;
   const packetUnavailable = activePage === "documents" && route.packetId && documentController.navigation.packetError;
 
+  // A packet's documents load inside the packet page, which keeps its tabs mounted while one opens.
   const documentLoading =
     activePage === "documents" &&
     route.documentId &&
+    !route.packetId &&
     !documentUnavailable &&
     documentController.documentPage.selectedDocument?.job_id !== route.documentId;
 
@@ -557,12 +559,20 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         : selectedDocumentName || PAGE_TITLES.documents;
 
   // Descriptions only where they add information: a saved template's own description,
-  // and what a selected document was extracted with.
+  // and what a selected document was extracted with. An open packet always has a line
+  // (its document count when no document is selected) so the header keeps one height.
+  const openPacket = documentController.documentPage.selectedPacketId
+    ? documentController.documentPage.packetPage.packet
+    : null;
+
+  const packetDocumentCount = Array.isArray(openPacket?.children) ? openPacket.children.length : 0;
+
   const pageDescription =
     visiblePage === "templates"
       ? (templatePage.isEditingTemplate && templatePage.templateDescription?.trim()) || ""
       : visiblePage === "documents"
-        ? documentController.documentPage.selectedDocumentTemplateName || ""
+        ? documentController.documentPage.selectedDocumentTemplateName ||
+          (openPacket ? `${packetDocumentCount} ${packetDocumentCount === 1 ? "document" : "documents"}` : "")
         : "";
 
   const workspaceCrumb = workspaceName ? { label: workspaceName, href: pagePath("workspace"), onClick: () => setActivePage("workspace") } : null;

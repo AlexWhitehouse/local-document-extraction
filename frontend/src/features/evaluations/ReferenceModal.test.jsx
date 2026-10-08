@@ -291,3 +291,20 @@ it("links renamed columns across remaining rows, carrying values, cell states an
   );
   expect(initial.value).toHaveLength(2);
 });
+
+it("shows a single compact source line and labelled checkboxes for table answers", () => {
+  render(
+    <ReferenceModal
+      row={{ field: table }}
+      initial={{ value: [{ sku: "", qty: "" }] }}
+      schemas={[{ field: table, label: "Template draft" }]}
+      onSave={() => {}}
+      onClose={() => {}}
+    />,
+  );
+
+  expect(screen.getByText("Using the template draft")).toBeTruthy();
+  const absent = screen.getByRole("checkbox", { name: "Not present in document" });
+  expect(absent.closest(".ui-checkbox-field")).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Exact text match" })).toBeTruthy();
+});

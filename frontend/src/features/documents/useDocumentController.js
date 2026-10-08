@@ -55,6 +55,8 @@ export function useDocumentController({
   // Reasons the last picked files were refused, shown inline in the drop zone.
   const [uploadRejections, setUploadRejections] = useState([]);
   const [uploadTags, setUploadTags] = useState([]);
+  // Bumped each time the modal opens so a finished batch never closes a newer modal.
+  const uploadSessionRef = useRef(0);
   const [isResolvingTemplate, setIsResolvingTemplate] = useState(false);
   const actionScopeRef = useRef(null);
   const actionScope = useMemo(() => ({ sessionId, workspaceId, hasApiAccess }), [sessionId, workspaceId, hasApiAccess]);
@@ -274,6 +276,7 @@ export function useDocumentController({
 
     void onProcessingPolicyRefresh?.();
     void onTagsRefresh?.();
+    uploadSessionRef.current += 1;
     setUploadTags([]);
     setUploadTemplateId(selectedUploadTemplateId || templates[0]?.id || "");
     setUploadFiles([]);
@@ -337,18 +340,22 @@ export function useDocumentController({
       return;
     }
 
-    if (!uploadFiles.length) {
+    // Files already queued by an earlier partial attempt are not sent again.
+    const pendingFiles = uploadFiles.filter((entry) => entry.queueStatus !== "success");
+
+    if (!pendingFiles.length) {
       showActionToast("document.upload", "validation", { reason: "files" });
 
       return;
     }
 
+    const session = uploadSessionRef.current;
     onSelectedUploadTemplateChange(uploadTemplateId.trim());
     let lastSelection;
     await reconciliation.submitBatch({
       templateId: uploadTemplateId === "automatic" ? "" : uploadTemplateId.trim(),
       templateTags: uploadTemplateId === "automatic" ? uploadTags : undefined,
-      entries: uploadFiles,
+      entries: pendingFiles,
       onPacket: (packet) => {
         lastSelection = { packetId: packet.packet_id };
         packetController.admitted(packet);
@@ -363,6 +370,9 @@ export function useDocumentController({
 
         if (lastSelection && onDocumentNavigation) onDocumentNavigation(lastSelection);
         else onActivePageChange("documents");
+
+        // A full success is done, so the modal closes. Partial failures stay open with the failed rows listed.
+        if (outcome.failed === 0 && session === uploadSessionRef.current) closeUploadModal();
       },
     });
   }

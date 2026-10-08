@@ -202,6 +202,8 @@ export function AcceptedWorkspacePage({
   // Remembers which key was copied, so the one-time callout hides for that key only.
   const [copiedApiKey, setCopiedApiKey] = useState("");
   const showApiKeyCallout = Boolean(apiKey) && copiedApiKey !== apiKey;
+  const apiKeyInputId = useId();
+  const apiKeyHintId = useId();
 
   return (
     <div className="studio-workspace-page">
@@ -229,7 +231,7 @@ export function AcceptedWorkspacePage({
             </Field>
             <Button
               type="submit"
-              variant="secondary"
+              variant="primary"
               pending={isSavingWorkspace}
               pendingLabel="Saving…"
               disabled={!hasApiAccess || !isWorkspaceNameDirty}
@@ -255,20 +257,45 @@ export function AcceptedWorkspacePage({
                 <h2>API access</h2>
               </div>
             </div>
-            <div className="workspace-key-field">
-              <Field label="Workspace API key" hint={apiKey ? undefined : workspaceApiKeyHint}>
-                <TextInput value={apiKey} readOnly />
-              </Field>
-              {apiKey ? (
-                <IconButton
-                  size="sm"
-                  label="Copy API key"
-                  icon={CopyIcon}
-                  className="workspace-key-copy-button"
-                  onClick={async () => {
-                    if (await onCopyVisibleWorkspaceApiKey()) setCopiedApiKey(apiKey);
-                  }}
-                />
+            {/* Hand-built Field: the key button sits beside the input, so the hint must not sit beside it. */}
+            <div className="ui-field workspace-key-field">
+              <label htmlFor={apiKeyInputId} className="ui-field-label">
+                Workspace API key
+              </label>
+              <div className="workspace-key-row">
+                <div className="workspace-key-input">
+                  <TextInput
+                    id={apiKeyInputId}
+                    value={apiKey}
+                    readOnly
+                    aria-describedby={!apiKey && workspaceApiKeyHint ? apiKeyHintId : undefined}
+                  />
+                  {apiKey ? (
+                    <IconButton
+                      size="sm"
+                      label="Copy API key"
+                      icon={CopyIcon}
+                      className="workspace-key-copy-button"
+                      onClick={async () => {
+                        if (await onCopyVisibleWorkspaceApiKey()) setCopiedApiKey(apiKey);
+                      }}
+                    />
+                  ) : null}
+                </div>
+                <Button
+                  variant="secondary"
+                  pending={isIssuingApiKey}
+                  pendingLabel={workspaceApiKeyPendingLabel}
+                  disabled={!canRotateWorkspaceApiKey}
+                  onClick={onRefreshApiKey}
+                >
+                  {workspaceApiKeyActionLabel}
+                </Button>
+              </div>
+              {!apiKey && workspaceApiKeyHint ? (
+                <p id={apiKeyHintId} className="ui-field-hint">
+                  {workspaceApiKeyHint}
+                </p>
               ) : null}
             </div>
             {showApiKeyCallout ? (
@@ -276,18 +303,6 @@ export function AcceptedWorkspacePage({
                 This key won't be shown again. Copy it now.
               </Callout>
             ) : null}
-            <div className="studio-api-footer">
-              <span>Use this key to call the API for this workspace.</span>
-              <Button
-                variant="text"
-                pending={isIssuingApiKey}
-                pendingLabel={workspaceApiKeyPendingLabel}
-                disabled={!canRotateWorkspaceApiKey}
-                onClick={onRefreshApiKey}
-              >
-                {workspaceApiKeyActionLabel}
-              </Button>
-            </div>
           </section>
           {sourceRetention ? <WorkspaceSourceRetention controller={sourceRetention} /> : null}
         </section>
@@ -523,16 +538,14 @@ function WorkspaceInviteForm({ disabled, email, error, isInviting, role, onEmail
           <option value="admin">Admin</option>
         </Select>
       </Field>
-      <div className="studio-invite-submit">
-        {error ? (
-          <p role="alert" className="form-error">
-            {error}
-          </p>
-        ) : null}
-        <Button type="submit" variant="secondary" disabled={disabled} pending={isInviting} pendingLabel="Inviting…">
-          Invite user
-        </Button>
-      </div>
+      <Button type="submit" variant="secondary" disabled={disabled} pending={isInviting} pendingLabel="Inviting…">
+        Invite user
+      </Button>
+      {error ? (
+        <p role="alert" className="form-error studio-invite-error">
+          {error}
+        </p>
+      ) : null}
     </form>
   );
 }

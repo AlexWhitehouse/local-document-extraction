@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { chooseMoreAction, confirmInAppDialog, ONE_PIXEL_PNG, saveModelGateway, submitSignUp } from "./support/journeyHelpers";
 import { startRuntimeHarness } from "./support/runtimeHarnessClient";
 
@@ -100,8 +100,7 @@ test("tag routing, split review, page preview and all-blank completion work thro
     await upload.getByRole("checkbox", { name: "finance", exact: true }).check();
     await upload.screenshot({ path: testInfo.outputPath("upload-tag-picker.png") });
     await upload.getByRole("button", { name: "Upload documents", exact: true }).click();
-    await expect(upload.getByText("Queued", { exact: true })).toBeVisible();
-    await closeQueuedUpload(page, upload);
+    await expect(upload).toBeHidden();
     await expect(page.getByText("Tagged invoice · version 1 · selected automatically", { exact: true })).toBeVisible();
     await expect(page.getByText("INV-E2E-001", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("automatic-template-selection.png"), fullPage: true });
@@ -155,8 +154,7 @@ test("tag routing, split review, page preview and all-blank completion work thro
     const queued = await queuedPromise;
     expect(queued.status()).toBe(202);
     const packetId = (await queued.json()).packet_id;
-    await expect(upload.getByText("Queued", { exact: true })).toBeVisible();
-    await closeQueuedUpload(page, upload);
+    await expect(upload).toBeHidden();
     await expect(page.getByRole("heading", { name: "Review document boundaries" })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByAltText("Original page 1")).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("split-review-original-pages.png"), fullPage: true });
@@ -189,8 +187,7 @@ test("tag routing, split review, page preview and all-blank completion work thro
       .locator('input[type="file"]')
       .setInputFiles({ name: "blank.pdf", mimeType: "application/pdf", buffer: await pdfFixture(true) });
     await upload.getByRole("button", { name: "Upload documents", exact: true }).click();
-    await expect(upload.getByText("Queued", { exact: true })).toBeVisible();
-    await closeQueuedUpload(page, upload);
+    await expect(upload).toBeHidden();
     await expect(page.getByRole("heading", { name: "No documents to extract", exact: true })).toBeVisible({
       timeout: 30_000,
     });
@@ -270,8 +267,7 @@ test("single-page uploads and one-document split plans display as ordinary docum
         expect(admission.job_id).toBeTruthy();
         expect(admission).not.toHaveProperty("packet_id");
       } else expect(admission.packet_id).toBeTruthy();
-      await expect(upload.getByText("Queued", { exact: true })).toBeVisible();
-      await closeQueuedUpload(page, upload);
+      await expect(upload).toBeHidden();
 
       await expect(page.getByRole("region", { name: "Document results", exact: true })).toBeVisible({
         timeout: 30_000,
@@ -327,8 +323,3 @@ test("single-page uploads and one-document split plans display as ordinary docum
   }
 });
 
-// Cancel on a dialog with queued files asks before discarding them.
-async function closeQueuedUpload(page: Page, upload: Locator): Promise<void> {
-  await upload.getByRole("button", { name: "Cancel", exact: true }).click();
-  await confirmInAppDialog(page, "Discard changes?", "Discard");
-}

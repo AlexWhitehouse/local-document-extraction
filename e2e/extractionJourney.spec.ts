@@ -92,9 +92,8 @@ test("a new user completes a Document Extraction job without email verification 
 
     await uploadDialog.getByRole("button", { name: "Upload documents" }).click();
     expect((await extractionQueued).status()).toBe(202);
-    await expect(uploadDialog.getByText("Queued", { exact: true })).toBeVisible();
-    await uploadDialog.getByRole("button", { name: "Cancel" }).click();
-    await confirmInAppDialog(page, "Discard changes?", "Discard");
+    // A full success closes the dialog; the upload toast reports the result.
+    await expect(uploadDialog).toBeHidden();
 
     await navigation.getByRole("link", { name: /Documents/ }).click();
     await expect(page.getByRole("region", { name: "Document results" })).toBeVisible();

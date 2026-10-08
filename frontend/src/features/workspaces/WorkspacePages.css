@@ -1,12 +1,13 @@
+/* Invite form: the email field, role select and submit share one row. Field errors float under
+   the email input so they never move the controls out of line. Server errors span the row below. */
+.studio-invite-field { position: relative; }
+.studio-invite-field .ui-field-error { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; }
+.studio-invite-form:has(.has-error) { padding-bottom: 34px; row-gap: 26px; }
+.studio-invite-error { grid-column: 1 / -1; margin: 0; }
 
-.studio-invite-form .studio-invite-submit {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.studio-invite-form .studio-invite-submit .form-error {
-  margin: 0;
-}
+/* API key: the input, then the generate/rotate button on the same row. The copy icon sits inside the input. */
+.workspace-key-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.workspace-key-input { position: relative; min-width: 0; }
+.workspace-key-input input { padding-right: 38px; }
+.studio-main .workspace-key-row > button { height: var(--control-h-md); white-space: nowrap; }
+.workspace-key-copy-button { position: absolute; top: 2px; right: 2px; }

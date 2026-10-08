@@ -29,12 +29,14 @@ input.ui-dropzone-input {
 
 /* The whole zone is the browse button when the caller doesn't place its own. */
 .ui-dropzone-browse {
-  display: grid;
-  justify-items: center;
-  align-content: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 4px;
   width: 100%;
   min-height: 112px;
+  height: auto;
   padding: 18px 14px;
   border: 0;
   background: transparent;
@@ -75,8 +77,9 @@ input.ui-dropzone-input {
   color: var(--text-2);
 }
 
-/* No overflow clip here: on a grid item it collapses the line to zero height. */
+/* Sits in the flow below the hint. Full width so the rule spans the zone, and no overflow clip. */
 .ui-dropzone-browse em {
+  align-self: stretch;
   max-width: 100%;
   margin-top: 8px;
   padding-top: 8px;

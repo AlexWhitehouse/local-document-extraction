@@ -131,9 +131,6 @@ label.evaluation-check { display: flex; flex-direction: row; align-items: center
 
 /* Setup screen (empty or cleared Evaluation) */
 .evaluation-setup { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: minmax(0, 760px) minmax(240px, 300px); justify-content: start; gap: 48px; align-items: start; padding: 28px var(--evaluation-page-gutter) 48px; }
-.evaluation-setup-head { padding-bottom: 20px; }
-.evaluation-setup-head h2 { margin: 6px 0 4px; font: 500 var(--font-size-6)/1.3 var(--font-body); letter-spacing: -.015em; }
-.evaluation-setup-head > p:last-child { margin: 0; color: var(--text-2); font-size: var(--font-size-4); }
 .evaluation-setup-main > .ui-callout { margin-bottom: 16px; }
 .evaluation-setup-step { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; padding: 18px 0; border-top: 1px solid var(--rule); }
 .evaluation-setup-label { display: flex; align-items: baseline; gap: 10px; }
@@ -256,7 +253,7 @@ td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compa
 .evaluation-compare-side .evaluation-compare-block-start { border-left: 1px solid var(--rule-strong); }
 
 /* Expected answer editor, expanded comparison and document preview dialogs */
-.evaluations-page label:not(.ui-field-label), .evaluation-reference label:not(.ui-field-label) { display: flex; flex-direction: column; gap: 5px; font-size: var(--font-size-3); font-weight: 500; }
+.evaluations-page label:not(.ui-field-label, .ui-checkbox-field-label), .evaluation-reference label:not(.ui-field-label, .ui-checkbox-field-label) { display: flex; flex-direction: column; gap: 5px; font-size: var(--font-size-3); font-weight: 500; }
 .evaluations-page label:has(input[type=checkbox]), .evaluation-reference label:has(input[type=checkbox]) { flex-direction: row; align-items: center; }
 .evaluation-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .evaluation-heading h2 { margin: 0; font: 500 var(--font-size-6)/1.3 var(--font-body); letter-spacing: -.01em; }
@@ -277,16 +274,17 @@ td.evaluation-compare-missing.none, .evaluation-compare-none td.evaluation-compa
 .evaluation-table-reference .evaluation-date-format { margin: 0 24px 16px; }
 .evaluation-date-format small, .evaluation-input-hint { color: var(--text-2); font-size: var(--font-size-3); font-weight: 400; line-height: 1.5; }
 .evaluation-cell-editor { display: grid; gap: 8px; }
-.evaluation-reference label:not(.ui-field-label) { margin-bottom: 18px; }
+.evaluation-reference label:not(.ui-field-label, .ui-checkbox-field-label) { margin-bottom: 18px; }
+.evaluation-source-note { margin: 0 0 12px; font-size: var(--font-size-3); }
 .evaluation-reference.modal-card:has(table) { width: min(1100px, 95vw); }
 .evaluation-reference-body { min-height: 0; }
 .evaluation-schema-notice { margin: 12px 0; }
 .evaluation-schema-notice p { margin: 6px 0; }
 .evaluation-schema-notice ul { margin: 8px 0 0; padding-left: 20px; }
 .evaluation-table-reference .evaluation-schema-notice { margin: 0 24px 16px; flex-shrink: 0; }
-.evaluation-table-reference .evaluation-reference-body > .ui-field,
-.evaluation-table-reference .evaluation-reference-body > .evaluation-muted { margin: 16px 24px; flex-shrink: 0; }
-.evaluation-reference-options { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+.evaluation-table-reference .evaluation-reference-body > .ui-field { margin: 16px 24px; flex-shrink: 0; }
+.evaluation-table-reference .evaluation-reference-body > .evaluation-source-note { margin: 12px 24px 0; flex-shrink: 0; }
+.evaluation-reference-options { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
 .evaluation-reference-options label { margin: 0; }
 .evaluation-reference-footer { display: flex; flex-direction: column; align-items: stretch; gap: 16px; margin-top: 20px; }
 .evaluation-reference-footer label, .evaluation-reference-footer .actions { margin: 0; }

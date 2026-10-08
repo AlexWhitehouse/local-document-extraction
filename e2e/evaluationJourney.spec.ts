@@ -53,7 +53,7 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
     await navigation.getByRole("link", { name: /Evaluations/ }).click();
     const evaluations = page.getByRole("region", { name: "Evaluations" });
     await expect(
-      evaluations.getByRole("heading", { name: "Compare extraction results on your documents" }),
+      evaluations.getByRole("heading", { name: "Documents", exact: true }),
     ).toBeVisible();
     await expect(evaluations.getByText("Workspace model", { exact: true })).toHaveCount(0);
     await evaluations.getByRole("radio", { name: /Template versions/ }).click();
@@ -91,7 +91,7 @@ test("a user sets up, runs and scores a model Evaluation from the setup screen",
     await expect(clearDialog.getByText("· new upload, not saved to the library")).toBeVisible();
     await clearDialog.getByRole("button", { name: "Clear evaluation" }).click();
     await expect(
-      evaluations.getByRole("heading", { name: "Compare extraction results on your documents" }),
+      evaluations.getByRole("heading", { name: "Documents", exact: true }),
     ).toBeVisible();
     expect(evidence.externalWebSockets()).toEqual([]);
   } finally {

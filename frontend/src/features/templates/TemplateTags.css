@@ -6,7 +6,7 @@
 .template-tags-label { display: block; margin-bottom: 5px; color: var(--text-label); font-size: var(--font-size-3); }
 
 /* Trigger: looks and focuses like the neighbouring inputs, not like a button. */
-.studio-main button.template-tags-trigger, button.template-tags-trigger { width: 100%; height: var(--control-h-md); display: flex; align-items: center; gap: 6px; padding: 0 9px 0 4px; border: 1px solid var(--rule-strong); background: var(--field-bg); color: var(--text-0); font-size: var(--font-size-4); font-weight: 400; text-align: left; transition: border-color 120ms ease, box-shadow 120ms ease; }
+.studio-main button.template-tags-trigger, button.template-tags-trigger { width: 100%; height: var(--control-h-md); display: flex; align-items: center; gap: 6px; padding: 0 6px 0 4px; border: 1px solid var(--rule-strong); background: var(--field-bg); color: var(--text-0); font-size: var(--font-size-4); font-weight: 400; text-align: left; transition: border-color 120ms ease, box-shadow 120ms ease; }
 button.template-tags-trigger:hover:not(:disabled) { background: var(--field-bg); border-color: var(--rule-subtle); }
 button.template-tags-trigger:focus-visible, button.template-tags-trigger[aria-expanded="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .template-tags-chips { flex: 1; min-width: 0; display: flex; gap: 4px; overflow: hidden; mask-image: linear-gradient(90deg, var(--mask-solid) calc(100% - 16px), transparent); }

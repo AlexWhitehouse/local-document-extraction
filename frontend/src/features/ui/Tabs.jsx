@@ -1,4 +1,4 @@
-import React, { useId, useRef } from "react";
+import React, { useEffect, useId, useRef } from "react";
 import "./Tabs.css";
 
 // Roving focus for a row of options: Arrow keys move, Home/End jump. Returns the
@@ -48,6 +48,11 @@ export function Tabs({ label, items, value, onChange, variant = "underline", idP
   const { refs, onKeyDown } = roving;
   const selectedIndex = Math.max(0, roving.selectedIndex);
   const active = items[selectedIndex];
+
+  // Keep the selected tab in view when the selection changes; "nearest" leaves a tab that is already visible where it is.
+  useEffect(() => {
+    refs.current[selectedIndex]?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [refs, selectedIndex]);
 
   return (
     <>

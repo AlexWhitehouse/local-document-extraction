@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { DocumentUploadModal } from "./DocumentUploadModal.jsx";
 
 const templates = [{ id: "t1", name: "Invoice", tags: [] }];
@@ -52,6 +52,45 @@ describe("DocumentUploadModal", () => {
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain("invoice.docx isn't a PDF, PNG, JPG or WEBP file");
     expect(screen.getByText("PDF, PNG, JPG or WEBP · up to 10 MB")).toBeTruthy();
+  });
+
+  it("closes without a discard prompt once every selected file is queued", async () => {
+    const onClose = vi.fn();
+    const queued = { id: "f1", file: new File(["x"], "invoice.pdf", { type: "application/pdf" }), queueStatus: "success" };
+    renderModal({ selectedTemplateId: "t1", sourceFiles: [queued], onClose });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {});
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Discard changes?")).toBeNull();
+  });
+
+  it("does not treat listed failures as unsaved edits", async () => {
+    const onClose = vi.fn();
+
+    const failed = {
+      id: "f1",
+      file: new File(["x"], "invoice.pdf", { type: "application/pdf" }),
+      queueStatus: "failed",
+      queueError: "Too large",
+    };
+
+    renderModal({ selectedTemplateId: "t1", sourceFiles: [failed], onClose });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {});
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Discard changes?")).toBeNull();
+  });
+
+  it("asks before discarding files that have not been uploaded yet", async () => {
+    const onClose = vi.fn();
+    const pending = { id: "f1", file: new File(["x"], "invoice.pdf", { type: "application/pdf" }), queueStatus: "pending" };
+    renderModal({ selectedTemplateId: "t1", sourceFiles: [pending], onClose });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {});
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("keeps Cancel usable during an upload", () => {

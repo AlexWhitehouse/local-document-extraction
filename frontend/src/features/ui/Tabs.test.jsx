@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React, { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Segmented, Tabs } from "./Tabs.jsx";
 
 const ITEMS = [
@@ -53,6 +53,41 @@ describe("Tabs", () => {
     await user.keyboard("{ArrowLeft}{Home}");
     expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("tabindex")).toBe("0");
     expect(screen.getByRole("tab", { name: "Pricing" }).getAttribute("tabindex")).toBe("-1");
+  });
+});
+
+describe("Tabs selection", () => {
+  afterEach(() => {
+    delete Element.prototype.scrollIntoView;
+  });
+
+  it("keeps the same tablist element when the selection changes", async () => {
+    const user = userEvent.setup();
+    render(<TabsHarness />);
+
+    const tablist = screen.getByRole("tablist", { name: "Cost views" });
+    tablist.scrollLeft = 40;
+    await user.click(screen.getByRole("tab", { name: "Documents" }));
+
+    expect(screen.getByRole("tablist", { name: "Cost views" })).toBe(tablist);
+    expect(screen.getByRole("tab", { name: "Documents" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("brings a selection made elsewhere into view without moving it when already visible", async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    const { rerender } = render(
+      <Tabs label="Cost views" items={ITEMS} value="overview" onChange={() => {}} renderPanel={() => null} />,
+    );
+
+    scrollIntoView.mockClear();
+
+    rerender(<Tabs label="Cost views" items={ITEMS} value="pricing" onChange={() => {}} renderPanel={() => null} />);
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("tab", { name: "Pricing" }));
   });
 });
 

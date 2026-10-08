@@ -127,7 +127,7 @@ test("a user saves a verified document to the library and reuses it in a Batch E
     await page.reload();
     await navigation.getByRole("link", { name: /Evaluations/ }).click();
     await expect(
-      evaluations.getByRole("heading", { name: "Compare extraction results on your documents" }),
+      evaluations.getByRole("heading", { name: "Documents", exact: true }),
     ).toBeVisible();
     await expect(evaluations.getByRole("navigation", { name: "Documents in this evaluation" })).toHaveCount(0);
     await evaluations.getByRole("button", { name: "Manage library" }).first().click();

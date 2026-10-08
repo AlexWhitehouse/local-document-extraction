@@ -176,10 +176,6 @@ export function EvaluationSetup({
   return (
     <div className="evaluation-setup">
       <div className="evaluation-setup-main">
-        <header className="evaluation-setup-head">
-          <h2>Compare extraction results on your documents</h2>
-          <p>Results clear when you close this tab.</p>
-        </header>
         {modelMissing && (
           <Callout
             tone="info"
