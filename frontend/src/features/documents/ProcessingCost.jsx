@@ -24,6 +24,7 @@ export function ProcessingCost({ costs, kind = "Document" }) {
     <span className="processing-cost">
       <Tooltip
         placement="bottom"
+        interactive
         className="processing-cost-tooltip"
         content={
           <>

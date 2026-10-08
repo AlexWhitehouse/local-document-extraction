@@ -3,8 +3,9 @@ import "./Tooltip.css";
 
 // Shows `content` on hover and keyboard focus. When the child already has an
 // accessible name equal to the tip (icon buttons), the tip is visual only;
-// otherwise it describes the child.
-export function Tooltip({ content, placement = "top", describe = true, className, children }) {
+// otherwise it describes the child. An interactive tip stays open while the
+// pointer is over it, so its content can be read and selected.
+export function Tooltip({ content, placement = "top", describe = true, interactive = false, className, children }) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const show = () => setOpen(true);
@@ -28,11 +29,11 @@ export function Tooltip({ content, placement = "top", describe = true, className
     "aria-describedby": describe ? [children.props["aria-describedby"], id].filter(Boolean).join(" ") : children.props["aria-describedby"],
     onMouseEnter: (event) => {
       children.props.onMouseEnter?.(event);
-      show();
+      if (!interactive) show();
     },
     onMouseLeave: (event) => {
       children.props.onMouseLeave?.(event);
-      hide();
+      if (!interactive) hide();
     },
     onFocus: (event) => {
       children.props.onFocus?.(event);
@@ -50,13 +51,13 @@ export function Tooltip({ content, placement = "top", describe = true, className
   });
 
   return (
-    <span className="ui-tooltip-anchor">
+    <span className="ui-tooltip-anchor" {...(interactive ? { onMouseEnter: show, onMouseLeave: hide } : {})}>
       {child}
       <span
         id={id}
         role="tooltip"
         aria-hidden={describe ? undefined : true}
-        className={["ui-tooltip", `ui-tooltip-${placement}`, open && "is-open", className].filter(Boolean).join(" ")}
+        className={["ui-tooltip", `ui-tooltip-${placement}`, interactive && "is-interactive", open && "is-open", className].filter(Boolean).join(" ")}
       >
         {content}
       </span>

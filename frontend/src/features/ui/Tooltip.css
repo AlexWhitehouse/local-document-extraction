@@ -26,6 +26,18 @@
   opacity: 1;
 }
 
+.ui-tooltip.is-interactive {
+  pointer-events: auto;
+}
+
+/* Bridges the gap to the anchor so the pointer can move onto the tip without closing it. */
+.ui-tooltip.is-interactive::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+}
+
 .ui-tooltip-top {
   bottom: calc(100% + 6px);
   left: 50%;
