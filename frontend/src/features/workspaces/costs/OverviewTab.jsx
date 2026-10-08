@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { ChartTip, FigureStrip, StageLegend, StageTipRows } from "./costShared.jsx";
 import { Segmented } from "../../ui/Tabs.jsx";
 import { EmptyState } from "../../ui/States.jsx";
+import { DataTable } from "../../ui/DataTable.jsx";
 import { costLabel, niceMax, percent, plural, shortDate, usd, weightedQuantile } from "./costFormat.js";
 import { useChartTip, useWidth } from "./costHooks.js";
 
@@ -241,7 +242,7 @@ function SpendCharts({ buckets, unit, totals }) {
         </div>
       ) : (
         <div className="cp-table-scroll" ref={ref}>
-          <table className="studio-table cp-table">
+          <DataTable className="cp-table">
             <thead>
               <tr>
                 <th>{unit === "hour" ? "Hour" : "Date"}</th>
@@ -268,7 +269,7 @@ function SpendCharts({ buckets, unit, totals }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </div>
       )}
       <ChartTip tip={tip} />
@@ -448,7 +449,7 @@ function CostSpread({ documents, sampled, population }) {
               })}
             </svg>
           </div>
-          <table className="studio-table cp-table cp-spread-table">
+          <DataTable className="cp-table cp-spread-table">
             <thead>
               <tr>
                 <th>Template</th>
@@ -467,7 +468,7 @@ function CostSpread({ documents, sampled, population }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </>
       ) : (
         <EmptyState message="No priced documents in this range" variant="inline" />

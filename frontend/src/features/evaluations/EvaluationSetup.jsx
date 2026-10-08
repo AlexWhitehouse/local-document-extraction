@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { MAX_CANDIDATES, documentRunnable } from "./useEvaluations.js";
-import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
 import { Chips } from "./EvaluationLibrary.jsx";
 import { documentChips, kilobytes, saveUnavailableMessage, unavailableText } from "./evaluationLibrary.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Badge } from "../ui/Status.jsx";
+import { Dropzone } from "../ui/Dropzone.jsx";
+import { Callout } from "../ui/Callout.jsx";
 import { CloseIcon, PlusIcon } from "../layout/Icons.jsx";
 
 const MODES = [
@@ -52,17 +53,17 @@ export function EvaluationSetup({
   onChooseLibrary,
   onManageLibrary,
   onStart,
+  onOpenWorkspace,
 }) {
   const workspaceModel = state.setup?.model || "";
+  const modelMissing = Boolean(state.setup) && !state.setup.configured;
   const [mode, setMode] = useState(state.mode);
   const [templateId, setTemplateId] = useState("");
   const [version, setVersion] = useState("");
   const [versions, setVersions] = useState([]);
   const [models, setModels] = useState(() => [workspaceModel, ""]);
-  const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState(null);
   const [starting, setStarting] = useState(false);
-  const input = useRef(null);
   const template = templates.find((t) => t.id === templateId);
 
   const allVersions = template
@@ -106,7 +107,6 @@ export function EvaluationSetup({
   });
 
   const problems = [
-    !state.setup?.configured && "Configure a model in Workspace settings",
     !template && "Choose a Template",
     mode === "models" ? names.length < 2 && "Add at least two models" : !versions.length && "Choose a version",
   ].filter(Boolean);
@@ -161,10 +161,23 @@ export function EvaluationSetup({
             library can be reused.
           </p>
         </header>
+        {modelMissing && (
+          <Callout
+            tone="info"
+            title="Evaluations need a Model gateway"
+            action={
+              <Button variant="secondary" onClick={onOpenWorkspace}>
+                Set up Model gateway
+              </Button>
+            }
+          >
+            Every Evaluation runs on the Workspace model. Set one up on the Workspace page, then come back here.
+          </Callout>
+        )}
         {error && (
-          <p role="alert" className="evaluation-setup-error">
+          <Callout tone="danger" role="alert">
             {error}
-          </p>
+          </Callout>
         )}
 
         <section className="evaluation-setup-step" aria-labelledby="evaluation-step-document">
@@ -222,51 +235,32 @@ export function EvaluationSetup({
                 })}
               </ol>
             )}
-            <div
-              className={`evaluation-dropzone ${dragging ? "is-active" : ""} ${state.documents.length ? "compact" : ""}`}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(event) => {
-                event.preventDefault();
-                setDragging(false);
-                onSelectDocuments(Array.from(event.dataTransfer.files || []));
-              }}
-            >
-              <span className="evaluation-dropzone-icon" aria-hidden="true">
-                ▤
-              </span>
-              <div>
-                <strong>
-                  {state.documents.length ? "Add more documents" : "Choose saved documents or drop new ones here"}
-                </strong>
-                <small>
-                  PDF, PNG, JPG or WEBP · up to {mebibytes(maxSourceFileBytes)} MiB each · several documents run a Batch
-                  Evaluation
-                </small>
-              </div>
-              <span className="evaluation-actions">
-                <Button onClick={() => onChooseLibrary(fields)}>
-                  Library
-                </Button>
-                <Button variant="secondary" onClick={() => input.current.click()}>
-                  Upload new
-                </Button>
-              </span>
-            </div>
-            <input
-              ref={input}
-              type="file"
-              hidden
-              multiple
-              aria-label="Evaluation document"
-              accept={SOURCE_FILE_MIME_TYPES.join(",")}
-              onChange={(event) => {
-                onSelectDocuments(Array.from(event.target.files || []));
-                event.target.value = "";
-              }}
+            <Dropzone
+              label="Evaluation document"
+              className={`evaluation-dropzone ${state.documents.length ? "compact" : ""}`}
+              onFiles={onSelectDocuments}
+              renderContent={({ browse }) => (
+                <>
+                  <span className="evaluation-dropzone-icon" aria-hidden="true">
+                    ▤
+                  </span>
+                  <div>
+                    <strong>
+                      {state.documents.length ? "Add more documents" : "Choose saved documents or drop new ones here"}
+                    </strong>
+                    <small>
+                      PDF, PNG, JPG or WEBP · up to {mebibytes(maxSourceFileBytes)} MiB each · several documents run a
+                      Batch Evaluation
+                    </small>
+                  </div>
+                  <span className="evaluation-actions">
+                    <Button onClick={() => onChooseLibrary(fields)}>Library</Button>
+                    <Button variant="secondary" onClick={browse}>
+                      Upload new
+                    </Button>
+                  </span>
+                </>
+              )}
             />
             {saveUnavailable && (
               <p className="evaluation-setup-hint evaluation-warn-text">
@@ -458,7 +452,7 @@ export function EvaluationSetup({
         <footer className="evaluation-setup-foot">
           <div className="evaluation-setup-submit">
             {problems.length > 0 && <small className="evaluation-muted">{problems.join(" · ")}</small>}
-            <Button disabled={!enabled || problems.length> 0 || starting} onClick={start}>
+            <Button disabled={!enabled || !state.setup?.configured || problems.length > 0 || starting} onClick={start}>
               {starting ? "Loading…" : willRun ? "Start and run" : "Start Evaluation"}
             </Button>
           </div>
@@ -473,20 +467,14 @@ export function EvaluationSetup({
             Manage library
           </Button>
         </div>
-        {mode === "templates" && (
+        {mode === "templates" && state.setup?.configured && (
           <div className="evaluation-setup-model">
             <small>Workspace model</small>
-            {state.setup?.configured ? (
-              <>
-                <span>
-                  <i aria-hidden="true" />
-                  {workspaceModel}
-                </span>
-                <p>Every Template version runs on this model. Change it for all candidates after starting.</p>
-              </>
-            ) : (
-              <p>No model is configured. Configure one in Workspace settings.</p>
-            )}
+            <span>
+              <i aria-hidden="true" />
+              {workspaceModel}
+            </span>
+            <p>Every Template version runs on this model. Change it for all candidates after starting.</p>
           </div>
         )}
         <h3>How it works</h3>

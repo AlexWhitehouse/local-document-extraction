@@ -1,9 +1,9 @@
-import React, { useId, useRef } from "react";
-import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import React from "react";
 import { formatUploadLimit } from "./sourceFileValidation.js";
 import { pluralize } from "../../lib/text";
 import { Button } from "../ui/Button.jsx";
 import { Badge } from "../ui/Status.jsx";
+import { Dropzone } from "../ui/Dropzone.jsx";
 import { statusTone } from "../../lib/status.js";
 
 export function DocumentUploadPanel({
@@ -11,63 +11,27 @@ export function DocumentUploadPanel({
   multiple = true,
   sourceFiles = [],
   rejections = [],
-  isDragActive = false,
   disabled = false,
   maxSourceFileBytes = 10 * 1024 * 1024,
   onSelectSourceFiles,
-  onDragOver,
-  onDragLeave,
-  onDrop,
   onRemoveSourceFile,
   tourTarget,
 }) {
-  const uploadInputRef = useRef(null);
-  const inputId = useId();
   const showDropzone = multiple || sourceFiles.length === 0;
 
   return (
     <div className="document-upload-panel" data-tour={tourTarget}>
-      <label htmlFor={inputId}>{label}</label>
-      <input
-        ref={uploadInputRef}
-        id={inputId}
-        tabIndex={-1}
-        disabled={disabled || !showDropzone}
-        type="file"
-        accept={SOURCE_FILE_MIME_TYPES.join(",")}
-        className="upload-input-hidden"
-        multiple={multiple}
-        onChange={(event) => {
-          onSelectSourceFiles(Array.from(event.target.files || []));
-          event.target.value = "";
-        }}
-      />
+      <span className="document-upload-label">{label}</span>
       {showDropzone && (
-        <button
-          type="button"
+        <Dropzone
+          label={label}
+          hint={`PDF, PNG, JPG or WEBP · up to ${formatUploadLimit(maxSourceFileBytes)}`}
+          multiple={multiple}
           disabled={disabled}
-          className={isDragActive ? "upload-dropzone is-active" : "upload-dropzone"}
-          onClick={() => uploadInputRef.current?.click()}
-          onDragOver={(event) => {
-            event.preventDefault();
-
-            if (!disabled) onDragOver?.(event);
-          }}
-          onDragLeave={(event) => {
-            event.preventDefault();
-
-            if (!disabled) onDragLeave?.(event);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-
-            if (!disabled) onDrop?.(event);
-          }}
+          onFiles={onSelectSourceFiles}
         >
-          <strong>{multiple ? "Drop files or click to browse" : "Drop a sample document or click to browse"}</strong>
-          <span>PDF, PNG, JPG or WEBP · up to {formatUploadLimit(maxSourceFileBytes)}</span>
           {sourceFiles.length ? <em>{pluralize(sourceFiles.length, "file")} selected</em> : null}
-        </button>
+        </Dropzone>
       )}
       {rejections.length ? (
         <ul className="upload-rejections" role="alert">

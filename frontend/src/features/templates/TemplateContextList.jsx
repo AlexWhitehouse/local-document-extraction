@@ -6,6 +6,7 @@ import { NavigationLink } from "../context/NavigationLink.jsx";
 import { ListStatus } from "../ui/States.jsx";
 import { appPath } from "../../lib/appRoutes";
 import { Button } from "../ui/Button.jsx";
+import { LoadMore } from "../ui/Pager.jsx";
 
 const TEMPLATE_PAGE_SIZE = 12;
 
@@ -100,14 +101,7 @@ export function TemplateContextList({
             );
           })}
           {remainingCount > 0 ? (
-            <button
-              type="button"
-              className="context-item"
-              onClick={() => setVisibleCount((count) => count + TEMPLATE_PAGE_SIZE)}
-            >
-              <strong>Load more templates</strong>
-              <span>Show {Math.min(TEMPLATE_PAGE_SIZE, remainingCount)} more</span>
-            </button>
+            <LoadMore label="Load more templates" onLoadMore={() => setVisibleCount((count) => count + TEMPLATE_PAGE_SIZE)} />
           ) : null}
         </ListStatus>
       </ScrollArea>

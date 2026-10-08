@@ -1,9 +1,3 @@
-.workspace-key-callout {
-  margin: 8px 0 0;
-  color: var(--tone-warning-text);
-  font-size: var(--font-size-4);
-  line-height: 1.5;
-}
 
 .studio-invite-form .studio-invite-submit {
   grid-column: 1 / -1;

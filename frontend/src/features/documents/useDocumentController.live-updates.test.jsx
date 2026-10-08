@@ -91,7 +91,7 @@ describe("useDocumentController Workspace live updates", () => {
       }),
     );
     expect(getAllByRole("listitem")).toHaveLength(50);
-    fireEvent.click(getByRole("button", { name: /Load more Documents/ }));
+    fireEvent.click(getByRole("button", { name: /Load more documents/ }));
     await waitFor(() => expect(getAllByRole("listitem")).toHaveLength(51));
     expect(request.mock.calls.some(([path]) => path.startsWith("/packets"))).toBe(false);
   });

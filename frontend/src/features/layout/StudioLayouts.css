@@ -138,13 +138,6 @@ button.studio-text-button.studio-destructive { color: var(--tone-danger-text); }
 .studio-main .studio-results-scroll { margin-top: 0; max-height: min(64dvh, 560px); }
 .studio-main .studio-results-scroll[data-scroll-bottom="true"] { --scroll-fade-bottom: 48px; }
 .studio-main .studio-results .table-scroll, .studio-main .studio-invitation-list { border: 0; background: transparent; }
-.studio-main .studio-table { width: 100%; border: 0; border-collapse: collapse; background: transparent; font-size: var(--font-size-4); }
-.studio-main .studio-table thead th { position: sticky; top: 0; z-index: var(--z-base); padding: 6px 10px; border: 0; border-bottom: 1px solid var(--rule-strong); background: var(--pane-raised); color: var(--text-2); font: var(--font-size-1) var(--font-mono); letter-spacing: .1em; text-transform: uppercase; text-align: left; }
-.studio-main .studio-table td { padding: 7px 10px; border: 0; border-bottom: 1px solid var(--rule); background: transparent; color: var(--text-1); font-size: var(--font-size-4); vertical-align: middle; }
-.studio-main .studio-table tbody tr:nth-child(even) :is(th, td) { background: var(--wash-1); }
-.studio-main .studio-table tbody tr:hover :is(th, td) { background: var(--row-hover); }
-.studio-main .studio-table :is(th, td):first-child { padding-left: 0; }
-.studio-main .studio-table :is(th, td):last-child { padding-right: 0; }
 .studio-main .studio-results-table { table-layout: fixed; }
 .studio-results-table thead th:nth-child(1) { width: 23%; }
 .studio-results-table thead th:nth-child(2) { width: 24%; }
@@ -156,7 +149,7 @@ button.studio-text-button.studio-destructive { color: var(--tone-danger-text); }
 .studio-extracted-value p { margin: 0; font-size: inherit; }
 .studio-extracted-value .answer-text { color: inherit; }
 .studio-extracted-value .muted { color: var(--text-2); }
-.studio-evidence, .studio-main .studio-table .studio-evidence { color: var(--text-2); font-size: var(--font-size-3); line-height: 1.55; white-space: normal; overflow-wrap: anywhere; }
+.studio-evidence, .studio-main .studio-results-table .studio-evidence { color: var(--text-2); font-size: var(--font-size-3); line-height: 1.55; white-space: normal; overflow-wrap: anywhere; }
 .studio-confidence { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; font: var(--font-size-2) var(--font-mono); font-variant-numeric: tabular-nums; color: var(--tone-success-text); }
 .studio-confidence.ui-tone-warning { color: var(--tone-warning-text); }
 .studio-confidence.ui-tone-danger { color: var(--tone-danger-text); }

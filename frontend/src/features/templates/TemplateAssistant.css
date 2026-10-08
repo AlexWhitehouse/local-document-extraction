@@ -113,17 +113,6 @@ button.template-assistant-suggestion.selected { border-color: var(--tone-success
 .template-assistant-sent ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: var(--font-size-3); color: var(--text-1); }
 .template-assistant-sent li strong { display: inline-block; min-width: 96px; color: var(--text-3); font: var(--font-size-2) var(--font-mono); letter-spacing: .04em; font-weight: 400; }
 
-/* Notes: shared feedback tones with a 2px rule, matching toasts. */
-.template-assistant-note { margin: 0; padding: 9px 11px; border: 1px solid var(--rule-strong); background: var(--pane-main); font-size: var(--font-size-3); line-height: 1.5; color: var(--text-1); }
-.template-assistant-note strong { display: block; font-weight: 500; }
-.template-assistant-note p { margin: 4px 0 0; }
-.template-assistant-note.warn { box-shadow: inset 2px 0 0 var(--amber); }
-.template-assistant-note.warn strong { color: var(--tone-warning-text); }
-.template-assistant-note.bad { box-shadow: inset 2px 0 0 var(--rose); }
-.template-assistant-note.bad strong { color: var(--tone-danger-text); }
-.template-assistant-note.good { box-shadow: inset 2px 0 0 var(--accent); }
-.template-assistant-note.good strong { color: var(--tone-success-text); }
-.template-assistant-note-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 
 .template-assistant-recap { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 8px 10px; background: var(--pane-main); border: 1px solid var(--rule); }
 .template-assistant-recap p { margin: 3px 0 0; font-size: var(--font-size-4); color: var(--text-0); }
@@ -152,8 +141,8 @@ button.template-assistant-suggestion.selected { border-color: var(--tone-success
 .template-assistant-group-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .template-assistant-group-tags:empty { display: none; }
 .template-assistant-rationale { margin: 0; color: var(--text-2); font-size: var(--font-size-3); line-height: 1.5; }
-.template-assistant-diff { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--font-size-3); }
-.template-assistant-diff thead th { padding: 4px 6px; border-bottom: 1px solid var(--rule-strong); color: var(--text-3); font: var(--font-size-1) var(--font-mono); letter-spacing: .1em; text-transform: uppercase; text-align: left; }
+.template-assistant-diff { table-layout: fixed; font-size: var(--font-size-3); }
+.template-assistant-diff thead th { padding: 4px 6px; }
 .template-assistant-diff tbody th, .template-assistant-diff td { padding: 5px 6px; border-bottom: 1px solid var(--rule); vertical-align: top; text-align: left; overflow-wrap: anywhere; line-height: 1.45; }
 .template-assistant-diff tbody th { padding-left: 0; font-weight: 500; color: var(--text-1); }
 .template-assistant-diff tbody th span { display: block; }
@@ -163,7 +152,7 @@ button.template-assistant-suggestion.selected { border-color: var(--tone-success
 .template-assistant-diff-row.remove td.after .template-assistant-empty { color: var(--tone-danger-text); }
 .template-assistant-diff-row.remove td.before del { text-decoration: line-through; text-decoration-color: var(--tone-danger-border); }
 .template-assistant-empty { color: var(--text-3); }
-/* Global table rules (nowrap, a 56px last column) are for list tables; diff cells wrap. */
+/* Diff cells wrap; the shared table keeps single-line cells. */
 .template-assistant-diff :is(th, td) { white-space: normal; width: auto; background: transparent; }
 .template-assistant-diff thead th:first-child { width: 30%; padding-left: 0; }
 .template-assistant-diff thead th:not(:first-child) { width: 35%; }
@@ -192,16 +181,12 @@ button.template-assistant-suggestion.selected { border-color: var(--tone-success
 .modal-card.template-assistant-picker { width: min(860px, 100%); display: grid; gap: 12px; max-height: calc(100dvh - 48px); overflow: hidden; grid-template-rows: auto minmax(0, 1fr) auto; }
 .template-assistant-job-table { min-height: 0; overflow: auto; border-top: 1px solid var(--rule-strong); transition: opacity 120ms ease; }
 .template-assistant-job-table.is-loading { opacity: 0.5; }
-.template-assistant-job-table table { width: 100%; border-collapse: collapse; font-size: var(--font-size-4); }
-.template-assistant-job-table thead th { position: sticky; top: 0; padding: 6px 8px; background: var(--pane-raised); border-bottom: 1px solid var(--rule-strong); color: var(--text-2); font: var(--font-size-1) var(--font-mono); letter-spacing: .1em; text-transform: uppercase; text-align: left; }
 .template-assistant-job-table tbody th, .template-assistant-job-table td { padding: 7px 8px; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: middle; color: var(--text-1); font-weight: 400; }
 .template-assistant-job-table tbody th strong { display: block; font-weight: 500; color: var(--text-0); }
 .template-assistant-job-table tbody th span { color: var(--text-3); font: var(--font-size-2) var(--font-mono); }
 .template-assistant-job-table tbody tr:hover :is(th, td) { background: var(--row-hover); }
 .template-assistant-job-table tbody tr.selected :is(th, td) { background: var(--row-selected); }
 .template-assistant-job-table button { height: 24px; font-size: var(--font-size-3); }
-.template-assistant-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-2); font: var(--font-size-2) var(--font-mono); }
-.template-assistant-pager .actions { display: flex; gap: 6px; margin: 0; }
 
 /* JSON modal diagnostics. */
 .template-json-diagnostics { max-height: 160px; overflow: auto; color: var(--tone-warning-text); font-size: var(--font-size-4); padding-left: 20px; }

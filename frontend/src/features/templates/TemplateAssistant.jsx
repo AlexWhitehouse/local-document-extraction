@@ -10,7 +10,10 @@ import "./TemplateAssistant.css";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Badge, CountBadge } from "../ui/Status.jsx";
 import { Field, Textarea } from "../ui/Field.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
+import { Pager } from "../ui/Pager.jsx";
 import { Segmented, Tabs } from "../ui/Tabs.jsx";
+import { Callout } from "../ui/Callout.jsx";
 
 const TABS = [
   { value: "explain", label: "Explain issues" },
@@ -136,19 +139,15 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
   return (
     <div className="template-assistant-stack template-assistant-fade-in">
       {stale ? (
-        <div className="template-assistant-note warn" role="status">
-          <strong>The draft changed while this was running</strong>
-          <p>
-            The response was for an earlier version of the draft, so it was set aside. Nothing was applied. Send the
-            request again to get a proposal for the draft as it is now.
-          </p>
-        </div>
+        <Callout tone="warning" role="status" title="The draft changed while this was running">
+          The response was for an earlier version of the draft, so it was set aside. Nothing was applied. Send the
+          request again to get a proposal for the draft as it is now.
+        </Callout>
       ) : null}
       {error ? (
-        <div className="template-assistant-note bad" role="alert">
-          <strong>{error}</strong>
-          <p>Your draft wasn’t changed.</p>
-        </div>
+        <Callout tone="danger" role="alert" title={error}>
+          Your draft wasn’t changed.
+        </Callout>
       ) : null}
       <p className="template-assistant-muted">
         {action === "explain"
@@ -406,23 +405,24 @@ function ResultView({ assistant }) {
   return (
     <div className="template-assistant-stack template-assistant-fade-in">
       {stale ? (
-        <div className="template-assistant-note warn" role="alert">
-          <strong>This proposal is out of date</strong>
-          <p>
-            You changed the draft after asking. The proposal below is read-only and can’t be applied, because it might
-            overwrite your newer edits. Regenerate it from the current draft.
-          </p>
-          <div className="template-assistant-note-actions">
+        <Callout
+          tone="warning"
+          role="alert"
+          title="This proposal is out of date"
+          action={
             <Button type="button" onClick={assistant.onSubmit}>
               Regenerate
             </Button>
-          </div>
-        </div>
+          }
+        >
+          You changed the draft after asking. The proposal below is read-only and can’t be applied, because it might
+          overwrite your newer edits. Regenerate it from the current draft.
+        </Callout>
       ) : null}
       {assistant.error ? (
-        <p className="template-assistant-note bad" role="alert">
+        <Callout tone="danger" role="alert">
           {assistant.error}
-        </p>
+        </Callout>
       ) : null}
       <RequestRecap assistant={assistant} onRevise={() => assistant.onInstructionsChange(assistant.instructions)} />
 
@@ -527,7 +527,7 @@ function ChangeGroup({ base, group, groups, selected, disabled, isConflicting, o
         </span>
       </label>
       <p className="template-assistant-rationale">{group.rationale}</p>
-      <table className="template-assistant-diff">
+      <DataTable className="template-assistant-diff">
         <thead>
           <tr>
             <th scope="col">Where</th>
@@ -557,7 +557,7 @@ function ChangeGroup({ base, group, groups, selected, disabled, isConflicting, o
             );
           })}
         </tbody>
-      </table>
+      </DataTable>
       {impacts.length ? <IdentityImpacts impacts={impacts} /> : null}
       {requires.length ? <p className="template-assistant-dependency">Requires “{requires.join("”, “")}”.</p> : null}
       {isConflicting ? (
@@ -660,13 +660,10 @@ function SelectionCheck({ selection, baseHadIssues }) {
 function AppliedView() {
   return (
     <div className="template-assistant-stack template-assistant-fade-in">
-      <div className="template-assistant-note good" role="status">
-        <strong>Applied to your draft</strong>
-        <p>
-          Nothing has been saved. Review the draft, then use Save when you’re ready. This proposal is used up and can’t
-          be applied again.
-        </p>
-      </div>
+      <Callout tone="success" role="status" title="Applied to your draft">
+        Nothing has been saved. Review the draft, then use Save when you’re ready. This proposal is used up and can’t be
+        applied again.
+      </Callout>
     </div>
   );
 }
@@ -813,7 +810,7 @@ function JobPicker({ picker, selectedJobId }) {
         className={picker.loading ? "template-assistant-job-table is-loading" : "template-assistant-job-table"}
         aria-busy={picker.loading}
       >
-        <table>
+        <DataTable>
           <thead>
             <tr>
               <th scope="col">Document</th>
@@ -862,29 +859,16 @@ function JobPicker({ picker, selectedJobId }) {
               </tr>
             ) : null}
           </tbody>
-        </table>
+        </DataTable>
       </div>
-      <div className="template-assistant-pager">
-        <span>{picker.loading ? "Loading…" : `Page ${picker.page + 1}`}</span>
-        <div className="actions compact">
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={picker.loading || picker.page === 0}
-            onClick={picker.onPrevious}
-          >
-            Previous
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={picker.loading || !picker.nextCursor}
-            onClick={picker.onNext}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+      <Pager
+        label={picker.loading ? "Loading…" : `Page ${picker.page + 1}`}
+        hasPrevious={picker.page > 0}
+        hasNext={Boolean(picker.nextCursor)}
+        onPrevious={picker.onPrevious}
+        onNext={picker.onNext}
+        disabled={picker.loading}
+      />
     </ModalDialog>
   );
 }

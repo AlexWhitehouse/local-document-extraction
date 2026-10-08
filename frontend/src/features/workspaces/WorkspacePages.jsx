@@ -9,7 +9,9 @@ import { ErrorState, ListStatus, Skeleton } from "../ui/States.jsx";
 import { CloseIcon, CopyIcon, EditIcon, PlusIcon } from "../layout/Icons.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Badge } from "../ui/Status.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
 import { CheckboxField, Field, Select, TextInput } from "../ui/Field.jsx";
+import { Callout } from "../ui/Callout.jsx";
 import "./WorkspacePages.css";
 
 const INVITE_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -76,13 +78,10 @@ export function WorkspaceInvitationPage({
             </div>
           </dl>
 
-          <div className="invitation-locked-panel">
-            <strong>No workspace access yet</strong>
-            <p>
-              Templates, documents, API keys, uploads, rename, deletion, and user management stay locked until this
-              invitation is accepted.
-            </p>
-          </div>
+          <Callout tone="warning" className="invitation-locked-panel" title="No workspace access yet">
+            Templates, documents, API keys, uploads, rename, deletion, and user management stay locked until this
+            invitation is accepted.
+          </Callout>
 
           <div className="actions invitation-actions">
             <Button
@@ -278,9 +277,9 @@ export function AcceptedWorkspacePage({
               ) : null}
             </div>
             {showApiKeyCallout ? (
-              <p role="status" className="workspace-key-callout">
+              <Callout tone="warning" role="status">
                 This key won't be shown again. Copy it now.
-              </p>
+              </Callout>
             ) : null}
             <div className="studio-api-footer">
               <span>For inbound requests to this workspace.</span>
@@ -408,7 +407,7 @@ export function AcceptedWorkspacePage({
               aria-label="Pending invitations"
               tabIndex={0}
             >
-              <table className="studio-table">
+              <DataTable label="Pending invitations">
                 <thead>
                   <tr>
                     <th>Email</th>
@@ -417,7 +416,7 @@ export function AcceptedWorkspacePage({
                     <th>Inviter</th>
                     <th>Invited</th>
                     <th>Expires</th>
-                    <th>Action</th>
+                    <th className="table-actions">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -431,7 +430,7 @@ export function AcceptedWorkspacePage({
                       </td>
                       <td>{formatJoinedAt(invitation.created_at)}</td>
                       <td>{formatJoinedAt(invitation.expires_at)}</td>
-                      <td>
+                      <td className="table-actions">
                         <IconButton
                           size="sm"
                           variant="danger"
@@ -443,7 +442,7 @@ export function AcceptedWorkspacePage({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </DataTable>
             </div>
           </ListStatus>
         </section>

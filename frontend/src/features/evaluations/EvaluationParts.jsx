@@ -7,6 +7,7 @@ import { display, dollars, seconds } from "./evaluationFormat.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Badge, StatusDot } from "../ui/Status.jsx";
 import { Field } from "../ui/Field.jsx";
+import { Popover } from "../ui/Popover.jsx";
 import { CheckIcon, CloseIcon, ExternalIcon, MoreIcon } from "../layout/Icons.jsx";
 
 const SCALAR_TYPES = ["string", "number", "date", "boolean"];
@@ -170,79 +171,65 @@ function RunDetails({ candidate }) {
 // Rarely used candidate controls live in a popover so the column head stays compact.
 export function CandidateMenu({ label, candidate, inputs, onInputChange, actions }) {
   const [open, setOpen] = useState(false);
-  const root = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-
-    const close = (event) => {
-      if (!root.current?.contains(event.target)) setOpen(false);
-    };
-
-    const key = (event) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    window.addEventListener("pointerdown", close);
-    window.addEventListener("keydown", key);
-
-    return () => {
-      window.removeEventListener("pointerdown", close);
-      window.removeEventListener("keydown", key);
-    };
-  }, [open]);
 
   return (
-    <div className="evaluation-menu" ref={root}>
-      <IconButton
-        size="sm"
-        label={`${label} options`}
-        icon={MoreIcon}
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      />
-      {open && (
-        <div className="evaluation-menu-panel" role="group" aria-label={`${label} options`}>
-          <p className="evaluation-menu-title">Input{inputs.shared ? " · all candidates" : ""}</p>
-          <label>
-            <input
-              type="checkbox"
-              checked={candidate.pdf}
-              onChange={(event) => onInputChange("pdf", event.target.checked)}
-            />
-            Direct PDF input
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={candidate.structured}
-              onChange={(event) => onInputChange("structured", event.target.checked)}
-            />
-            Structured output
-          </label>
-          <p className="evaluation-menu-title">Run details</p>
-          <RunDetails candidate={candidate} />
-          <div className="evaluation-menu-actions">
-            {actions.flatMap((action) =>
-              action
-                ? [
-                    <Button
-                      key={action.label}
-                      variant={action.danger ? "danger-text" : "text"}
-                      disabled={action.disabled}
-                      onClick={() => {
-                        setOpen(false);
-                        action.onClick();
-                      }}
-                    >
-                      {action.label}
-                    </Button>,
-                  ]
-                : [],
-            )}
-          </div>
-        </div>
+    <Popover
+      className="evaluation-menu"
+      panelClassName="evaluation-menu-panel"
+      label={`${label} options`}
+      open={open}
+      onClose={() => setOpen(false)}
+      trigger={(triggerProps) => (
+        <IconButton
+          size="sm"
+          label={`${label} options`}
+          icon={MoreIcon}
+          onClick={() => setOpen(!open)}
+          {...triggerProps}
+        />
       )}
-    </div>
+    >
+      <div role="group" aria-label={`${label} options`}>
+        <p className="evaluation-menu-title">Input{inputs.shared ? " · all candidates" : ""}</p>
+        <label>
+          <input
+            type="checkbox"
+            checked={candidate.pdf}
+            onChange={(event) => onInputChange("pdf", event.target.checked)}
+          />
+          Direct PDF input
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={candidate.structured}
+            onChange={(event) => onInputChange("structured", event.target.checked)}
+          />
+          Structured output
+        </label>
+        <p className="evaluation-menu-title">Run details</p>
+        <RunDetails candidate={candidate} />
+        <div className="evaluation-menu-actions">
+          {actions.flatMap((action) =>
+            action
+              ? [
+                  <Button
+                    key={action.label}
+                    variant={action.danger ? "danger-text" : "text"}
+                    disabled={action.disabled}
+                    onClick={() => {
+                      setOpen(false);
+                      action.onClick();
+                    }}
+                  >
+                    {action.label}
+                  </Button>,
+                ]
+              : [],
+          )}
+        </div>
+      </div>
+    </Popover>
   );
 }
 

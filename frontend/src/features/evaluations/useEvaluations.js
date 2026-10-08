@@ -222,7 +222,8 @@ export function useEvaluations({
           setState((previous) => ({
             ...previous,
             setup,
-            error: setup.configured ? "" : "Configure a model in Workspace settings to run Evaluations.",
+            // A missing Model gateway is shown by EvaluationSetup's callout, not as an error.
+            error: setup.configured ? "" : previous.error,
           }));
       })
       .catch((error) => {

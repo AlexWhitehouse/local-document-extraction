@@ -3,7 +3,10 @@ import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { getDataTypeLabel } from "../templates/templateFields.js";
 import { Meter } from "./EvaluationParts.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
+import { LoadMore } from "../ui/Pager.jsx";
 import { Field, TextInput } from "../ui/Field.jsx";
+import { Callout } from "../ui/Callout.jsx";
 import { documentCompatibility, fieldIdentity } from "./evaluationScoring.js";
 import {
   documentDirty,
@@ -98,7 +101,7 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
         onChange={(event) => list.setQuery(event.target.value)}
       />
       <ScrollArea className="evaluation-library-scroll" role="region" aria-label="Saved documents" tabIndex={0}>
-        <table className="evaluation-library-table">
+        <DataTable label="Library documents" className="evaluation-library-table">
           <colgroup>
             {onToggle && <col className="evaluation-library-select-col" />}
             <col />
@@ -211,19 +214,14 @@ function LibraryTable({ list, fields, selected, onToggle, inEvaluation, actions 
                 />
               ))}
           </tbody>
-        </table>
+        </DataTable>
       </ScrollArea>
-      {list.error && list.entries.length > 0 && (
-        <p role="alert" className="evaluation-bad-text">
-          {list.error}
-        </p>
-      )}
-      {(list.next || list.loading) && (
-        <div className="evaluation-actions start">
-          <Button variant="secondary" disabled={list.loading} onClick={list.loadMore}>
-            {list.loading ? "Loading…" : "Load more"}
-          </Button>
-        </div>
+      {(list.next || list.loading || (list.error && list.entries.length > 0)) && (
+        <LoadMore
+          onLoadMore={list.loadMore}
+          pending={list.loading}
+          error={list.entries.length > 0 ? list.error : ""}
+        />
       )}
     </div>
   );
@@ -635,7 +633,7 @@ export function UpdateReview({ evaluation, document, onClose, onDone }) {
         <IconButton size="sm" label="Close" icon={CloseIcon} className="modal-close" onClick={onClose} />
       </div>
       <ScrollArea className="evaluation-library-scroll" role="region" aria-label="Answer changes" tabIndex={0}>
-        <table className="evaluation-diff">
+        <DataTable className="evaluation-diff">
           <thead>
             <tr>
               <th>Field</th>
@@ -677,7 +675,7 @@ export function UpdateReview({ evaluation, document, onClose, onDone }) {
               </tr>
             )}
           </tbody>
-        </table>
+        </DataTable>
       </ScrollArea>
       {error && (
         <p role="alert" className="evaluation-bad-text">
@@ -832,33 +830,42 @@ export function DocumentBanner({ evaluation, document, notify }) {
 
   if (document.availability === "deleted")
     return (
-      <div className="evaluation-banner bad">
+      <Callout tone="danger">
         Deleted from the Evaluation library. Results already shown stay visible in this tab, but it can’t run again.
-      </div>
+      </Callout>
     );
 
   if (!documentRunnable(document))
     return (
-      <div className="evaluation-banner bad">
-        <span>{unavailableText(document)}</span>
-        <Button variant="text" disabled={retrying} onClick={retry}>
-          {retrying ? "Checking…" : "Retry original"}
-        </Button>
-      </div>
+      <Callout
+        tone="danger"
+        action={
+          <Button variant="text" disabled={retrying} onClick={retry}>
+            {retrying ? "Checking…" : "Retry original"}
+          </Button>
+        }
+      >
+        {unavailableText(document)}
+      </Callout>
     );
 
   if (newerAvailable(document))
     return (
-      <div className="evaluation-banner">
-        <span>The saved answers were updated since you loaded them. This Evaluation keeps the copy you loaded.</span>
-        <Button variant="text"
-          onClick={() =>
-            evaluation.loadLatest(document.key).catch((error) => notify("library.loadLatest", "failure", { error }))
-          }
-        >
-          Load latest
-        </Button>
-      </div>
+      <Callout
+        tone="info"
+        action={
+          <Button
+            variant="text"
+            onClick={() =>
+              evaluation.loadLatest(document.key).catch((error) => notify("library.loadLatest", "failure", { error }))
+            }
+          >
+            Load latest
+          </Button>
+        }
+      >
+        The saved answers were updated since you loaded them. This Evaluation keeps the copy you loaded.
+      </Callout>
     );
 
   return null;

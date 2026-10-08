@@ -36,15 +36,16 @@ describe("Processing cost headers", () => {
     render(<DocumentPage selectedDocument={document} />);
     const button = screen.getByRole("button", { name: "Document total cost: $0.0122842" });
     expect(button.closest(".processing-cost").previousElementSibling.textContent).toContain("average confidence");
-    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(screen.getByRole("tooltip").className).not.toContain("is-open");
     await user.hover(button);
     const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.className).toContain("is-open");
     expect(within(tooltip).getByText("Smart split").nextElementSibling.textContent).toBe("$0.006");
     expect(within(tooltip).getByText("Auto template").nextElementSibling.textContent).toBe("$0.0022842");
     expect(within(tooltip).getByText("Extraction").nextElementSibling.textContent).toBe("$0.004");
     // Escape also dismisses a hovered tooltip when the trigger does not have focus.
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(screen.getByRole("tooltip").className).not.toContain("is-open");
   });
 
   it("places the packet total after excluded count and supports keyboard focus and Escape", async () => {
@@ -66,11 +67,12 @@ describe("Processing cost headers", () => {
     expect(button.closest(".processing-cost").previousElementSibling.textContent).toBe("1 excluded");
     act(() => button.focus());
     expect(screen.getByRole("tooltip").id).toBe(button.getAttribute("aria-describedby"));
+    expect(screen.getByRole("tooltip").className).toContain("is-open");
     expect(screen.getByText(/kept at packet level/)).toBeTruthy();
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("tooltip")).toBeNull();
-    fireEvent.click(button);
-    expect(screen.getByRole("tooltip")).toBeTruthy();
+    expect(screen.getByRole("tooltip").className).not.toContain("is-open");
+    fireEvent.focus(button);
+    expect(screen.getByRole("tooltip").className).toContain("is-open");
   });
 
   it("distinguishes zero, partial, unavailable, and very small amounts", () => {

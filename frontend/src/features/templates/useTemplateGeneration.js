@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { validateTemplateJsonPayload } from "./templateFields.js";
 import { describeError } from "../../lib/describeError";
-import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import { validateSourceFiles } from "../documents/sourceFileValidation.js";
 
 export function useTemplateGeneration({
   request,
@@ -61,14 +61,10 @@ export function useTemplateGeneration({
       return;
     }
 
-    if (!SOURCE_FILE_MIME_TYPES.includes(file.type)) {
-      setError("Choose a PDF, PNG, JPEG, or WebP file.");
+    const [rejection] = validateSourceFiles([file], maxSourceFileBytes).rejections;
 
-      return;
-    }
-
-    if (!file.size || file.size > maxSourceFileBytes) {
-      setError(`Choose a nonempty file no larger than ${maxSourceFileBytes / (1024 * 1024)} MiB.`);
+    if (rejection || !file.size) {
+      setError(rejection || `${file.name} is empty.`);
 
       return;
     }

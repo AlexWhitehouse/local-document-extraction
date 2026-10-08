@@ -28,13 +28,12 @@ label.upload-tag-option:has(input:focus-visible) { box-shadow: 0 0 0 1px var(--a
 .packet-message { margin: 14px 0 0; font-size: var(--font-size-4); }
 .packet-message.is-error, .processing-error { color: var(--tone-danger-text); }
 .packet-table-scroll { max-height: clamp(180px, 40dvh, 360px); overflow: auto; overscroll-behavior: contain; }
-.studio-main .packet-table tbody th { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--rule); background: transparent; color: var(--text-0); font: 500 var(--font-size-4) var(--font-body); text-align: left; text-transform: none; letter-spacing: 0; }
-.studio-main .packet-table td { font-family: var(--font-mono); font-size: var(--font-size-3); white-space: normal; }
-.studio-main .packet-table td:last-child { width: auto; }
-.studio-main .packet-documents button.studio-text-button { min-height: 0; color: var(--text-0); font-size: var(--font-size-4); }
-.studio-main .packet-documents button.studio-text-button:hover { color: var(--accent-strong); }
-.studio-main .packet-documents :is(th, td):nth-child(2) { width: 18%; }
-.studio-main .packet-documents :is(th, td):nth-child(4) { width: 18%; }
+.packet-table tbody th { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--rule); background: transparent; color: var(--text-0); font: 500 var(--font-size-4) var(--font-body); text-align: left; text-transform: none; letter-spacing: 0; }
+.packet-table td { font-family: var(--font-mono); font-size: var(--font-size-3); white-space: normal; }
+.packet-documents button.studio-text-button { min-height: 0; color: var(--text-0); font-size: var(--font-size-4); }
+.packet-documents button.studio-text-button:hover { color: var(--accent-strong); }
+.packet-documents :is(th, td):nth-child(2) { width: 18%; }
+.packet-documents :is(th, td):nth-child(4) { width: 18%; }
 
 /* Split review: a ledger of page groups beside the original page. */
 .split-review .studio-section-heading { margin-bottom: 4px; }

@@ -16,8 +16,9 @@ button.template-tags-trigger:focus-visible, button.template-tags-trigger[aria-ex
 .template-tags-chevron { flex-shrink: 0; color: var(--text-2); transition: transform 120ms ease; }
 .template-tags-trigger[aria-expanded="true"] .template-tags-chevron { transform: rotate(180deg); color: var(--accent-strong); }
 
-/* Popover: same surface as the document filter popover. */
-.template-tags-popup { position: absolute; right: 0; top: calc(100% + 4px); z-index: var(--z-popover); width: min(340px, calc(100vw - 40px)); display: grid; border: 1px solid var(--rule-strong); background: var(--pane-raised); box-shadow: var(--shadow-popover); color: var(--text-1); font-size: var(--font-size-4); }
+/* The trigger row is the popover anchor; the panel's chrome comes from .ui-popover. */
+.template-tags-anchor { display: flex; min-width: 0; }
+.ui-popover.template-tags-popup { width: min(340px, calc(100vw - 40px)); padding: 0; display: grid; }
 .template-tags-popup-head { display: flex; align-items: start; justify-content: space-between; gap: 10px; padding: 12px 12px 10px; }
 .template-tags-popup-head > div { display: grid; gap: 2px; min-width: 0; }
 .template-tags-popup-head strong { color: var(--text-0); font: 500 var(--font-size-5) var(--font-body); }
@@ -41,5 +42,5 @@ button.template-tags-trigger:focus-visible, button.template-tags-trigger[aria-ex
 .template-tags-empty { padding: 12px; }
 .template-tags-error { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0; padding: 0 12px 10px; color: var(--tone-danger-text); font-size: var(--font-size-3); overflow-wrap: anywhere; }
 
-@container (max-width: 620px) { .studio-template-page .studio-template-meta.template-meta-with-tags { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } .studio-template-page .template-tags { grid-column: 1 / -1; } .template-tags-popup { left: 0; right: 0; width: auto; } }
-@media (max-width: 600px) { .studio-template-page .studio-template-meta.template-meta-with-tags { grid-template-columns: 1fr; } .template-tags-popup { left: 0; right: 0; width: auto; } }
+@container (max-width: 620px) { .studio-template-page .studio-template-meta.template-meta-with-tags { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } .studio-template-page .template-tags { grid-column: 1 / -1; } .ui-popover.template-tags-popup { left: 0; right: 0; width: auto; } }
+@media (max-width: 600px) { .studio-template-page .studio-template-meta.template-meta-with-tags { grid-template-columns: 1fr; } .ui-popover.template-tags-popup { left: 0; right: 0; width: auto; } }

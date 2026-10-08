@@ -7,8 +7,7 @@
   --cp-grid: var(--rule);
 }
 .workspace-costs { min-width: 0; padding-bottom: 28px; }
-.cp-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 12px; }
-.cp-load-status { font-size: var(--font-size-4); color: var(--text-2); padding: 16px 0; }
+.cp-pagination { padding-top: 12px; }
 .workspace-costs .cp-tab-row { flex-wrap: wrap; }
 .workspace-costs .cp-range-row { flex-wrap: wrap; padding-block: 8px; }
 @media (max-width: 600px) {
@@ -22,9 +21,8 @@
 .cp-swatch { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; margin-right: 7px; }
 .cp-muted { color: var(--text-3); font-size: var(--font-size-3); font-weight: 400; }
 .cp-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.studio-main .cp-table th.cp-num { text-align: right; }
-.studio-main .studio-table .cp-strong { color: var(--text-0); font-weight: 500; }
-.cp-profile-note { padding: 8px 12px; }
+.cp-table th.cp-num { text-align: right; }
+.cp-strong { color: var(--text-0); font-weight: 500; }
 
 /* Entry point on the Workspace page */
 .studio-main button.cp-costs-action { display: inline-flex; align-items: center; gap: 6px; }
@@ -36,10 +34,10 @@
 /* Match the shared page heading gutter, which narrows at 1440px; otherwise the row overflows by 6px. */
 @media (max-width: 1440px) { .cp-tab-row { margin-inline: -22px; padding-inline: 22px; } }
 .cp-range-row { display: flex; align-items: center; gap: 12px; }
-.cp-range { position: relative; }
-.cp-range-popover { position: absolute; z-index: var(--z-popover); top: calc(100% + 6px); right: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 300px; padding: 14px; border: 1px solid var(--rule-strong); background: var(--pane-raised); box-shadow: var(--shadow-popover); }
-.cp-range-popover label { display: grid; }
-.cp-range-popover p { grid-column: 1 / -1; margin: 0; }
+.ui-popover.cp-range-popover { width: 300px; padding: 14px; }
+.cp-range-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cp-range-form label { display: grid; }
+.cp-range-form p { grid-column: 1 / -1; margin: 0; }
 .cp-range-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 6px; }
 .cp-tab-panel { display: grid; gap: 26px; padding-top: 20px; min-width: 0; animation: cp-appear 160ms ease-out; }
 @keyframes cp-appear { from { opacity: .4; } }
@@ -95,10 +93,9 @@
 /* Tables */
 .cp-table-scroll { max-height: 420px; overflow: auto; border-top: 1px solid var(--rule); }
 .cp-table { font-variant-numeric: tabular-nums; }
-.studio-main .cp-table tbody tr.cp-selected-row :is(th, td) { background: var(--row-selected); }
-.studio-main .cp-table tfoot td { padding: 8px 10px; border-top: 1px solid var(--rule-strong); color: var(--text-1); font-weight: 500; }
-.studio-main .cp-table tfoot td:first-child { padding-left: 0; }
-.studio-main .cp-table tfoot td:last-child { padding-right: 0; }
+.cp-table tbody tr.cp-selected-row :is(th, td) { background: var(--row-selected); }
+.cp-table tfoot td { padding: 8px 10px; border-top: 1px solid var(--rule-strong); color: var(--text-1); font-weight: 500; }
+.cp-table tfoot td:first-child { padding-left: 0; }
 
 /* Charts */
 .cp-chart { min-width: 0; }
@@ -164,11 +161,10 @@
 .cp-page { display: grid; place-items: center; width: 22px; height: 28px; background: var(--pane-overlay); color: var(--text-3); font: var(--font-size-1) var(--font-mono); transition: opacity 120ms; }
 .cp-page-last { margin-right: 8px; }
 .cp-page-excluded { background: repeating-linear-gradient(135deg, var(--rule-strong) 0 1.5px, transparent 1.5px 5px); }
-.studio-main .cp-anatomy-table :is(th, td) { padding-left: 6px; padding-right: 6px; }
+.table.cp-anatomy-table :is(th, td) { padding-left: 6px; padding-right: 6px; }
 .cp-note { margin: 0; color: var(--text-2); font-size: var(--font-size-3); line-height: 1.5; text-wrap: pretty; }
 
 /* Tooltip */
-.cp-tip { position: fixed; z-index: var(--z-toast); width: 240px; padding: 10px 12px; border: 1px solid var(--rule-strong); background: var(--pane-elevated); color: var(--text-1); box-shadow: var(--shadow-popover); font: var(--font-size-3)/1.45 var(--font-body); pointer-events: none; }
 .cp-tip-title { overflow: hidden; color: var(--text-0); font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
 .cp-tip-meta { color: var(--text-3); font-size: var(--font-size-2); }
 .cp-tip dl { margin: 8px 0 0; }

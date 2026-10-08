@@ -6,6 +6,7 @@ import { useCostResource } from "./useCostResource.js";
 import { OverviewTab } from "./OverviewTab.jsx";
 import { ErrorState, LoadingState } from "../../ui/States.jsx";
 import { Tabs } from "../../ui/Tabs.jsx";
+import { Callout } from "../../ui/Callout.jsx";
 import { DocumentsTab } from "./DocumentsTab.jsx";
 import "./workspaceCosts.css";
 
@@ -90,12 +91,12 @@ export function CostResourceStatus({ resource }) {
 
   if (resource.data?.updating)
     return (
-      <p role="status" className="cp-load-status">
+      <Callout tone="info" role="status" title={resource.data.historyBuilding ? "Building cost history" : "Updating recent costs"}>
         {resource.data.historyBuilding
-          ? "Building cost history. Figures are incomplete until this finishes."
-          : "Updating recent costs. Figures may be incomplete."}{" "}
+          ? "Figures are incomplete until this finishes."
+          : "Figures may be incomplete."}{" "}
         This page refreshes every 30 seconds.
-      </p>
+      </Callout>
     );
 
   return null;

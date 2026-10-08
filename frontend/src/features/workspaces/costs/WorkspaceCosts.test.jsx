@@ -127,7 +127,7 @@ describe("workspace costs", () => {
     );
 
     render(<WorkspaceCosts {...props} tab="documents" request={request} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Continue search" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Next page" }));
     const detail = await screen.findByRole("region", { name: "Blank packet.pdf cost" });
     expect(within(detail).getByText("No documents to extract · 2 pages")).toBeTruthy();
     expect(within(detail).getByText("Deleted")).toBeTruthy();
@@ -320,7 +320,7 @@ it("applies bounded historical custom ranges and supports dashboard navigation",
   });
   expect(screen.getByText("2020-01-01 to 2020-01-31 · UTC")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "01-01 – 01-31" }));
-  fireEvent.keyDown(window, { key: "Escape" });
+  fireEvent.keyDown(document.body, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "01-01 – 01-31" }));
   fireEvent.change(screen.getByLabelText("To"), { target: { value: "2020-01-01" } });

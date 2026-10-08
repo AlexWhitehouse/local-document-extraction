@@ -44,6 +44,7 @@ import { WorkspaceCosts } from "./features/workspaces/costs/WorkspaceCosts.jsx";
 import { hasUnsavedEdits, runDiscardChecks } from "./lib/unsavedChanges.js";
 import { DISCARD_CHANGES, confirmDialog } from "./features/ui/confirm.jsx";
 import { Field, TextInput } from "./features/ui/Field.jsx";
+import { Callout } from "./features/ui/Callout.jsx";
 import { LoadingState } from "./features/ui/States.jsx";
 import { PageHeader } from "./features/ui/PageHeader.jsx";
 import { Button } from "./features/ui/Button.jsx";
@@ -619,17 +620,22 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         showAdminNavigation={isApplicationAdmin}
         impersonationSlot={
           isImpersonating ? (
-            <div role="status" aria-label="Impersonation mode" className="impersonation-banner">
-              <strong>Impersonating {sessionUserEmail || sessionUserName || "this user"}</strong>
-              <Button
-                variant="secondary"
-                pending={isStoppingImpersonation}
-                pendingLabel="Stopping…"
-                onClick={handleStopImpersonating}
-              >
-                Stop impersonating
-              </Button>
-            </div>
+            <Callout
+              tone="warning"
+              role="status"
+              aria-label="Impersonation mode"
+              title={`Impersonating ${sessionUserEmail || sessionUserName || "this user"}`}
+              action={
+                <Button
+                  variant="secondary"
+                  pending={isStoppingImpersonation}
+                  pendingLabel="Stopping…"
+                  onClick={handleStopImpersonating}
+                >
+                  Stop impersonating
+                </Button>
+              }
+            />
           ) : null
         }
         onNavigate={handleSidebarNavigation}
@@ -824,6 +830,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
                 maxSourceFileBytes={maxSourceFileBytes}
                 suggestedModels={documentController.contextList.availableModels}
                 workspaceCrumb={workspaceCrumb}
+                onOpenWorkspace={() => setActivePage("workspace")}
               />
             ) : null}
             {!routeLoading && visiblePage === "documents" ? (

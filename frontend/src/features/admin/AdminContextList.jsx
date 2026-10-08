@@ -3,10 +3,9 @@ import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
 import { ListStatus } from "../ui/States.jsx";
-import { IconButton } from "../ui/Button.jsx";
 import { Field, TextInput } from "../ui/Field.jsx";
 import { Badge } from "../ui/Status.jsx";
-import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
+import { Pager } from "../ui/Pager.jsx";
 import { accountFlags, displayName, isApplicationAdmin, safeText, userIdOf } from "./adminAccounts.js";
 
 export function AdminContextList({ admin }) {
@@ -89,23 +88,15 @@ export function AdminContextFooter({ admin }) {
     <>
       <Badge>Total users {admin.total}</Badge>
       {pageCount > 1 ? (
-        <div className="admin-context-pager">
-          <IconButton
-            label="Previous page"
-            icon={ChevronLeftIcon}
-            disabled={admin.isLoading || !admin.hasPreviousPage}
-            onClick={admin.onPreviousPage}
-          />
-          <span>
-            Page {admin.currentPage} of {pageCount}
-          </span>
-          <IconButton
-            label="Next page"
-            icon={ChevronRightIcon}
-            disabled={admin.isLoading || !admin.hasNextPage}
-            onClick={admin.onNextPage}
-          />
-        </div>
+        <Pager
+          className="admin-context-pager"
+          label={`Page ${admin.currentPage} of ${pageCount}`}
+          hasPrevious={admin.hasPreviousPage}
+          hasNext={admin.hasNextPage}
+          onPrevious={admin.onPreviousPage}
+          onNext={admin.onNextPage}
+          disabled={admin.isLoading}
+        />
       ) : null}
     </>
   );

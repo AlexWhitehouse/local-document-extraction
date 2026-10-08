@@ -3,6 +3,7 @@ import "./WorkspaceModelConfiguration.css";
 import { useUnsavedGuard } from "../../lib/unsavedChanges";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { Button } from "../ui/Button.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
 import { Badge, StatusDot } from "../ui/Status.jsx";
 import { CheckboxField, Field, TextInput } from "../ui/Field.jsx";
 
@@ -296,7 +297,7 @@ function RoleHeading({ title, note }) {
 
 function RolesTable({ label, children }) {
   return (
-    <table className="workspace-model-roles" aria-label={label}>
+    <DataTable className="workspace-model-roles" label={label}>
       <thead>
         <tr>
           <th scope="col">Used for</th>
@@ -309,7 +310,7 @@ function RolesTable({ label, children }) {
         </tr>
       </thead>
       <tbody>{children}</tbody>
-    </table>
+    </DataTable>
   );
 }
 

@@ -43,3 +43,12 @@
   left: calc(100% + 8px);
   transform: translateY(-50%);
 }
+
+/* A tip that follows the pointer over a chart. It is positioned in JS and portaled to body. */
+.ui-tooltip.ui-tooltip-pointer {
+  position: fixed;
+  width: 240px;
+  max-width: none;
+  padding: 10px 12px;
+  font: var(--font-size-3)/1.45 var(--font-body);
+}

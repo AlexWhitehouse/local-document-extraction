@@ -61,7 +61,6 @@ export function useDocumentController({
   actionScopeRef.current = actionScope;
   const documentRequestsRef = useRef(documentRequests);
   documentRequestsRef.current = documentRequests;
-  const [isUploadDragActive, setIsUploadDragActive] = useState(false);
   const [liveUpdatesUnavailable, setLiveUpdatesUnavailable] = useState(false);
   const [isDownloadingOriginal, setIsDownloadingOriginal] = useState(false);
   // The packet tab showing a child document; empty shows the packet overview.
@@ -230,7 +229,6 @@ export function useDocumentController({
     setUploadRejections([]);
     setUploadTags([]);
     setIsResolvingTemplate(false);
-    setIsUploadDragActive(false);
     packetTabRequestRef.current += 1;
     setPacketChildId("");
     setPendingPacketTab(null);
@@ -277,21 +275,14 @@ export function useDocumentController({
     setUploadTemplateId(selectedUploadTemplateId || templates[0]?.id || "");
     setUploadFiles([]);
     setUploadRejections([]);
-    setIsUploadDragActive(false);
     setShowUploadModal(true);
   }
 
   // Closing during an upload only hides the modal; the upload keeps running and reports
   // through its toast.
   function closeUploadModal() {
-    setIsUploadDragActive(false);
     setUploadRejections([]);
     setShowUploadModal(false);
-  }
-
-  function handleUploadDrop(event) {
-    setIsUploadDragActive(false);
-    appendUploadFiles(Array.from(event.dataTransfer?.files || []));
   }
 
   function appendUploadFiles(nextFiles) {
@@ -986,15 +977,11 @@ export function useDocumentController({
       onSelectTags: setUploadTags,
       sourceFiles: uploadFiles,
       uploadRejections,
-      isDragActive: isUploadDragActive,
       isUploadingDocuments,
       hasApiAccess: hasWorkspaceApiAccess && modelReady,
       onClose: closeUploadModal,
       onSelectTemplate: setUploadTemplateId,
       onSelectSourceFiles: appendUploadFiles,
-      onDragOver: () => setIsUploadDragActive(true),
-      onDragLeave: () => setIsUploadDragActive(false),
-      onDrop: handleUploadDrop,
       onRemoveSourceFile: removeUploadFile,
       onSubmit: uploadFromModal,
     },

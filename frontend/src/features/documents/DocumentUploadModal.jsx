@@ -15,16 +15,12 @@ export function DocumentUploadModal({
   onSelectTags,
   sourceFiles,
   uploadRejections = [],
-  isDragActive,
   isUploadingDocuments,
   hasApiAccess,
   maxSourceFileBytes = 10 * 1024 * 1024,
   onClose,
   onSelectTemplate,
   onSelectSourceFiles,
-  onDragOver,
-  onDragLeave,
-  onDrop,
   onRemoveSourceFile,
   onSubmit,
 }) {
@@ -80,13 +76,9 @@ export function DocumentUploadModal({
         <DocumentUploadPanel
           sourceFiles={sourceFiles}
           rejections={uploadRejections}
-          isDragActive={isDragActive}
           disabled={isUploadingDocuments}
           maxSourceFileBytes={maxSourceFileBytes}
           onSelectSourceFiles={onSelectSourceFiles}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
           onRemoveSourceFile={onRemoveSourceFile}
           tourTarget="upload-files"
         />

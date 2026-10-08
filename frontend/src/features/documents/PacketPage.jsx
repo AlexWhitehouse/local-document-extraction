@@ -10,6 +10,7 @@ import { Button, IconButton } from "../ui/Button.jsx";
 import { StatusDot } from "../ui/Status.jsx";
 import { Tabs } from "../ui/Tabs.jsx";
 import { ListAddButton } from "../ui/ListAddButton.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
 import { Field, TextInput } from "../ui/Field.jsx";
 import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
 
@@ -254,7 +255,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
         <section className="packet-section" aria-label="Excluded pages">
           <h3 className="packet-section-title">Excluded pages</h3>
           <div className="packet-table-scroll">
-            <table className="studio-table packet-table">
+            <DataTable className="packet-table">
               <thead>
                 <tr>
                   <th scope="col">Page</th>
@@ -269,7 +270,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           </div>
         </section>
       ) : null}
@@ -282,7 +283,7 @@ function PacketDocuments({ documents, templates, onSelectDocument }) {
     <section className="packet-section" aria-label="Documents in this packet">
       <h3 className="packet-section-title">Documents</h3>
       <div className="packet-table-scroll">
-        <table className="studio-table packet-table packet-documents">
+        <DataTable className="packet-table packet-documents">
           <thead>
             <tr>
               <th scope="col">Document</th>
@@ -321,7 +322,7 @@ function PacketDocuments({ documents, templates, onSelectDocument }) {
               );
             })}
           </tbody>
-        </table>
+        </DataTable>
       </div>
     </section>
   );

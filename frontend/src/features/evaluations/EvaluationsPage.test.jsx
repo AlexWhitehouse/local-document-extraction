@@ -448,7 +448,7 @@ it("validates setup documents before keeping them", () => {
   fireEvent.change(input, {
     target: { files: [new File(["x".repeat(1001)], "large.pdf", { type: "application/pdf" })] },
   });
-  expect(screen.getByRole("alert").textContent).toMatch(/file limit/);
+  expect(screen.getByRole("alert").textContent).toMatch(/larger than/);
   fireEvent.change(input, { target: { files: [new File(["x"], "notes.txt", { type: "text/plain" })] } });
   expect(screen.getByRole("alert").textContent).toMatch(/PDF, PNG, JPG or WEBP/);
   expect(evaluation.addUploads).not.toHaveBeenCalled();
@@ -467,7 +467,7 @@ it("uses the shared uploader to add documents and keeps invalid uploads in the d
   fireEvent.change(input, {
     target: { files: [new File(["x".repeat(1001)], "large.pdf", { type: "application/pdf" })] },
   });
-  expect(within(dialog).getByRole("alert").textContent).toMatch(/file limit/);
+  expect(within(dialog).getByRole("alert").textContent).toMatch(/larger than/);
   expect(evaluation.addUploads).not.toHaveBeenCalled();
   const file = new File(["sample"], "invoice.pdf", { type: "application/pdf" });
   fireEvent.change(input, { target: { files: [file] } });
@@ -982,4 +982,18 @@ it("shows each candidate's run cost in its column head and marks partial or miss
   expect(screen.getByLabelText("Run cost: $0.0037").title).toBe("$0.00369663 for the successful attempt");
   expect(screen.getByLabelText("Run cost: $0.0012+")).toBeTruthy();
   expect(screen.getByLabelText("Run cost: Unavailable").classList.contains("evaluation-muted")).toBe(true);
+});
+
+it("shows a missing Model gateway as one info callout that opens the Workspace page", () => {
+  const onOpenWorkspace = vi.fn();
+  setup({ candidates: [], document: null, setup: { configured: false, model: "" } }, [], { onOpenWorkspace });
+
+  const callout = screen.getByText("Evaluations need a Model gateway").closest(".ui-callout");
+  expect(callout.className).toContain("ui-tone-info");
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByText(/Configure a model/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Start Evaluation" }).disabled).toBe(true);
+
+  fireEvent.click(within(callout).getByRole("button", { name: "Set up Model gateway" }));
+  expect(onOpenWorkspace).toHaveBeenCalledTimes(1);
 });

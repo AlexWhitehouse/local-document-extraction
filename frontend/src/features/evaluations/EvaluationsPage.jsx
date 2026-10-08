@@ -26,9 +26,11 @@ import { documentCompatibility } from "./evaluationScoring.js";
 import { documentDirty, saveUnavailableMessage } from "./evaluationLibrary.js";
 import "./evaluations.css";
 import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
-import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import { validateSourceFiles } from "../documents/sourceFileValidation.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Segmented } from "../ui/Tabs.jsx";
+import { Dropzone } from "../ui/Dropzone.jsx";
+import { Callout } from "../ui/Callout.jsx";
 import { CloseIcon, ExternalIcon } from "../layout/Icons.jsx";
 
 export function EvaluationsPage({
@@ -39,13 +41,13 @@ export function EvaluationsPage({
   maxSourceFileBytes,
   suggestedModels,
   onTemplateSaved,
+  onOpenWorkspace,
   toast = defaultToast,
 }) {
   const { state, patch, edit, api } = evaluation;
   const [editor, setEditor] = useState(null);
   const [preview, setPreview] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [isDragActive, setDragActive] = useState(false);
   const [autoRun, setAutoRun] = useState(null);
   const [replacement, setReplacement] = useState(null);
   const [localError, setLocalError] = useState("");
@@ -140,21 +142,14 @@ export function EvaluationsPage({
   const unsaved = state.documents.filter((d) => d.kind === "upload" || documentDirty(d)).length;
 
   const selectDocuments = (files) => {
-    setDragActive(false);
-
     if (!files.length) return;
-    const valid = files.filter((file) => SOURCE_FILE_MIME_TYPES.includes(file.type) && file.size <= maxSourceFileBytes);
+    const { accepted, rejections } = validateSourceFiles(files, maxSourceFileBytes);
+    const problem = rejections.join(" ");
 
-    const problem = files.some((file) => !SOURCE_FILE_MIME_TYPES.includes(file.type))
-      ? "Choose a PDF, PNG, JPG or WEBP document."
-      : files.some((file) => file.size > maxSourceFileBytes)
-        ? "Document exceeds the Workspace file limit."
-        : "";
-
-    if (valid.length) evaluation.addUploads(valid);
+    if (accepted.length) evaluation.addUploads(accepted);
     setLocalError(
       problem
-        ? `${problem}${valid.length ? ` Added ${valid.length} other ${valid.length === 1 ? "document" : "documents"}.` : ""}`
+        ? `${problem}${accepted.length ? ` Added ${accepted.length} other ${accepted.length === 1 ? "document" : "documents"}.` : ""}`
         : "",
     );
 
@@ -372,18 +367,24 @@ export function EvaluationsPage({
         }
       />
       {state.cacheError && (
-        <div role="alert" className="evaluation-banner bad evaluation-cache-error">
-          <span>
-            <strong>Result details couldn’t be kept in this browser.</strong> {state.cacheError.message} New runs are
-            paused; results already shown are kept, and results whose details are missing can’t be scored.
-          </span>
-          <Button variant="text" onClick={() => evaluation.retryCache()}>
-            Retry storage
-          </Button>
-          <Button variant="danger-text" onClick={() => open("clear")}>
-            Clear Evaluation
-          </Button>
-        </div>
+        <Callout
+          tone="danger"
+          role="alert"
+          title="Result details couldn’t be kept in this browser."
+          action={
+            <>
+              <Button variant="text" onClick={() => evaluation.retryCache()}>
+                Retry storage
+              </Button>
+              <Button variant="danger-text" onClick={() => open("clear")}>
+                Clear Evaluation
+              </Button>
+            </>
+          }
+        >
+          {state.cacheError.message} New runs are paused; results already shown are kept, and results whose details are
+          missing can’t be scored.
+        </Callout>
       )}
       {!state.candidates.length && !editingLibrary ? (
         <EvaluationSetup
@@ -400,13 +401,14 @@ export function EvaluationsPage({
           onStart={startEvaluation}
           onChooseLibrary={(setupFields) => open("picker", { fields: setupFields })}
           onManageLibrary={(setupFields) => open("manage", { fields: setupFields })}
+          onOpenWorkspace={onOpenWorkspace}
         />
       ) : (
         <>
           {((!editingLibrary && state.error) || localError) && !uploadOpen && (
-            <p role="alert" className="evaluation-page-alert">
+            <Callout tone="danger" role="alert">
               {(!editingLibrary && state.error) || localError}
-            </p>
+            </Callout>
           )}
           <div className="evaluation-contextbar">
             <div className="evaluation-context-item">
@@ -583,23 +585,28 @@ export function EvaluationsPage({
               onFilterChange={setFilter}
             />
           ) : (
-            <div className="evaluation-dropzone">
-              <span className="evaluation-dropzone-icon" aria-hidden="true">
-                ▤
-              </span>
-              <div>
-                <strong>Add a document to compare</strong>
-                <small>Choose saved documents or upload new ones. Candidates run on every document.</small>
-              </div>
-              <span className="evaluation-actions">
-                <Button onClick={() => open("picker")}>
-                  Library
-                </Button>
-                <Button variant="secondary" onClick={() => setUploadOpen(true)}>
-                  Upload new
-                </Button>
-              </span>
-            </div>
+            <Dropzone
+              label="Evaluation document"
+              className="evaluation-dropzone"
+              onFiles={selectDocuments}
+              renderContent={() => (
+                <>
+                <span className="evaluation-dropzone-icon" aria-hidden="true">
+                  ▤
+                </span>
+                <div>
+                  <strong>Add a document to compare</strong>
+                  <small>Choose saved documents or upload new ones. Candidates run on every document.</small>
+                </div>
+                <span className="evaluation-actions">
+                  <Button onClick={() => open("picker")}>Library</Button>
+                  <Button variant="secondary" onClick={() => setUploadOpen(true)}>
+                    Upload new
+                  </Button>
+                </span>
+                </>
+              )}
+            />
           )}
         </>
       )}
@@ -622,11 +629,7 @@ export function EvaluationsPage({
             label="Document"
             multiple
             maxSourceFileBytes={maxSourceFileBytes}
-            isDragActive={isDragActive}
             onSelectSourceFiles={selectDocuments}
-            onDragOver={() => setDragActive(true)}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={(event) => selectDocuments(Array.from(event.dataTransfer.files || []))}
           />
           {localError && (
             <p role="alert" className="form-error">

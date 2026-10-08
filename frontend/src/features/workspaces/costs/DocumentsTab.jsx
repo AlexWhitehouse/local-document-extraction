@@ -7,8 +7,9 @@ import { useChartTip } from "./costHooks.js";
 import { useCostResource } from "./useCostResource.js";
 import { CostResourceStatus } from "./WorkspaceCosts.jsx";
 import { EmptyState } from "../../ui/States.jsx";
-import { Button } from "../../ui/Button.jsx";
+import { Pager } from "../../ui/Pager.jsx";
 import { Badge } from "../../ui/Status.jsx";
+import { DataTable } from "../../ui/DataTable.jsx";
 import { Segmented } from "../../ui/Tabs.jsx";
 
 const STACK = ["split", "auto_template", "extraction"];
@@ -131,28 +132,20 @@ function DocumentResults({ request, base, queryString, sort }) {
               variant="inline"
               message={
                 resource.data.cursor
-                  ? "No matches in this batch. Continue searching for more results."
+                  ? "No matches yet. Load more to keep searching."
                   : "Nothing matches this range and filter."
               }
             />
           ) : null}
-          <div className="cp-pagination">
-            <Button
-              variant="secondary"
-              disabled={cursors.length === 1 || resource.loading}
-              onClick={() => setCursors((value) => value.slice(0, -1))}
-            >
-              Previous
-            </Button>
-            <span className="cp-muted">Page {cursors.length}</span>
-            <Button
-              variant="secondary"
-              disabled={!resource.data?.cursor || resource.loading}
-              onClick={() => setCursors((value) => [...value, resource.data.cursor])}
-            >
-              {resource.data?.searchContinuing ? "Continue search" : "Next"}
-            </Button>
-          </div>
+          <Pager
+            className="cp-pagination"
+            label={`Page ${cursors.length}`}
+            hasPrevious={cursors.length > 1}
+            hasNext={Boolean(resource.data?.cursor)}
+            onPrevious={() => setCursors((value) => value.slice(0, -1))}
+            onNext={() => setCursors((value) => [...value, resource.data.cursor])}
+            disabled={resource.loading}
+          />
         </section>
         <div>
           <CostResourceStatus resource={detail} />
@@ -336,7 +329,7 @@ function CostAnatomy({ item }) {
       ) : null}
 
       {parts.length > 1 ? (
-        <table className="studio-table cp-table cp-anatomy-table">
+        <DataTable className="cp-table cp-anatomy-table">
           <thead>
             <tr>
               <th>Document</th>
@@ -379,7 +372,7 @@ function CostAnatomy({ item }) {
               <td className="cp-num cp-strong">{costLabel(item.costs.total)}</td>
             </tr>
           </tfoot>
-        </table>
+        </DataTable>
       ) : null}
       {item.deleted || parts.some((part) => part.deleted) ? (
         <p className="cp-note">

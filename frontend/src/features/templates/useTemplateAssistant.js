@@ -4,7 +4,7 @@ import {
   evaluateSelection,
   validateAssistantOutput,
 } from "../../../../shared/templateAssistant.ts";
-import { SOURCE_FILE_MIME_TYPES } from "../../lib/runtimeConfiguration";
+import { validateSourceFiles } from "../documents/sourceFileValidation.js";
 import { describeError } from "../../lib/describeError";
 import { suggestTemplateRequests } from "./templateAssistantSuggestions.js";
 
@@ -193,8 +193,10 @@ export function useTemplateAssistant({
       return;
     }
 
-    if (file && (!SOURCE_FILE_MIME_TYPES.includes(file.type) || !file.size || file.size > maxSourceFileBytes)) {
-      setError(`Choose one nonempty PDF, PNG, JPEG, or WebP up to ${maxSourceFileBytes / 1024 / 1024} MiB.`);
+    const [rejection] = file ? validateSourceFiles([file], maxSourceFileBytes).rejections : [];
+
+    if (file && (rejection || !file.size)) {
+      setError(rejection || `${file.name} is empty.`);
 
       return;
     }

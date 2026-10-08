@@ -1,5 +1,5 @@
 import { statusLabel, statusTone } from "../../lib/status.js";
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
@@ -9,6 +9,9 @@ import { isPacketListed, isSingleDocumentPacket, singlePacketDocument, PACKET_ST
 import { EmptyState, ErrorState, Skeleton } from "../ui/States.jsx";
 import { Button } from "../ui/Button.jsx";
 import { Field, Select, TextInput } from "../ui/Field.jsx";
+import { Popover } from "../ui/Popover.jsx";
+import { LoadMore } from "../ui/Pager.jsx";
+import { describeError } from "../../lib/describeError";
 import { FilterIcon, PacketIcon } from "../layout/Icons.jsx";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
@@ -297,24 +300,18 @@ export function DocumentContextList({
             }
           />
         ) : null}
-        {hasMoreDocuments || hasMorePackets ? (
-          <button
-            type="button"
-            className="context-item"
-            disabled={isLoadingMoreDocuments || loadingPackets}
-            onClick={() => {
+        {hasMoreDocuments || hasMorePackets || loadMoreError ? (
+          <LoadMore
+            label="Load more documents"
+            pending={isLoadingMoreDocuments || loadingPackets}
+            error={loadMoreError ? describeError(loadMoreError, "This couldn't be loaded.") : ""}
+            onLoadMore={() => {
               if (hasMoreDocuments) onLoadMoreDocuments();
 
               if (hasMorePackets) onLoadMorePackets?.();
             }}
-          >
-            <strong>{isLoadingMoreDocuments || loadingPackets ? "Loading…" : "Load more Documents"}</strong>
-            <span>
-              {debouncedSearch || hasActiveFilters ? "Continue searching older documents" : "Show older documents"}
-            </span>
-          </button>
+          />
         ) : null}
-        {loadMoreError ? <ErrorState variant="inline" error={loadMoreError} onRetry={onLoadMoreDocuments} /> : null}
       </ScrollArea>
     </>
   );
@@ -401,9 +398,6 @@ function packetTone(status, childStatuses) {
 function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState(() => ({ ...filters }));
-  const containerRef = useRef(null);
-  const popoverId = useId();
-  const headingId = useId();
 
   const activeFilterCount = [filters.dateFrom, filters.dateTo, filters.model].filter(Boolean).length;
 
@@ -422,32 +416,6 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
   useEffect(() => {
     setDraftFilters(toDraftFilters(filters));
   }, [filters]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return undefined;
-    }
-
-    function closeOnOutsidePointer(event) {
-      if (!containerRef.current?.contains(event.target)) {
-        setIsOpen(false);
-      }
-    }
-
-    function closeOnEscape(event) {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    document.addEventListener("keydown", closeOnEscape);
-
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen]);
 
   function updateDraftFilter(name, value) {
     setDraftFilters((current) => ({ ...current, [name]: value }));
@@ -479,86 +447,84 @@ function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
   }
 
   return (
-    <div className="context-filter-control" ref={containerRef}>
-      <button
-        type="button"
-        className={`context-filter-trigger${activeFilterCount ? " active" : ""}`}
-        aria-controls={popoverId}
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        aria-label={`Advanced document filters${activeFilterCount ? `, ${activeFilterCount} active` : ""}`}
-        title="Advanced document filters"
-        onClick={toggleFilters}
-      >
-        <FilterIcon />
-        {activeFilterCount ? (
-          <span className="context-filter-count" aria-hidden="true">
-            {activeFilterCount}
-          </span>
-        ) : null}
-      </button>
-
-      {isOpen ? (
-        <form
-          id={popoverId}
-          className="context-filter-popover"
-          role="dialog"
-          aria-labelledby={headingId}
-          onSubmit={applyFilters}
+    <Popover
+      className="context-filter-control"
+      panelClassName="context-filter-popover"
+      label="Advanced filters"
+      open={isOpen}
+      onClose={() => setIsOpen(false)}
+      trigger={(triggerProps) => (
+        <button
+          type="button"
+          className={`context-filter-trigger${activeFilterCount ? " active" : ""}`}
+          aria-haspopup="dialog"
+          aria-label={`Advanced document filters${activeFilterCount ? `, ${activeFilterCount} active` : ""}`}
+          title="Advanced document filters"
+          onClick={toggleFilters}
+          {...triggerProps}
         >
-          <div className="context-filter-popover-head">
-            <div>
-              <span className="eyebrow">Narrow the queue</span>
-              <strong id={headingId}>Advanced filters</strong>
-            </div>
-            {activeFilterCount ? <span className="context-filter-active-label">{activeFilterCount} active</span> : null}
+          <FilterIcon />
+          {activeFilterCount ? (
+            <span className="context-filter-count" aria-hidden="true">
+              {activeFilterCount}
+            </span>
+          ) : null}
+        </button>
+      )}
+    >
+      <form className="context-filter-form" onSubmit={applyFilters}>
+        <div className="context-filter-popover-head">
+          <div>
+            <span className="eyebrow">Narrow the queue</span>
+            <strong>Advanced filters</strong>
           </div>
+          {activeFilterCount ? <span className="context-filter-active-label">{activeFilterCount} active</span> : null}
+        </div>
 
-          <div className="context-filter-date-grid">
-            <Field label="Date from">
-              <TextInput
-                type="date"
-                value={draftFilters.dateFrom}
-                max={draftFilters.dateTo || undefined}
-                onChange={(event) => updateDraftFilter("dateFrom", event.target.value)}
-              />
-            </Field>
-            <Field label="Date to" error={hasInvalidDateRange ? "Date from must be on or before date to." : ""}>
-              <TextInput
-                type="date"
-                value={draftFilters.dateTo}
-                min={draftFilters.dateFrom || undefined}
-                onChange={(event) => updateDraftFilter("dateTo", event.target.value)}
-              />
-            </Field>
-          </div>
-
-          <Field label="Model used">
-            <Select value={draftFilters.model} onChange={(event) => updateDraftFilter("model", event.target.value)}>
-              <option value="">Any model</option>
-              {modelOptions.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </Select>
+        <div className="context-filter-date-grid">
+          <Field label="Date from">
+            <TextInput
+              type="date"
+              value={draftFilters.dateFrom}
+              max={draftFilters.dateTo || undefined}
+              onChange={(event) => updateDraftFilter("dateFrom", event.target.value)}
+            />
           </Field>
+          <Field label="Date to" error={hasInvalidDateRange ? "Date from must be on or before date to." : ""}>
+            <TextInput
+              type="date"
+              value={draftFilters.dateTo}
+              min={draftFilters.dateFrom || undefined}
+              onChange={(event) => updateDraftFilter("dateTo", event.target.value)}
+            />
+          </Field>
+        </div>
 
-          <div className="context-filter-actions">
-            <Button
-              variant="secondary"
-              disabled={!activeFilterCount && !draftFilters.dateFrom && !draftFilters.dateTo && !draftFilters.model}
-              onClick={clearFilters}
-            >
-              Clear
-            </Button>
-            <Button type="submit" disabled={hasInvalidDateRange}>
-              Apply filters
-            </Button>
-          </div>
-        </form>
-      ) : null}
-    </div>
+        <Field label="Model used">
+          <Select value={draftFilters.model} onChange={(event) => updateDraftFilter("model", event.target.value)}>
+            <option value="">Any model</option>
+            {modelOptions.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <div className="context-filter-actions">
+          <Button
+            variant="secondary"
+            disabled={!activeFilterCount && !draftFilters.dateFrom && !draftFilters.dateTo && !draftFilters.model}
+            onClick={clearFilters}
+          >
+            Clear
+          </Button>
+          <Button type="submit" disabled={hasInvalidDateRange}>
+            Apply filters
+          </Button>
+        </div>
+      </form>
+    </Popover>
   );
 }
 

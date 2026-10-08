@@ -21,11 +21,9 @@ export function TemplateGenerationModal({
   onClose,
   onGenerate,
 }) {
-  const [isDragActive, setIsDragActive] = useState(false);
   const [uploadError, setUploadError] = useState("");
   useEffect(() => {
     if (!isOpen) return;
-    setIsDragActive(false);
     setUploadError("");
   }, [isOpen]);
 
@@ -54,7 +52,7 @@ export function TemplateGenerationModal({
     <ModalDialog
       labelledBy="template-generation-title"
       className="template-generation-modal"
-      initialFocus=".upload-dropzone"
+      initialFocus=".ui-dropzone-browse"
       isDirty={isDirty}
       onClose={onClose}
     >
@@ -70,17 +68,8 @@ export function TemplateGenerationModal({
               label="Sample file"
               multiple={false}
               sourceFiles={file ? [{ id: "sample", file, queueStatus: "pending" }] : []}
-              isDragActive={isDragActive}
               maxSourceFileBytes={maxSourceFileBytes}
               onSelectSourceFiles={selectFiles}
-              onDragOver={() => setIsDragActive(true)}
-              onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget)) setIsDragActive(false);
-              }}
-              onDrop={(event) => {
-                setIsDragActive(false);
-                selectFiles(Array.from(event.dataTransfer?.files || []));
-              }}
               onRemoveSourceFile={() => {
                 setUploadError("");
                 onFileChange(null);

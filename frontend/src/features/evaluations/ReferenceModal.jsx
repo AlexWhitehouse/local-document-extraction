@@ -20,6 +20,8 @@ import { display } from "./evaluationFormat.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { CloseIcon } from "../layout/Icons.jsx";
 import { Field, Select, TextInput, Textarea } from "../ui/Field.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
+import { Callout } from "../ui/Callout.jsx";
 
 function AnswerInput({ type, value, onChange, label, labelHidden = false, multiline = false, error, dateOrder }) {
   if (type === "boolean") {
@@ -303,16 +305,17 @@ function ReferenceEditor({
           <p className="evaluation-muted">Using {schemas[schema].label}</p>
         )}
         {previousField.data_type !== row.field.data_type && (
-          <div className="evaluation-schema-notice" role="status">
-            <strong>
-              Field type changed: {getDataTypeLabel(previousField.data_type)} → {getDataTypeLabel(row.field.data_type)}
-            </strong>
-            <p>Review the existing answer using the new type before verifying.</p>
-          </div>
+          <Callout
+            tone="warning"
+            role="status"
+            className="evaluation-schema-notice"
+            title={`Field type changed: ${getDataTypeLabel(previousField.data_type)} → ${getDataTypeLabel(row.field.data_type)}`}
+          >
+            Review the existing answer using the new type before verifying.
+          </Callout>
         )}
         {table && changes.hasChanges && (
-          <div className="evaluation-schema-notice" role="status">
-            <strong>Template columns changed</strong>
+          <Callout tone="warning" role="status" className="evaluation-schema-notice" title="Template columns changed">
             <p>Existing answers are carried forward where possible. Review the changes before verifying.</p>
             <ul>
               {changes.changed.map(([column, old]) => (
@@ -336,7 +339,7 @@ function ReferenceEditor({
             {initial.rows?.mode === "key" && !initial.rows.key && (
               <p>The row identifier was removed. Choose how to compare rows below.</p>
             )}
-          </div>
+          </Callout>
         )}
         <div className="evaluation-reference-options">
           <label>
@@ -416,9 +419,9 @@ function ReferenceEditor({
                   aria-label="Expected row columns"
                   tabIndex={0}
                 >
-                  <table
+                  <DataTable
                     className="object-schema-table evaluation-schema-values"
-                    aria-label="Expected row schema values"
+                    label="Expected row schema values"
                   >
                     <thead>
                       <tr>
@@ -511,7 +514,7 @@ function ReferenceEditor({
                         ))
                       )}
                     </tbody>
-                  </table>
+                  </DataTable>
                 </ScrollArea>
               </div>
             </>

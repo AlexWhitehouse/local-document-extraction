@@ -6,6 +6,7 @@ import { issueMessage } from "./issueMessages.js";
 import { Field, Select, TextInput, Textarea } from "../ui/Field.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
 import "./TemplateFieldEditor.css";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon, MoreIcon } from "../layout/Icons.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
@@ -519,7 +520,7 @@ function ObjectSchemaModal({
           aria-label="Object schema scroll area"
           tabIndex={0}
         >
-          <table className="object-schema-table" aria-label="Object schema columns">
+          <DataTable className="object-schema-table" label="Object schema columns">
             <thead>
               <tr>
                 <th scope="col">Order</th>
@@ -614,7 +615,7 @@ function ObjectSchemaModal({
                 ))
               )}
             </tbody>
-          </table>
+          </DataTable>
         </ScrollArea>
 
         <div className="object-schema-modal-footer">

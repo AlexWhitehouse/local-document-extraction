@@ -16,6 +16,8 @@ import { adaptReferenceDraft } from "./referenceDraft.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Badge } from "../ui/Status.jsx";
 import { Segmented } from "../ui/Tabs.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
+import { Callout } from "../ui/Callout.jsx";
 import { CloseIcon, ExternalIcon, PlayIcon, PlusIcon } from "../layout/Icons.jsx";
 import {
   answerSignature,
@@ -350,7 +352,7 @@ export function DocumentMatrix({
         {field.data_type === "array<object>" && tableRows !== null && columns.length ? (
           <>
             <div className="evaluation-table-scroll">
-              <table>
+              <DataTable compact>
                 <thead>
                   <tr>
                     {columns.map((c) => (
@@ -367,7 +369,7 @@ export function DocumentMatrix({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </DataTable>
             </div>
             <small>
               {pluralize(tableRows.length, "row")}{!full && tableRows.length > 3 ? " · showing first 3" : ""}
@@ -450,23 +452,23 @@ export function DocumentMatrix({
   return (
     <>
       {changes.size > 0 && (
-        <div className="evaluation-banner warn">
-          <span>
-            {changes.size} {changes.size === 1 ? "field differs" : "fields differ"} from the saved answers. Review
-            changed fields, enter new answers, or link renamed fields.
-          </span>
-          {onFilterChange && (
-            <Button variant="text"
-              onClick={() => onFilterChange(filter === "changes" ? "all" : "changes")}
-            >
-              {filter === "changes" ? "Show all fields" : "Review template changes"}
-            </Button>
-          )}
-        </div>
+        <Callout
+          tone="warning"
+          action={
+            onFilterChange && (
+              <Button variant="text" onClick={() => onFilterChange(filter === "changes" ? "all" : "changes")}>
+                {filter === "changes" ? "Show all fields" : "Review template changes"}
+              </Button>
+            )
+          }
+        >
+          {changes.size} {changes.size === 1 ? "field differs" : "fields differ"} from the saved answers. Review changed
+          fields, enter new answers, or link renamed fields.
+        </Callout>
       )}
       <div className={`evaluation-body ${inspected ? "inspecting" : ""}`}>
         <ScrollArea className="evaluation-comparison-scroll" tabIndex={0} role="region" aria-label="Comparison matrix">
-          <table className="evaluation-matrix" style={{ minWidth: template ? 550 : 390 + candidates.length * 220 + 160 }}>
+          <DataTable matrix className="evaluation-matrix" style={{ minWidth: template ? 550 : 390 + candidates.length * 220 + 160 }}>
             <thead>
               <tr>
                 <th className="evaluation-field-col">Field</th>
@@ -665,7 +667,7 @@ export function DocumentMatrix({
                 </tr>
               )}
             </tbody>
-          </table>
+          </DataTable>
         </ScrollArea>
         {inspected && (
           <aside className="evaluation-inspector" aria-label="Answer inspector">

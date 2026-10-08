@@ -1,0 +1,79 @@
+/* Shared data table. Callers write thead/tbody; the modifiers change density or the matrix layout. */
+.table {
+  width: 100%;
+  border: 0;
+  border-collapse: collapse;
+  background: transparent;
+  font-size: var(--font-size-4);
+}
+
+.table th,
+.table td {
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
+  color: var(--text-1);
+  font-size: var(--font-size-4);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-base);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--pane-raised);
+  color: var(--text-2);
+  font: var(--font-size-1) var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.table tbody tr:hover > * {
+  background: var(--row-hover);
+}
+
+.table--compact th,
+.table--compact td {
+  padding: 5px 8px;
+}
+
+.table--compact thead th {
+  padding: 4px 8px;
+}
+
+/* Matrix: a grid of cells with hairline column rules. Sticky columns are styled by their feature. */
+.table--matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.table--matrix th,
+.table--matrix td {
+  padding: 9px 12px;
+  border-right: 1px solid var(--rule);
+  vertical-align: top;
+  background: var(--pane-main);
+  font-weight: 400;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.table--matrix tbody tr:hover > * {
+  background: var(--pane-main);
+}
+
+.table--matrix thead th {
+  background: var(--pane-nav);
+  vertical-align: bottom;
+  border-bottom-color: var(--rule-strong);
+}
+
+/* Icon or text action column at the end of a row. */
+.table :is(th, td).table-actions {
+  width: 56px;
+}

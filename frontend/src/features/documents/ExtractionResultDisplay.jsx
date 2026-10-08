@@ -1,6 +1,7 @@
 import { isJsonObject, isString } from "../../../../shared/json.ts";
 import React from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
+import { DataTable } from "../ui/DataTable.jsx";
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
@@ -91,7 +92,7 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
           aria-label="Extracted fields scroll area"
           tabIndex={0}
         >
-          <table className="studio-table studio-results-table" aria-label="Extracted fields">
+          <DataTable label="Extracted fields" className="studio-results-table">
             <thead>
               <tr>
                 <th scope="col">Field</th>
@@ -115,7 +116,7 @@ export function ExtractionResultDisplay({ job, isLoading = false }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </ScrollArea>
       ) : null}
       {structured.map((result) => (
@@ -235,7 +236,7 @@ function renderAnswer(answer) {
 function StructuredTable({ columns, rows }) {
   return (
     <ScrollArea className="table-scroll" role="region" aria-label="Structured result scroll area" tabIndex={0}>
-      <table className="studio-table">
+      <DataTable>
         <thead>
           <tr>
             {columns.map((column) => (
@@ -252,7 +253,7 @@ function StructuredTable({ columns, rows }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </DataTable>
     </ScrollArea>
   );
 }
