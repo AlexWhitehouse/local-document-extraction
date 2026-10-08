@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DocumentUploadModal } from "./DocumentUploadModal.jsx";
 import { DocumentPage } from "./DocumentPage.jsx";
@@ -110,6 +110,26 @@ describe("Automatic document processing UI", () => {
       groups: [{ pages: [1] }, { pages: [3] }],
       exclusions: [{ page: 2, reason: "Blank" }],
     });
+  });
+
+  it("removes a split group at once, and undo puts it back in its row with its pages", async () => {
+    const user = userEvent.setup();
+    const showActionToast = vi.fn();
+    const threeGroups = { ...packet, plan: { groups: [{ pages: [1] }, { pages: [2] }, { pages: [3] }], exclusions: [] } };
+    render(<PacketPage packet={threeGroups} onConfirmPlan={vi.fn()} showActionToast={showActionToast} />);
+    const pageValues = () => screen.getAllByLabelText(/^Document \d+ pages$/).map((input) => input.value);
+    expect(pageValues()).toEqual(["1", "2", "3"]);
+
+    await user.click(screen.getByRole("button", { name: "Remove document group 2" }));
+    expect(pageValues()).toEqual(["1", "3"]);
+    expect(showActionToast).toHaveBeenCalledWith(
+      "packet.removeSplit",
+      "success",
+      expect.objectContaining({ undo: expect.any(Function) }),
+    );
+
+    act(() => showActionToast.mock.calls[0][2].undo());
+    expect(pageValues()).toEqual(["1", "2", "3"]);
   });
 
   it("shows successful zero-child completion and records all excluded pages", () => {

@@ -7,6 +7,10 @@ import { Badge } from "../ui/Status.jsx";
 import { Dropzone } from "../ui/Dropzone.jsx";
 import { Callout } from "../ui/Callout.jsx";
 import { CloseIcon, PlusIcon } from "../layout/Icons.jsx";
+import { createNotifier, defaultToast } from "../../lib/notify";
+import { insertAt } from "../../lib/lists";
+
+const defaultShowActionToast = createNotifier(defaultToast);
 
 const MODES = [
   {
@@ -54,6 +58,7 @@ export function EvaluationSetup({
   onManageLibrary,
   onStart,
   onOpenWorkspace,
+  showActionToast = defaultShowActionToast,
 }) {
   const workspaceModel = state.setup?.model || "";
   const modelMissing = Boolean(state.setup) && !state.setup.configured;
@@ -90,6 +95,24 @@ export function EvaluationSetup({
       current = false;
     };
   }, [template, version, loadTemplate]);
+
+  // Removes the document at once; Undo puts it back at its position with its results.
+  const removeDocument = async (document) => {
+    const undo = await onRemoveDocument(document.key);
+
+    if (undo) showActionToast("evaluation.removeDocument", "success", { targetName: document.name, undo });
+  };
+
+  // Removes the row at once; Undo puts the model back at its position.
+  const removeModel = (index) => {
+    const removed = models[index];
+
+    setModels(models.filter((_, i) => i !== index));
+    showActionToast("evaluation.removeCandidate", "success", {
+      targetName: removed.trim(),
+      undo: () => setModels((current) => insertAt(current, index, removed)),
+    });
+  };
 
   const chooseTemplate = (id) => {
     const next = templates.find((t) => t.id === id);
@@ -211,7 +234,7 @@ export function EvaluationSetup({
                             size="sm"
                             label={`Remove ${document.name}`}
                             icon={CloseIcon}
-                            onClick={() => onRemoveDocument(document.key)}
+                            onClick={() => removeDocument(document)}
                           />
                         </div>
                         <div className="evaluation-setup-file-row">
@@ -379,7 +402,7 @@ export function EvaluationSetup({
                         label={`Remove candidate ${index + 1}`}
                         icon={CloseIcon}
                         disabled={models.length <= 1}
-                        onClick={() => setModels(models.filter((_, i) => i !== index))}
+                        onClick={() => removeModel(index)}
                       />
                     </li>
                   ))}

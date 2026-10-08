@@ -280,6 +280,23 @@ export function EvaluationsPage({
       ? edit(candidate.id, { [key]: value })
       : patch({ candidates: state.candidates.map((c) => ({ ...c, [key]: value, revision: c.revision + 1 })) });
 
+  // Removes at once; the toast's Undo restores the candidate with its results.
+  const removeCandidate = async (candidate) => {
+    const undo = await evaluation.remove(candidate.id);
+
+    if (undo)
+      notify("evaluation.removeCandidate", "success", {
+        targetName: candidate.model || candidate.template?.name,
+        undo,
+      });
+  };
+
+  const discardChanges = (document) => {
+    const undo = evaluation.discardChanges(document.key);
+
+    if (undo) notify("evaluation.discardChanges", "success", { undo });
+  };
+
   const menuFor = (candidate) => ({
     inputs: { shared: state.mode === "templates" },
     onInputChange: (key, value) => setInput(candidate, key, value),
@@ -299,7 +316,7 @@ export function EvaluationsPage({
         label: "Remove candidate",
         danger: true,
         disabled: state.candidates.length <= 1 || busyFor(candidate.id),
-        onClick: () => evaluation.remove(candidate.id),
+        onClick: () => removeCandidate(candidate),
       },
     ],
   });
@@ -398,6 +415,7 @@ export function EvaluationsPage({
           onRemoveDocument={evaluation.removeDocument}
           onPreviewDocument={setPreview}
           onStart={startEvaluation}
+          showActionToast={notify}
           onChooseLibrary={(setupFields) => open("picker", { fields: setupFields })}
           onManageLibrary={(setupFields) => open("manage", { fields: setupFields })}
           onOpenWorkspace={onOpenWorkspace}
@@ -442,9 +460,7 @@ export function EvaluationsPage({
                     >
                       Update saved answers…
                     </Button>
-                    <Button variant="danger-text"
-                      onClick={() => evaluation.discardChanges(document.key)}
-                    >
+                    <Button variant="danger-text" onClick={() => discardChanges(document)}>
                       Discard changes
                     </Button>
                   </>
@@ -661,6 +677,7 @@ export function EvaluationsPage({
           action={editor.save ? "Save new template" : editor.documentKey && editor.initial.source ? "Save template" : "Apply changes"}
           onSubmit={applyTemplate}
           onClose={() => setEditor(null)}
+          showActionToast={notify}
         />
       )}
       {dialog?.kind === "picker" && (

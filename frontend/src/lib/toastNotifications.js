@@ -52,6 +52,12 @@ const successMessages = {
   "document.useTemplate": ({ target, templateName }) =>
     `Processing ${target || "document"}${templateName ? ` with ${templateName}` : ""}`,
   "packet.confirmPlan": () => "Split plan confirmed",
+  "draft.removeField": ({ target }) => withTarget("Field removed", target),
+  "draft.removeColumn": ({ target }) => withTarget("Column removed", target),
+  "evaluation.removeCandidate": ({ target }) => withTarget("Candidate removed", target),
+  "evaluation.removeDocument": ({ target }) => withTarget("Document removed", target),
+  "evaluation.discardChanges": () => "Changes discarded",
+  "packet.removeSplit": () => "Document removed from the split plan",
 };
 
 const failureMessages = {

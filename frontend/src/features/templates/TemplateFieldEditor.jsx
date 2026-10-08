@@ -12,6 +12,8 @@ import { ArrowDownIcon, ArrowUpIcon, CloseIcon, MoreIcon } from "../layout/Icons
 import { Button, IconButton } from "../ui/Button.jsx";
 import { ListAddButton } from "../ui/ListAddButton.jsx";
 import { ActionMenu } from "../ui/ActionMenu.jsx";
+import { createNotifier, defaultToast } from "../../lib/notify";
+import { insertAt } from "../../lib/lists";
 
 import {
   DATA_TYPES,
@@ -26,6 +28,8 @@ import {
   toFieldId,
 } from "./templateFields.js";
 
+const defaultShowActionToast = createNotifier(defaultToast);
+
 const editableSchema = (schema) => ({
   ...(schema || {}),
   mode: schema?.mode || "table",
@@ -38,6 +42,7 @@ export function TemplateFieldEditor({
   disabled = false,
   diagnostics,
   focusRequest,
+  showActionToast = defaultShowActionToast,
 }) {
   const rootRef = useRef(null);
 
@@ -215,11 +220,30 @@ export function TemplateFieldEditor({
     }));
   }
 
+  // Removes immediately. Undo puts the column back at its position, if the field is still a Table.
   function removeObjectColumn(index, columnIndex) {
+    const removed = editableSchema(fields[index]?.object_schema).columns[columnIndex];
+
     updateObjectSchema(index, (schema) => ({
       ...schema,
       columns: schema.columns.filter((_, i) => i !== columnIndex),
     }));
+
+    if (!removed) return;
+
+    showActionToast("draft.removeColumn", "success", {
+      targetName: removed.heading || `Column ${columnIndex + 1}`,
+      undo: () =>
+        onChange((prev) =>
+          prev.map((field, i) => {
+            if (i !== index || !isObjectLikeType(field.data_type)) return field;
+
+            const schema = editableSchema(field.object_schema);
+
+            return { ...field, object_schema: { ...schema, columns: insertAt(schema.columns, columnIndex, removed) } };
+          }),
+        ),
+    });
   }
 
   function moveObjectColumn(index, columnIndex, direction) {
@@ -241,10 +265,24 @@ export function TemplateFieldEditor({
     });
   }
 
+  // Removes immediately. Undo puts the field back at its position and re-selects what was selected.
   function removeField(index) {
+    const removed = fields[index];
+    const previousActiveIndex = activeFieldIndex;
+
     onChange((prev) => prev.filter((_, i) => i !== index));
 
     if (index < activeFieldIndex) setActiveFieldIndex(activeFieldIndex - 1);
+
+    if (!removed) return;
+
+    showActionToast("draft.removeField", "success", {
+      targetName: removed.name || `Field ${index + 1}`,
+      undo: () => {
+        onChange((prev) => insertAt(prev, index, removed));
+        setActiveFieldIndex(previousActiveIndex);
+      },
+    });
   }
 
   function duplicateField(index) {

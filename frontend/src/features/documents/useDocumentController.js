@@ -1024,6 +1024,7 @@ export function useDocumentController({
           ? (id) => onDocumentNavigation({ packetId: packetController.selectedId, documentId: id })
           : selectPacketChild,
         loadPagePreview: packetController.loadPagePreview,
+        showActionToast,
       },
       hasDocuments: documents.length > 0 || packetController.packets.length > 0,
       selectedDocumentTemplateName,

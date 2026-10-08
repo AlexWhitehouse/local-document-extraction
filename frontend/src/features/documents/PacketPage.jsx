@@ -13,6 +13,8 @@ import { ListAddButton } from "../ui/ListAddButton.jsx";
 import { DataTable } from "../ui/DataTable.jsx";
 import { Field, TextInput } from "../ui/Field.jsx";
 import { ChevronLeftIcon, ChevronRightIcon } from "../layout/Icons.jsx";
+import { insertAt } from "../../lib/lists";
+import { createNotifier, defaultToast } from "../../lib/notify";
 
 const LIVE_CHILD_STATUSES = new Set(["queued", "processing"]);
 
@@ -28,6 +30,7 @@ export function PacketPage({
   documentErrorId = "",
   renderDocument,
   onSelectDocument,
+  showActionToast,
   ...overview
 }) {
   const tabsId = useId();
@@ -110,7 +113,13 @@ export function PacketPage({
         </div>
       ) : (
         <div id={panelId} role="tabpanel" aria-labelledby={panelLabelledBy}>
-          <PacketOverview key={packet.packet_id} packet={packet} onSelectDocument={onSelectDocument} {...overview} />
+          <PacketOverview
+            key={packet.packet_id}
+            packet={packet}
+            onSelectDocument={onSelectDocument}
+            showActionToast={showActionToast}
+            {...overview}
+          />
         </div>
       )}
     </section>
@@ -197,7 +206,16 @@ function packetStage(packet, documents) {
   };
 }
 
-function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, onSelectDocument, loadPagePreview }) {
+function PacketOverview({
+  packet,
+  templates = [],
+  busy,
+  error,
+  onConfirmPlan,
+  onSelectDocument,
+  loadPagePreview,
+  showActionToast = defaultShowActionToast,
+}) {
   const documents = Array.isArray(packet.children) ? packet.children : [];
   const exclusions = packet.plan?.exclusions || [];
   const pages = packet.selected_pages || [];
@@ -233,6 +251,7 @@ function PacketOverview({ packet, templates = [], busy, error, onConfirmPlan, on
           busy={busy}
           onConfirm={onConfirmPlan}
           loadPagePreview={loadPagePreview}
+          showActionToast={showActionToast}
         />
       ) : packet.outcome === "no_documents" ? (
         <section className="packet-section">
@@ -328,7 +347,9 @@ function PacketDocuments({ documents, templates, onSelectDocument }) {
   );
 }
 
-function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
+const defaultShowActionToast = createNotifier(defaultToast);
+
+function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview, showActionToast }) {
   const pages = packet.selected_pages || [];
 
   const [groups, setGroups] = useState(() =>
@@ -336,6 +357,17 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
   );
 
   const [exclusions, setExclusions] = useState(() => (packet.plan?.exclusions || []).map((entry) => ({ ...entry })));
+
+  // Removes the group at once; Undo puts it back at its row and keeps what was typed in it.
+  const removeGroup = (index) => {
+    const removed = groups[index];
+
+    setGroups((current) => current.filter((_, position) => position !== index));
+    showActionToast("packet.removeSplit", "success", {
+      undo: () => setGroups((current) => insertAt(current, index, removed)),
+    });
+  };
+
   const [error, setError] = useState("");
   const [page, setPage] = useState(pages[0] || 1);
   const unassigned = unassignedPages(pages, groups, exclusions);
@@ -390,7 +422,7 @@ function SplitPlanEditor({ packet, busy, onConfirm, loadPagePreview }) {
                 <Button
                   variant="danger-text"
                   aria-label={`Remove document group ${index + 1}`}
-                  onClick={() => setGroups((current) => current.filter((_, position) => position !== index))}
+                  onClick={() => removeGroup(index)}
                 >
                   Remove
                 </Button>

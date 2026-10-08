@@ -9,6 +9,16 @@ describe("app action toast notifications", () => {
     expect(getActionToast("workspace.modelGateway.save", "success")).toEqual({ severity: "success", message: "Model gateway saved" });
   });
 
+  it("names removed draft items and says what was discarded", () => {
+    expect(getActionToast("draft.removeField", "success", { targetName: "Total" }).message).toBe("Field removed: Total");
+    expect(getActionToast("draft.removeColumn", "success", { targetName: "SKU" }).message).toBe("Column removed: SKU");
+    expect(getActionToast("evaluation.removeCandidate", "success", { targetName: "gpt-4o" }).message).toBe("Candidate removed: gpt-4o");
+    expect(getActionToast("evaluation.removeCandidate", "success").message).toBe("Candidate removed");
+    expect(getActionToast("evaluation.removeDocument", "success", { targetName: "a.pdf" }).message).toBe("Document removed: a.pdf");
+    expect(getActionToast("evaluation.discardChanges", "success").message).toBe("Changes discarded");
+    expect(getActionToast("packet.removeSplit", "success").message).toBe("Document removed from the split plan");
+  });
+
   it("confirms Workspace creation with a human-readable target name", () => {
     expect(
       getActionToast("workspace.create", "success", {

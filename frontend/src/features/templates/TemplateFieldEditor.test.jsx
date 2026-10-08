@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 
@@ -217,6 +217,80 @@ describe("Template field editor", () => {
     await user.click(screen.getByRole("button", { name: "More actions for Second" }));
     await user.click(screen.getByRole("menuitem", { name: "Remove field" }));
     expect(latestFields.map((field) => field.name)).toEqual(["First", "First Copy"]);
+  });
+
+  it("removes a field at once, and undo puts it back in its place", async () => {
+    const user = userEvent.setup();
+    const showActionToast = vi.fn();
+    let latestFields = [];
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([
+        { id: "first", name: "First", description: "First value", data_type: "string" },
+        { id: "second", name: "Second", description: "Second value", data_type: "string" },
+        { id: "third", name: "Third", description: "Third value", data_type: "string" },
+      ]);
+
+      latestFields = fields;
+
+      return <TemplateFieldEditor fields={fields} onChange={setFields} showActionToast={showActionToast} />;
+    }
+
+    render(<TemplateFieldHarness />);
+    await user.click(screen.getByRole("button", { name: "More actions for Third" }));
+    await user.click(screen.getByRole("menuitem", { name: "Remove field" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(latestFields.map((field) => field.name)).toEqual(["First", "Second"]);
+    expect(showActionToast).toHaveBeenCalledWith(
+      "draft.removeField",
+      "success",
+      expect.objectContaining({ targetName: "Third", undo: expect.any(Function) }),
+    );
+
+    act(() => showActionToast.mock.calls[0][2].undo());
+    expect(latestFields.map((field) => field.name)).toEqual(["First", "Second", "Third"]);
+  });
+
+  it("removes a table column at once, and undo puts it back at its position", async () => {
+    const user = userEvent.setup();
+    const showActionToast = vi.fn();
+    let latestFields = [];
+
+    function TemplateFieldHarness() {
+      const [fields, setFields] = useState([
+        {
+          id: "line_items",
+          name: "Line Items",
+          description: "Invoice line items",
+          data_type: "array<object>",
+          object_schema: {
+            mode: "table",
+            columns: [
+              { heading: "SKU", key: "sku", data_type: "string" },
+              { heading: "Quantity", key: "quantity", data_type: "number" },
+              { heading: "Price", key: "price", data_type: "number" },
+            ],
+          },
+        },
+      ]);
+
+      latestFields = fields;
+
+      return <TemplateFieldEditor fields={fields} onChange={setFields} showActionToast={showActionToast} />;
+    }
+
+    render(<TemplateFieldHarness />);
+    await user.click(screen.getByRole("button", { name: "Edit columns" }));
+    await user.click(screen.getByRole("button", { name: "Remove column 2" }));
+    expect(latestFields[0].object_schema.columns.map((column) => column.heading)).toEqual(["SKU", "Price"]);
+    expect(showActionToast).toHaveBeenCalledWith(
+      "draft.removeColumn",
+      "success",
+      expect.objectContaining({ targetName: "Quantity", undo: expect.any(Function) }),
+    );
+
+    act(() => showActionToast.mock.calls[0][2].undo());
+    expect(latestFields[0].object_schema.columns.map((column) => column.heading)).toEqual(["SKU", "Quantity", "Price"]);
   });
 
   it("closes the field actions menu on Escape and returns focus to its trigger", async () => {

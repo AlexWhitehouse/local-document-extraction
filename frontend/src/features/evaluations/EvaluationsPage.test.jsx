@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen, within, waitFor, cleanup } from "@testing-library/react";
+import { act, fireEvent, render, screen, within, waitFor, cleanup } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { EvaluationsPage } from "./EvaluationsPage.jsx";
@@ -142,13 +142,14 @@ function setup(overrides = {}, templates = [], props = {}) {
     start: vi.fn(() => []),
     changeMode: vi.fn(),
     duplicate: vi.fn(),
-    remove: vi.fn(),
+    remove: vi.fn(async () => null),
     setReference: vi.fn(),
     removeReference: vi.fn(),
     reviewReference: vi.fn(),
     setColumns: vi.fn(),
     addUploads: vi.fn(),
-    removeDocument: vi.fn(),
+    removeDocument: vi.fn(async () => null),
+    discardChanges: vi.fn(() => null),
     detail: (id) => details[id] || null,
     hydrate: vi.fn(),
   };
@@ -483,9 +484,107 @@ it("adds a candidate from the last candidate, or duplicates a chosen one", () =>
   openMenu(1);
   fireEvent.click(screen.getByRole("button", { name: "Duplicate candidate" }));
   expect(evaluation.duplicate).toHaveBeenLastCalledWith("a");
+});
+
+it("removes a candidate at once and offers undo that restores it", async () => {
+  const toast = { success: vi.fn(), error: vi.fn() };
+  const undo = vi.fn();
+  const candidate = { id: "a", revision: 0, model: "alpha", status: "idle", template };
+
+  const evaluation = setup(
+    { mode: "models", candidates: [candidate, { ...candidate, id: "b", model: "beta" }] },
+    [],
+    { toast },
+  );
+
+  evaluation.remove.mockResolvedValue(undo);
+
   openMenu(2);
   fireEvent.click(screen.getByRole("button", { name: "Remove candidate" }));
   expect(evaluation.remove).toHaveBeenCalledWith("b");
+  await waitFor(() =>
+    expect(toast.success).toHaveBeenCalledWith(
+      "Candidate removed: beta",
+      expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) }),
+    ),
+  );
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  toast.success.mock.calls[0][1].action.onClick();
+  expect(undo).toHaveBeenCalledTimes(1);
+});
+
+it("removes a setup candidate row at once, and undo puts the model back in its row", async () => {
+  const toast = { success: vi.fn(), error: vi.fn() };
+  setup({ mode: "models", candidates: [] }, [], { toast });
+
+  fireEvent.change(screen.getByLabelText("Candidate 2 model"), { target: { value: "beta" } });
+  fireEvent.click(screen.getByRole("button", { name: "Remove candidate 1" }));
+  expect(screen.getByLabelText("Candidate 1 model").value).toBe("beta");
+  expect(screen.queryByLabelText("Candidate 2 model")).toBeNull();
+  await waitFor(() =>
+    expect(toast.success).toHaveBeenCalledWith(
+      "Candidate removed: model",
+      expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) }),
+    ),
+  );
+
+  act(() => toast.success.mock.calls[0][1].action.onClick());
+  expect(screen.getByLabelText("Candidate 1 model").value).toBe("model");
+  expect(screen.getByLabelText("Candidate 2 model").value).toBe("beta");
+});
+
+it("removes a setup document at once and offers undo", async () => {
+  const toast = { success: vi.fn(), error: vi.fn() };
+  const undo = vi.fn();
+  const evaluation = setup({ mode: "models", candidates: [] }, [], { toast });
+  evaluation.removeDocument.mockResolvedValue(undo);
+
+  fireEvent.click(screen.getByRole("button", { name: "Remove invoice.pdf" }));
+  expect(evaluation.removeDocument).toHaveBeenCalledWith("doc");
+  await waitFor(() =>
+    expect(toast.success).toHaveBeenCalledWith(
+      "Document removed: invoice.pdf",
+      expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) }),
+    ),
+  );
+
+  toast.success.mock.calls[0][1].action.onClick();
+  expect(undo).toHaveBeenCalledTimes(1);
+});
+
+it("discards answer edits at once and offers undo", () => {
+  const toast = { success: vi.fn(), error: vi.fn() };
+  const undo = vi.fn();
+
+  const reference = {
+    definitions: { "total:number": template.fields[0] },
+    references: { "total:number": { verified: true, value: 10 } },
+  };
+
+  const edited = { definitions: reference.definitions, references: { "total:number": { verified: true, value: 12 } } };
+
+  const evaluation = setup(
+    {
+      documents: [
+        { key: "doc", kind: "saved", savedId: "saved-doc", name: "Saved invoice", loadedRevision: 1, reference: edited, base: reference, availability: "ok" },
+      ],
+    },
+    [],
+    { toast },
+  );
+
+  evaluation.discardChanges.mockReturnValue(undo);
+
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(evaluation.discardChanges).toHaveBeenCalledWith("doc");
+  expect(toast.success).toHaveBeenCalledWith(
+    "Changes discarded",
+    expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) }),
+  );
+
+  toast.success.mock.calls[0][1].action.onClick();
+  expect(undo).toHaveBeenCalledTimes(1);
 });
 
 it("disables adding candidates at the eight candidate limit", () => {

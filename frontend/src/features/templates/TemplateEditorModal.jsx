@@ -20,6 +20,7 @@ export function TemplateEditorModal({
   notice,
   onSubmit,
   onClose,
+  showActionToast,
 }) {
   const [draft, setDraft] = useState(() => ({
     ...structuredClone(initial),
@@ -113,6 +114,7 @@ export function TemplateEditorModal({
           fields={draft.fields}
           disabled={saving}
           onChange={(next) => setDraft((previous) => ({ ...previous, fields: next(previous.fields) }))}
+          showActionToast={showActionToast}
         />
       </div>
       <footer className="template-editor-modal-footer">

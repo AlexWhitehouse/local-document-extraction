@@ -30,6 +30,7 @@ export function TemplatePage({
   onTemplateDescriptionChange,
   onTemplateFieldsChange,
   onSaveTemplate,
+  showActionToast,
   assistant,
   onOpenAssistant,
   validationFocus,
@@ -105,6 +106,7 @@ export function TemplatePage({
           diagnostics={issues}
           focusRequest={focusRequest}
           onChange={onTemplateFieldsChange}
+          showActionToast={showActionToast}
           disabled={isSavingTemplate || isManagingTags || isGeneratingTemplate || !hasApiAccess}
         />
         <footer className="studio-editor-footer">

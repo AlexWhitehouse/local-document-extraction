@@ -1028,6 +1028,7 @@ export function useTemplateController({
         templateGeneration.open();
       },
       onSaveTemplate: saveTemplate,
+      showActionToast,
     },
     generationModal: templateGeneration.modal,
     jsonModal: {

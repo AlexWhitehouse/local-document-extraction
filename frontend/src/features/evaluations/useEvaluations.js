@@ -5,6 +5,7 @@ import { confirmDialog } from "../ui/confirm.jsx";
 import { createLibraryClient, documentDirty, emptyReferenceSet, parseReferenceSet } from "./evaluationLibrary.js";
 import { createResultCache } from "./resultCache.js";
 import { describeError } from "../../lib/describeError";
+import { insertAt } from "../../lib/lists";
 
 const id = () => crypto.randomUUID();
 
@@ -722,6 +723,27 @@ export function useEvaluations({
       }
   };
 
+  // Reads the cached details of the given pairs before dropPairs deletes them, so an undo can write them back.
+  // A record that can't be read is left out; it stays unavailable, as any cold record does.
+  const snapshotDetails = (pairList) =>
+    Promise.all(
+      pairList
+        .flatMap((pair) => [pair.result, pair.previous])
+        .filter(Boolean)
+        .map((record) =>
+          cacheRef.current.load(record.recordId, { keep: false }).then(
+            (detail) => [record.recordId, detail],
+            () => null,
+          ),
+        ),
+    );
+
+  const restoreDetails = (details) => {
+    for (const [recordId, detail] of details) {
+      if (detail) cacheRef.current.put(recordId, detail).catch(() => {});
+    }
+  };
+
   const anyBusy = (docKey, candidateId) =>
     Object.entries(stateRef.current.pairs).some(
       ([key, byCandidate]) =>
@@ -859,9 +881,30 @@ export function useEvaluations({
         return copy.id;
       }
     },
-    remove(candidateId) {
-      if (anyBusy(null, candidateId) || state.candidates.length <= 1) return;
-      dropPairs(stateRef.current, (_, cid) => cid !== candidateId);
+    // Removes the candidate and its results at once. Resolves to an undo function, or null when nothing was removed.
+    // The result details are read before their cache records are deleted, so undo can write them back.
+    async remove(candidateId) {
+      const current = stateRef.current,
+        index = current.candidates.findIndex((c) => c.id === candidateId),
+        generationAtStart = generation.current,
+        modeAtStart = current.mode;
+
+      if (index < 0 || anyBusy(null, candidateId) || current.candidates.length <= 1) return null;
+
+      const removedPairs = Object.entries(current.pairs).flatMap(([docKey, byCandidate]) =>
+        byCandidate[candidateId] ? [[docKey, byCandidate[candidateId]]] : [],
+      );
+
+      const details = await snapshotDetails(removedPairs.map(([, pair]) => pair));
+
+      // Results can change while the details load; leave the candidate alone if anything moved.
+      if (generation.current !== generationAtStart || anyBusy(null, candidateId)) return null;
+
+      const latest = stateRef.current,
+        candidate = latest.candidates[index];
+
+      if (candidate?.id !== candidateId) return null;
+      dropPairs(latest, (_, cid) => cid !== candidateId);
       setState((previous) => ({
         ...previous,
         candidates: previous.candidates.filter((c) => c.id !== candidateId),
@@ -872,6 +915,27 @@ export function useEvaluations({
           ]),
         ),
       }));
+
+      return () => {
+        // Undo does nothing once the evaluation was cleared or its mode changed since the removal.
+        if (generation.current !== generationAtStart || stateRef.current.mode !== modeAtStart) return;
+
+        restoreDetails(details);
+
+        setState((previous) => {
+          if (previous.candidates.some((c) => c.id === candidate.id)) return previous;
+
+          const candidates = insertAt(previous.candidates, index, candidate);
+          const pairs = { ...previous.pairs };
+
+          for (const [docKey, pair] of removedPairs) {
+            if (!previous.documents.some((d) => d.key === docKey)) continue;
+            pairs[docKey] = { ...pairs[docKey], [candidate.id]: pair };
+          }
+
+          return { ...previous, candidates, pairs };
+        });
+      };
     },
     setColumns(candidateId, columns) {
       setState((previous) => ({ ...previous, columns: { ...previous.columns, [candidateId]: columns } }));
@@ -998,8 +1062,25 @@ export function useEvaluations({
 
       return { failed };
     },
-    removeDocument(key) {
-      if (anyBusy(key)) return;
+    // Removes the document and its results at once. Resolves to an undo function, or null when nothing was removed.
+    async removeDocument(key) {
+      const current = stateRef.current,
+        index = current.documents.findIndex((d) => d.key === key),
+        generationAtStart = generation.current,
+        modeAtStart = current.mode;
+
+      if (index < 0 || anyBusy(key)) return null;
+
+      const removedDocument = current.documents[index],
+        removedPairs = { ...current.pairs[key] };
+
+      const details = await snapshotDetails(Object.values(removedPairs));
+
+      // Results can change while the details load; leave the document alone if anything moved.
+      if (generation.current !== generationAtStart || anyBusy(key)) return null;
+
+      if (!stateRef.current.documents.some((d) => d.key === key)) return null;
+
       dropPairs(stateRef.current, (docKey) => docKey !== key);
       setState((previous) => {
         const pairs = { ...previous.pairs };
@@ -1007,6 +1088,29 @@ export function useEvaluations({
 
         return { ...previous, pairs, documents: previous.documents.filter((d) => d.key !== key) };
       });
+
+      return () => {
+        // Undo does nothing once the evaluation was cleared or its mode changed since the removal.
+        if (generation.current !== generationAtStart || stateRef.current.mode !== modeAtStart) return;
+
+        restoreDetails(details);
+        setState((previous) => {
+          if (previous.documents.some((d) => d.key === key)) return previous;
+
+          // Candidates removed since then took their pairs with them, so only current candidates come back.
+          const candidateIds = new Set(previous.candidates.map((c) => c.id));
+
+          const restoredPairs = Object.fromEntries(
+            Object.entries(removedPairs).filter(([candidateId]) => candidateIds.has(candidateId)),
+          );
+
+          return {
+            ...previous,
+            documents: insertAt(previous.documents, index, removedDocument),
+            pairs: Object.keys(restoredPairs).length ? { ...previous.pairs, [key]: restoredPairs } : previous.pairs,
+          };
+        });
+      };
     },
     setReference(docKey, identity, value, definition) {
       updateDocument(docKey, (d) => ({
@@ -1070,8 +1174,40 @@ export function useEvaluations({
         return { links };
       });
     },
+    // Returns an undo for the discard, or null when there was nothing to discard.
     discardChanges(docKey) {
-      updateDocument(docKey, (d) => (d.base ? { reference: structuredClone(d.base) } : {}));
+      const document = stateRef.current.documents.find((d) => d.key === docKey);
+
+      if (!document?.base) return null;
+
+      const previous = structuredClone(document.reference),
+        base = document.base;
+
+      updateDocument(docKey, () => ({ reference: structuredClone(base) }));
+
+      // Puts back each answer that still matches the discarded base. An answer edited since the discard
+      // keeps the edit, so undo never overwrites newer work.
+      return () =>
+        updateDocument(docKey, (d) => {
+          const references = { ...d.reference.references },
+            definitions = { ...d.reference.definitions };
+
+          for (const identity of new Set([...Object.keys(previous.references), ...Object.keys(previous.definitions)])) {
+            const unchanged =
+              JSON.stringify(references[identity]) === JSON.stringify(base.references[identity]) &&
+              JSON.stringify(definitions[identity]) === JSON.stringify(base.definitions[identity]);
+
+            if (!unchanged) continue;
+
+            if (identity in previous.references) references[identity] = structuredClone(previous.references[identity]);
+            else delete references[identity];
+
+            if (identity in previous.definitions) definitions[identity] = structuredClone(previous.definitions[identity]);
+            else delete definitions[identity];
+          }
+
+          return { reference: { references, definitions } };
+        });
     },
     useSavedVersion: applyEntry,
     async loadLatest(docKey) {
