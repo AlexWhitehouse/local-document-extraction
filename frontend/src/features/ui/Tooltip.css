@@ -35,7 +35,7 @@
   content: "";
   position: absolute;
   inset: -8px;
-  z-index: -1;
+  z-index: -1; /* token-exempt: sits behind the tip's own content */
 }
 
 .ui-tooltip-top {

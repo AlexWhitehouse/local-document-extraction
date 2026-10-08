@@ -29,10 +29,12 @@ export function Tooltip({ content, placement = "top", describe = true, interacti
     "aria-describedby": describe ? [children.props["aria-describedby"], id].filter(Boolean).join(" ") : children.props["aria-describedby"],
     onMouseEnter: (event) => {
       children.props.onMouseEnter?.(event);
+
       if (!interactive) show();
     },
     onMouseLeave: (event) => {
       children.props.onMouseLeave?.(event);
+
       if (!interactive) hide();
     },
     onFocus: (event) => {
