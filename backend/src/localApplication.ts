@@ -112,6 +112,7 @@ export function createLocalApplication({
   maxJsonRequestBytes = 1024 * 1024,
   modelGatewayRequestTimeoutMs = "300000",
   liveUpdateHub,
+  onWorkspaceModelConfigurationChanged,
   productAnalytics,
   productStoreFactory,
   productStoreRegistry,
@@ -134,6 +135,8 @@ export function createLocalApplication({
   maxJsonRequestBytes?: number;
   modelGatewayRequestTimeoutMs?: string;
   liveUpdateHub?: LocalLiveUpdateHub;
+  /** Runs after a Workspace model configuration save or clear commits. */
+  onWorkspaceModelConfigurationChanged?: (workspaceId: string) => void;
   productAnalytics?: LocalProductAnalytics;
   productStoreFactory?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore;
   productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
@@ -307,6 +310,7 @@ export function createLocalApplication({
         stateDirectory: product.stateDirectory,
         access: product.access,
         liveUpdateHub,
+        onModelConfigurationChanged: onWorkspaceModelConfigurationChanged,
       });
     }
 
@@ -333,6 +337,7 @@ export function createLocalApplication({
           workspaceControl,
           localWorkspaceDeletion,
           sourceStorage,
+          liveUpdateHub,
         );
       } catch (error) {
         return workspaceErrorResponse(error);
@@ -1110,14 +1115,27 @@ function handleLocalJobRead({
           const last = entries.at(-1);
           const hasMore = candidates.length > jobPageSize;
 
+          // Hydrate the whole page with a fixed number of queries rather than per entry.
+          const summaries = productStore.getExtractionJobSummaries(
+            entries.flatMap((entry) => (entry.kind === "document" ? [entry.id] : [])),
+          );
+
+          const packets = productStore.getDocumentPackets(
+            entries.flatMap((entry) => (entry.kind === "packet" ? [entry.id] : [])),
+          );
+
           return Response.json(
             {
-              jobs: entries.flatMap((entry) =>
-                entry.kind === "document" ? [{ ...productStore.getExtractionJobSummary(entry.id)!, results: [] }] : [],
-              ),
-              packets: entries.flatMap((entry) =>
-                entry.kind === "packet" ? [publicDocumentPacket(productStore.getDocumentPacket(entry.id)!)] : [],
-              ),
+              jobs: entries.flatMap((entry) => {
+                const summary = entry.kind === "document" ? summaries.get(entry.id) : undefined;
+
+                return summary ? [{ ...summary, results: [] }] : [];
+              }),
+              packets: entries.flatMap((entry) => {
+                const packet = entry.kind === "packet" ? packets.get(entry.id) : undefined;
+
+                return packet ? [publicDocumentPacket(packet)] : [];
+              }),
               ...productStore.getExtractionJobCounts(),
               next_cursor:
                 hasMore && last
@@ -1252,6 +1270,7 @@ async function handleControlRequest(
   workspaceControl: LocalWorkspaceControl,
   workspaceDeletion: LocalWorkspaceDeletion | null,
   sourceStorage: LocalSourceStorageConfiguration,
+  liveUpdateHub?: LocalLiveUpdateHub,
 ): Promise<Response> {
   const { method } = request;
 
@@ -1316,14 +1335,22 @@ async function handleControlRequest(
     case "POST users :id": {
       const { action } = await readJsonObject(request);
 
-      return Response.json(
-        workspaceControl.applyWorkspaceMemberAction({
-          workspaceId,
-          actorUserId: userId,
-          targetUserId: resourceId!,
-          action: isString(action) ? action : "",
-        }),
-      );
+      const result = workspaceControl.applyWorkspaceMemberAction({
+        workspaceId,
+        actorUserId: userId,
+        targetUserId: resourceId!,
+        action: isString(action) ? action : "",
+      });
+
+      // Open tabs refresh their Workspace context, so a changed role applies without a reload.
+      // A removed member's socket fails its access check and closes instead.
+      liveUpdateHub?.broadcastWorkspaceContextInvalidation({
+        workspaceId,
+        reason: "workspace_membership_changed",
+        occurredAt: nowIso(),
+      });
+
+      return Response.json(result);
     }
 
     case "POST leave":

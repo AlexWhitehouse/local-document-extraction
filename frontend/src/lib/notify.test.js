@@ -40,6 +40,17 @@ describe("createNotifier", () => {
     expect(toast.success.mock.calls[0][1].action).toEqual({ label: "Undo", onClick: undo });
     expect(toast.error.mock.calls[0][1].action).toEqual({ label: "Try again", onClick: retry });
   });
+
+  it("offers a link to related settings after a completed action", () => {
+    const toast = fakeToast();
+    const notify = createNotifier(toast);
+    const onClick = vi.fn();
+
+    notify("workspace.extractionModel", "success", { targetName: "best/model", link: { label: "Open model settings", onClick } });
+
+    expect(toast.success).toHaveBeenCalledWith("Extraction model changed: best/model", expect.anything());
+    expect(toast.success.mock.calls[0][1].action).toEqual({ label: "Open model settings", onClick });
+  });
 });
 
 describe("copyWithFeedback", () => {

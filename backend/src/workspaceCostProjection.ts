@@ -3,6 +3,7 @@ import type { SQLQueryBindings, Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { allocateCost, costAmount, sumCosts, type ProcessingCosts } from "../../shared/processingCosts";
 import { COST_STAGES, type CostDocument, type CostMetrics, type CostUpload } from "../../shared/workspaceCosts";
+import { finishedPacketStatus } from "./documentPacketCompletion";
 
 export function emptyCosts(): ProcessingCosts {
   return {
@@ -254,14 +255,9 @@ export function createCostProjection(db: Database) {
     upload.costs.total = sumCosts(COST_STAGES.map((stage) => upload.costs[stage]));
     upload.documentCount = documents.length;
 
-    if (
-      upload.status === "processing_children" &&
-      documents.every((document) => document.deleted || ["completed", "failed"].includes(document.status))
-    ) {
-      upload.status = documents.some((document) => !document.deleted && document.status === "failed")
-        ? "failed"
-        : "completed";
-    }
+    // The packet row persists completion when its last child finishes; this covers a projection
+    // refreshed from retained documents. Children are matched by the same rule as the packet.
+    if (upload.status === "processing_children") upload.status = finishedPacketStatus(documents) ?? upload.status;
 
     const metrics = emptyMetrics();
     metrics.costs = upload.costs;

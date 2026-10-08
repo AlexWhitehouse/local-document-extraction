@@ -291,6 +291,57 @@ export function useWorkspaceModelConfiguration({
     }
   }
 
+  // Changes only the extraction model and its capabilities, through the same conditional save as the form.
+  // The saved record supplies every other setting; the API key is never sent, so the server keeps it.
+  // Failures throw for the caller's confirmation dialog; a stale version reloads the record first.
+  async function setExtractionModel({ model_name, supports_pdf_input, supports_structured_output }) {
+    const snapshot = current.current;
+    const record = snapshot.record;
+
+    if (!scope || snapshot.scope !== scope || !canManage || snapshot.saving || !record?.configured || !snapshot.etag)
+      throw new Error("The Model gateway isn't ready.");
+
+    const token = ++operation.current;
+    mutationPending.current = true;
+    setState((previous) => ({ ...previous, saving: true, error: "", testing: false, testResult: null }));
+
+    try {
+      const response = await coreRequest(path, {
+        method: "PUT",
+        cache: "no-store",
+        responseType: "resource-json",
+        headers: { "content-type": "application/json", "if-match": snapshot.etag },
+        body: JSON.stringify({
+          ...requestDraft({ ...draftFrom(record), credential: "" }),
+          model_name,
+          supports_pdf_input,
+          supports_structured_output,
+        }),
+      });
+
+      if (activeScope.current === scope && token === operation.current) apply(response);
+
+      return true;
+    } catch (error) {
+      if (activeScope.current === scope && token === operation.current) {
+        setState((previous) => ({ ...previous, saving: false }));
+
+        if (error.status === 412) pendingInvalidation.current = true;
+      }
+
+      throw error;
+    } finally {
+      if (activeScope.current === scope && token === operation.current) {
+        mutationPending.current = false;
+
+        if (pendingInvalidation.current) {
+          pendingInvalidation.current = false;
+          void load(true);
+        }
+      }
+    }
+  }
+
   async function testConnection() {
     const snapshot = current.current;
 
@@ -368,6 +419,7 @@ export function useWorkspaceModelConfiguration({
     discard,
     save: () => mutate(),
     clear: (options) => mutate(true, options),
+    setExtractionModel,
     testConnection,
     reload: () => load(),
     invalidate: () => load(true),

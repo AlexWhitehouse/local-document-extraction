@@ -16,15 +16,25 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 export type LocalExtractionRunner = {
+  /**
+   * Re-admit durable work. With a Workspace ID, recover that Workspace. Without one, the first
+   * call in a process and then an infrequent safety-net pass sweep every Workspace; other passes
+   * visit only Workspaces that may have pending work.
+   */
   recover(workspaceId?: string): Promise<void>;
   run(job: LocalQueuedExtractionJob, capacity?: LocalProcessingCapacity): Promise<void>;
 };
 
+// Later than any stored timestamp, so every unowned processing row counts as stale.
+const STARTUP_STALE_PROCESSING_BEFORE = "9999-12-31T23:59:59.999Z";
+
 /** Owns Workspace leases and recovery. The Go processor owns stage execution. */
 export function createLocalExtractionRunner({
   execute,
+  fullReconcileIntervalMs = 15 * 60 * 1000,
   maxAttempts = EXTRACTION_MAX_ATTEMPTS,
   now = nowIso,
+  pendingWorkspaceIds = new Set<string>(),
   productStoreOpener,
   productStoreRegistry,
   recoveryBatchSize = 1000,
@@ -35,12 +45,21 @@ export function createLocalExtractionRunner({
   workspaceProductOperations,
 }: {
   execute: (context: GoProcessingContext) => Promise<void>;
+  /** How often an untargeted recovery sweeps every Workspace instead of only pending ones. */
+  fullReconcileIntervalMs?: number;
   maxAttempts?: number;
   now?: () => string;
+  /**
+   * Workspaces that may have queued, retrying or processing work. Whoever admits work to the
+   * queue adds its Workspace; recovery removes a Workspace once it has none. A restart loses
+   * nothing because the first recovery in a process sweeps every Workspace.
+   */
+  pendingWorkspaceIds?: Set<string>;
   productStoreOpener?: (input: { stateDirectory: string; workspaceId: string }) => LocalWorkspaceProductStore | null;
   productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
   recoveryBatchSize?: number;
   scheduleJob?: (job: LocalQueuedExtractionJob) => void | Promise<void>;
+  /** Periodic passes re-queue processing rows unchanged for this long. Startup re-queues them all. */
   staleProcessingAfterMs?: number;
   stateDirectory: string;
   workspaceControl?: Pick<LocalWorkspaceControl, "workspaceExists">;
@@ -73,24 +92,53 @@ export function createLocalExtractionRunner({
   const recoveries = new Map<string, Promise<void>>();
   const activeJobs = new Map<string, Set<string>>();
 
-  const recover = async (targetWorkspaceId?: string) => {
-    const workspaceIds = targetWorkspaceId ? [targetWorkspaceId] : await listLocalWorkspaceIds(stateDirectory);
-    const recoveredAt = now();
+  let startupRecoveryPending = true;
+  let lastFullReconcileAt = Number.NEGATIVE_INFINITY;
 
-    const staleProcessingBefore = new Date(Date.parse(recoveredAt) - Math.max(0, staleProcessingAfterMs)).toISOString();
+  const recover = async (targetWorkspaceId?: string) => {
+    const recoveredAt = now();
+    const recoveredAtMs = Date.parse(recoveredAt);
+    // Nothing can be in flight before this process's first full pass has scheduled anything.
+    const startup = !targetWorkspaceId && startupRecoveryPending;
+
+    const full =
+      !targetWorkspaceId && (startup || !(recoveredAtMs - lastFullReconcileAt < Math.max(0, fullReconcileIntervalMs)));
+
+    if (!targetWorkspaceId) startupRecoveryPending = false;
+
+    if (full) lastFullReconcileAt = recoveredAtMs;
+
+    const workspaceIds = targetWorkspaceId
+      ? [targetWorkspaceId]
+      : full
+        ? await listLocalWorkspaceIds(stateDirectory)
+        : [...pendingWorkspaceIds];
+
+    const staleProcessingBefore = startup
+      ? STARTUP_STALE_PROCESSING_BEFORE
+      : new Date(recoveredAtMs - Math.max(0, staleProcessingAfterMs)).toISOString();
 
     for (const workspaceId of workspaceIds) {
-      if (!workspaceExists(workspaceControl, workspaceId)) continue;
+      if (!workspaceExists(workspaceControl, workspaceId)) {
+        pendingWorkspaceIds.delete(workspaceId);
+        continue;
+      }
+
       let productStoreLease;
 
       try {
         productStoreLease = localProductStoreRegistry.acquire({ workspaceId, mode: "existing" });
       } catch (error) {
+        // Keep the Workspace pending so a later pass retries it.
         if (error instanceof LocalWorkspaceProductStoreRegistryError) continue;
         throw error;
       }
 
-      if (!productStoreLease) continue;
+      if (!productStoreLease) {
+        pendingWorkspaceIds.delete(workspaceId);
+        continue;
+      }
+
       let recovered;
       let packets;
 
@@ -107,6 +155,11 @@ export function createLocalExtractionRunner({
           staleProcessingBefore,
           isJobActive: (packetId) => activeJobs.get(workspaceId)?.has(packetId) ?? false,
         });
+
+        // Checked and updated synchronously: admission adds the Workspace after its row commits,
+        // so this cannot drop a Workspace whose new work it did not see.
+        if (productStoreLease.store.hasPendingExtractionWork()) pendingWorkspaceIds.add(workspaceId);
+        else if (!activeJobs.has(workspaceId)) pendingWorkspaceIds.delete(workspaceId);
       } finally {
         productStoreLease.release();
       }

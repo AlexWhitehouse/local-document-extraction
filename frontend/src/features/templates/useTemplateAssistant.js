@@ -4,11 +4,15 @@ import {
   evaluateSelection,
   validateAssistantOutput,
 } from "../../../../shared/templateAssistant.ts";
+import { evaluationFieldIds } from "../../../../shared/evaluationEvidence.ts";
 import { validateSourceFiles } from "../documents/sourceFileValidation.js";
 import { describeError } from "../../lib/describeError";
 import { suggestTemplateRequests } from "./templateAssistantSuggestions.js";
 
 const SUGGESTION_DELAY_MS = 400;
+
+// One mode: the request asks for a change or a question, and an empty request asks for a review.
+const ACTION = "edit";
 
 // Include extraction guidance; the assistant's request text is separate and never triggers a refetch.
 const suggestionContext = (draft) => [
@@ -43,11 +47,14 @@ export function useTemplateAssistant({
   maxSourceFileBytes = 10 * 1024 * 1024,
 }) {
   const [isOpen, setOpen] = useState(false);
-  const [action, setAction] = useState("edit");
   const [instructions, setInstructions] = useState("");
   const [file, setFile] = useState(null);
   const [job, setJob] = useState(null);
   const [useRetainedSource, setRetainedSource] = useState(false);
+  // Evaluation evidence: { evidence, sample: { name, load } | null }, attached only by openWith.
+  const [evaluation, setEvaluation] = useState(null);
+  const [evaluationFile, setEvaluationFile] = useState(null);
+  const [sampleLoading, setSampleLoading] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [response, setResponse] = useState(null);
@@ -112,6 +119,9 @@ export function useTemplateAssistant({
     setFile(null);
     setJob(null);
     setRetainedSource(false);
+    setEvaluation(null);
+    setEvaluationFile(null);
+    setSampleLoading(false);
     setError("");
     setStale(false);
     setApplied(false);
@@ -162,7 +172,68 @@ export function useTemplateAssistant({
     cancel();
     lifetime.current.open = true;
     setOpen(true);
-    setAction(diagnoseTemplateDraft(context.current.draft).length ? "explain" : "edit");
+  }
+
+  // Opens with a prepared request: evaluation evidence, or a completed job and optionally its original.
+  function openWith({ instructions: request = "", evaluation: attached = null, jobId = null, useOriginal = false }) {
+    open();
+    setInstructions(request);
+
+    if (attached) setEvaluation(attached);
+
+    if (jobId) void preselectJob(jobId, useOriginal);
+  }
+
+  async function preselectJob(jobId, useOriginal) {
+    const state = lifetime.current;
+    state.evidenceController?.abort();
+    const controller = new AbortController();
+    state.evidenceController = controller;
+    const generation = state.generation;
+
+    try {
+      const detail = await request(`/templates/assist/evidence/${encodeURIComponent(jobId)}`, {
+        method: "GET",
+        signal: controller.signal,
+      });
+
+      if (!state.open || controller.signal.aborted || generation !== state.generation) return;
+      setJob(detail);
+      setRetainedSource(Boolean(useOriginal && detail.source_available));
+    } catch (failure) {
+      if (state.open && !controller.signal.aborted && generation === state.generation)
+        setError(describeError(failure, "Couldn't load that document. Choose it again or continue without it."));
+    }
+  }
+
+  async function chooseEvaluationSample(enabled) {
+    if (!enabled) {
+      revise(() => setEvaluationFile(null));
+
+      return;
+    }
+
+    const sample = evaluation?.sample;
+
+    if (!sample) return;
+    const state = lifetime.current;
+    const generation = state.generation;
+    setSampleLoading(true);
+
+    try {
+      const loaded = await sample.load();
+
+      if (!state.open || generation !== state.generation) return;
+      revise(() => {
+        setEvaluationFile(loaded);
+        setFile(null);
+      });
+    } catch (failure) {
+      if (state.open && generation === state.generation)
+        setError(describeError(failure, "Couldn't load the original. Try again or send the results only."));
+    } finally {
+      if (state.open && generation === state.generation) setSampleLoading(false);
+    }
   }
 
   function isCurrent(captured) {
@@ -178,16 +249,10 @@ export function useTemplateAssistant({
     );
   }
 
-  async function submit() {
+  async function submit(text = instructions) {
     if (!lifetime.current.open || !hasApiAccess || lifetime.current.controller) return;
 
-    if (action === "edit" && !instructions.trim()) {
-      setError("Describe the change you want to make.");
-
-      return;
-    }
-
-    if (new TextEncoder().encode(instructions).length > 4096) {
+    if (new TextEncoder().encode(text).length > 4096) {
       setError("Keep your request within 4 KB.");
 
       return;
@@ -225,12 +290,19 @@ export function useTemplateAssistant({
 
     try {
       const body = new FormData();
-      const payload = { draft: baseDraft, action, instructions, base };
+      const payload = { draft: baseDraft, action: ACTION, instructions: text, base };
 
       if (job) Object.assign(payload, { jobId: job.job_id, useRetainedSource });
+
+      if (evaluation)
+        payload.evaluation = {
+          ...evaluation.evidence,
+          sample_document: evaluationFile ? evaluation.sample.name : null,
+        };
       body.append("payload", JSON.stringify(payload));
 
       if (file) body.append("document", file);
+      else if (evaluationFile) body.append("document", evaluationFile);
       const answer = await request("/templates/assist", { method: "POST", body, signal: controller.signal });
 
       if (!isCurrent(captured) || controller.signal.aborted) return;
@@ -242,6 +314,8 @@ export function useTemplateAssistant({
         answer.evidence &&
         ((job && answer.evidence.job?.job_id !== job.job_id) ||
           (file && answer.evidence.source !== "separate_uploaded_sample") ||
+          (evaluationFile && answer.evidence.source !== "original_of_evaluation_document") ||
+          (evaluation && !answer.evidence.evaluation) ||
           (useRetainedSource && answer.evidence.source !== "retained_source_of_selected_job"))
       ) {
         throw new Error(
@@ -252,12 +326,13 @@ export function useTemplateAssistant({
       // Validate the model contract again before exposing or applying its operations.
       const output = { explanation: answer.explanation, observations: answer.observations, groups: answer.groups };
       const evidence = answer.evidence?.job || job;
-      validateAssistantOutput(output, baseDraft, action, {
+      validateAssistantOutput(output, baseDraft, ACTION, {
         resultFields: evidence?.fields,
         result: Array.isArray(evidence?.results)
           ? Object.fromEntries(evidence.results.map((row) => [row.field_id, row.answer]))
           : evidence?.results,
-        sampleSupplied: Boolean(file || useRetainedSource),
+        sampleSupplied: Boolean(file || evaluationFile || useRetainedSource),
+        evaluationFieldIds: evaluation ? evaluationFieldIds(evaluation.evidence) : undefined,
       });
       lifetime.current.consumed = false;
       setResponse({ ...output, base, captured, baseDraft, evidence: answer.evidence || job });
@@ -280,9 +355,9 @@ export function useTemplateAssistant({
   const suggestionKey = isComposing
     ? JSON.stringify([
         scope,
-        action,
         job?.job_id ?? null,
         file ? [file.name, file.size] : null,
+        Boolean(evaluation),
         suggestionContext(draft),
       ])
     : null;
@@ -296,7 +371,7 @@ export function useTemplateAssistant({
         status: "ready",
         source: "rules",
         notice,
-        items: suggestTemplateRequests({ draft: current, issues: diagnoseTemplateDraft(current), action, job, file }),
+        items: suggestTemplateRequests({ draft: current, issues: diagnoseTemplateDraft(current), job, evaluation }),
       });
 
     if (!hasApiAccess) {
@@ -310,11 +385,13 @@ export function useTemplateAssistant({
 
     const timer = setTimeout(async () => {
       try {
-        const payload = { draft: current, action };
+        const payload = { draft: current };
 
         if (job) payload.jobId = job.job_id;
 
         if (file) payload.sampleName = file.name;
+
+        if (evaluation) payload.evaluation = { ...evaluation.evidence, sample_document: null };
 
         const data = await send("/templates/assist/suggestions", {
           method: "POST",
@@ -341,7 +418,7 @@ export function useTemplateAssistant({
       clearTimeout(timer);
       controller.abort();
     };
-    // The key captures the draft structure and guidance, evidence, tab and scope that suggestions depend on.
+    // The key captures the draft structure and guidance, evidence and scope that suggestions depend on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestionKey]);
 
@@ -436,14 +513,17 @@ export function useTemplateAssistant({
 
   return {
     open,
+    openWith,
     cancel,
     invalidate,
     panel: {
       isOpen,
-      action,
       instructions,
       file,
       job,
+      evaluation,
+      evaluationSample: Boolean(evaluationFile),
+      sampleLoading,
       templateId,
       suggestions,
       templateVersion,
@@ -456,13 +536,26 @@ export function useTemplateAssistant({
       stale,
       applied,
       revision,
-      onActionChange: (value) => revise(() => setAction(value)),
       onInstructionsChange: (value) => revise(() => setInstructions(value)),
+      // One click fills the request and sends it; the edit control only fills it.
+      onSuggestionSubmit: (value) => {
+        revise(() => setInstructions(value));
+        void submit(value);
+      },
       onFileChange: (value) =>
         revise(() => {
           setFile(value);
 
-          if (value) setRetainedSource(false);
+          if (value) {
+            setRetainedSource(false);
+            setEvaluationFile(null);
+          }
+        }),
+      onEvaluationSampleChange: (value) => void chooseEvaluationSample(value),
+      onRemoveEvaluation: () =>
+        revise(() => {
+          setEvaluation(null);
+          setEvaluationFile(null);
         }),
       onRetainedSourceChange: (value) =>
         revise(() => {
@@ -484,7 +577,7 @@ export function useTemplateAssistant({
 
           return next;
         }),
-      onSubmit: submit,
+      onSubmit: () => submit(),
       onApply: apply,
       onClose: cancel,
       onCancelRequest: () => {

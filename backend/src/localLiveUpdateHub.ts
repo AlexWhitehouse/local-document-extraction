@@ -20,10 +20,16 @@ type LocalLiveUpdateJob = {
   last_failed_attempt: number;
 };
 
+/** A membership change keeps access but changes a role or the member list. */
+export type LocalWorkspaceContextInvalidationReason =
+  | "workspace_access"
+  | "workspace_membership_changed"
+  | "model_configuration_changed";
+
 type LocalLiveUpdateEvent =
   | {
       type: "workspace_context_invalidated";
-      reason: "workspace_access" | "model_configuration_changed";
+      reason: LocalWorkspaceContextInvalidationReason;
       occurred_at: string;
     }
   | { type: "extraction_job_lifecycle"; job: LocalLiveUpdateJob }
@@ -108,7 +114,7 @@ export function createLocalLiveUpdateHub() {
       occurredAt,
     }: {
       workspaceId: string;
-      reason: "workspace_access" | "model_configuration_changed";
+      reason: LocalWorkspaceContextInvalidationReason;
       occurredAt: string;
     }) => {
       deliver(workspaceId, { type: "workspace_context_invalidated", reason, occurred_at: occurredAt });

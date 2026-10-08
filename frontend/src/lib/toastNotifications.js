@@ -22,6 +22,7 @@ const successMessages = {
   "workspaceInvitation.decline": () => "Invitation declined",
   "workspaceMember.remove": ({ target }) => withTarget("Member removed", target),
   "workspaceMember.makeAdmin": ({ target }) => withTarget("Member made admin", target),
+  "workspaceMember.makeMember": ({ target }) => withTarget("Admin made member", target),
   "workspaceMember.transferOwnership": ({ target }) => withTarget("Ownership transferred", target),
   "applicationRole.change": ({ target }) => withTarget("Application role updated", target),
   "applicationUser.ban": ({ target }) => withTarget("User banned", target),
@@ -39,6 +40,7 @@ const successMessages = {
     enabled ? "New uploads keep their originals" : "New uploads keep only results",
   "workspace.modelGateway.save": () => "Model gateway saved",
   "workspace.modelGateway.clear": () => "Model gateway cleared",
+  "workspace.extractionModel": ({ target }) => withTarget("Extraction model changed", target),
   "profile.update": () => "Profile updated",
   "evaluation.templateSave": ({ target }) => withTarget("Template saved", target),
   "library.save": ({ target }) => withTarget("Saved to library", target),
@@ -55,8 +57,12 @@ const successMessages = {
   "draft.removeField": ({ target }) => withTarget("Field removed", target),
   "draft.removeColumn": ({ target }) => withTarget("Column removed", target),
   "evaluation.removeCandidate": ({ target }) => withTarget("Candidate removed", target),
+  "evaluation.testChanges": ({ target }) => withTarget("Copy created to test changes", target),
+  "evaluation.applyAssistant": ({ target }) => withTarget("Changes applied. Run again to test them", target),
   "evaluation.removeDocument": ({ target }) => withTarget("Document removed", target),
   "evaluation.discardChanges": () => "Changes discarded",
+  "evaluation.acceptAnswers": ({ count = 0, target }) =>
+    `${pluralize(count, "expected answer")} accepted${target ? ` from ${target}` : ""}`,
   "packet.removeSplit": () => "Document removed from the split plan",
 };
 
@@ -76,6 +82,8 @@ const failureMessages = {
   "workspaceMember.remove": ({ target }) => (target ? `Couldn't remove ${target}.` : "Couldn't remove this member."),
   "workspaceMember.makeAdmin": ({ target }) =>
     target ? `Couldn't make ${target} an admin.` : "Couldn't make this member an admin.",
+  "workspaceMember.makeMember": ({ target }) =>
+    target ? `Couldn't make ${target} a member.` : "Couldn't make this admin a member.",
   "workspaceMember.transferOwnership": () => "Couldn't transfer ownership.",
   "applicationRole.change": () => "Couldn't update application role.",
   "applicationUser.ban": () => "Couldn't ban user.",
@@ -99,6 +107,8 @@ const failureMessages = {
   "tag.delete": () => "Couldn't delete the tag.",
   "document.useTemplate": () => "Couldn't use that template for this document.",
   "packet.confirmPlan": () => "Couldn't confirm the split plan.",
+  "evaluation.improve": () => "Couldn't load the results for this candidate.",
+  "evaluation.applyAssistant": () => "Couldn't apply the changes. Try again.",
 };
 
 const validationMessages = {

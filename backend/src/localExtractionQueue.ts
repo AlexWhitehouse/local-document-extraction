@@ -63,6 +63,89 @@ type DeferredJob = {
   job: ScheduledWork;
 };
 
+/** A FIFO with amortized constant-time removal from the front. */
+type Fifo<T> = {
+  readonly length: number;
+  push(item: T): void;
+  peek(): T | undefined;
+  shift(): T | undefined;
+  values(): T[];
+  /** Keep only matching items, preserving order. */
+  retain(keep: (item: T) => boolean): void;
+  remove(item: T): void;
+  clear(): void;
+};
+
+function createFifo<T>(): Fifo<T> {
+  let items: T[] = [];
+  let head = 0;
+
+  const compact = () => {
+    // Reclaim consumed slots once they dominate the array.
+    if (head > 64 && head * 2 > items.length) {
+      items = items.slice(head);
+      head = 0;
+    }
+  };
+
+  return {
+    get length() {
+      return items.length - head;
+    },
+    push: (item) => {
+      items.push(item);
+    },
+    peek: () => (head < items.length ? items[head] : undefined),
+    shift: () => {
+      if (head >= items.length) return undefined;
+      const item = items[head];
+      head += 1;
+
+      if (head === items.length) {
+        items = [];
+        head = 0;
+      } else compact();
+
+      return item;
+    },
+    values: () => items.slice(head),
+    retain: (keep) => {
+      items = items.slice(head).filter(keep);
+      head = 0;
+    },
+    remove: (item) => {
+      const index = items.indexOf(item, head);
+
+      if (index >= 0) items.splice(index, 1);
+    },
+    clear: () => {
+      items = [];
+      head = 0;
+    },
+  };
+}
+
+type QueuedWork = { sequence: number; job: ScheduledWork };
+
+/** Packet analysis and Document extraction wait in separate FIFOs so alternating stages is O(1). */
+type WorkspaceQueue = { packets: Fifo<QueuedWork>; documents: Fifo<QueuedWork> };
+
+const workspaceQueueLength = (queue: WorkspaceQueue) => queue.packets.length + queue.documents.length;
+
+/** The next work item: the earliest overall, or the other stage after `previousPacket` when it has work. */
+const nextStage = (queue: WorkspaceQueue, previousPacket: boolean | undefined): Fifo<QueuedWork> => {
+  if (previousPacket === undefined) {
+    const packet = queue.packets.peek(),
+      document = queue.documents.peek();
+
+    return packet && (!document || packet.sequence < document.sequence) ? queue.packets : queue.documents;
+  }
+
+  const alternate = previousPacket ? queue.documents : queue.packets;
+
+  return alternate.length ? alternate : previousPacket ? queue.packets : queue.documents;
+};
+
 export function createLocalExtractionQueue({
   maxBuffered = 10_000,
   maxConcurrent = 16,
@@ -91,11 +174,13 @@ export function createLocalExtractionQueue({
   const normalizedMaxBuffered = Number.isSafeInteger(maxBuffered) && maxBuffered > 0 ? maxBuffered : 10_000;
 
   const handlers = new Set<(job: LocalQueuedExtractionJob, capacity: LocalProcessingCapacity) => void | Promise<void>>();
-  const workspaceQueues = new Map<string, ScheduledWork[]>();
-  const readyWorkspaces: string[] = [];
+  const workspaceQueues = new Map<string, WorkspaceQueue>();
+  const readyWorkspaces = createFifo<string>();
   const readyWorkspaceSet = new Set<string>();
   const knownJobs = new Set<string>();
+  // Kept sorted by due time (stable for equal times) by binary insertion.
   const deferredJobs: DeferredJob[] = [];
+  let sequence = 0;
   const closeWaiters: Array<() => void> = [];
   const idleWaiters: Array<() => void> = [];
   let accepting = true;
@@ -126,10 +211,15 @@ export function createLocalExtractionQueue({
   };
 
   const enqueueReady = (job: ScheduledWork) => {
-    const queue = workspaceQueues.get(job.workspace_id) ?? [];
-    queue.push(job);
+    let queue = workspaceQueues.get(job.workspace_id);
+
+    if (!queue) {
+      queue = { packets: createFifo(), documents: createFifo() };
+      workspaceQueues.set(job.workspace_id, queue);
+    }
+
+    (job.kind === "packet" ? queue.packets : queue.documents).push({ sequence: sequence++, job });
     pending += 1;
-    workspaceQueues.set(job.workspace_id, queue);
 
     if (!readyWorkspaceSet.has(job.workspace_id)) {
       readyWorkspaceSet.add(job.workspace_id);
@@ -137,12 +227,26 @@ export function createLocalExtractionQueue({
     }
   };
 
+  const insertDeferred = (entry: DeferredJob) => {
+    let low = 0,
+      high = deferredJobs.length;
+
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+
+      if (deferredJobs[middle]!.dueAt <= entry.dueAt) low = middle + 1;
+      else high = middle;
+    }
+
+    deferredJobs.splice(low, 0, entry);
+  };
+
   const admit = (job: ScheduledWork) => {
     knownJobs.add(jobKey(job));
     const dueAt = job.not_before ? Date.parse(job.not_before) : Number.NaN;
 
     if (Number.isFinite(dueAt) && dueAt > now()) {
-      deferredJobs.push({ dueAt, job });
+      insertDeferred({ dueAt, job });
       armDeferredTimer();
     } else {
       enqueueReady(job);
@@ -158,7 +262,14 @@ export function createLocalExtractionQueue({
 
     if (!accepting || waiting >= waitingLimit) return;
 
-    if (handlers.size === 0 && ![...workspaceQueues.values()].some((queue) => queue[0] && isTransient(queue[0])))
+    if (
+      handlers.size === 0 &&
+      ![...workspaceQueues.values()].some((queue) => {
+        const head = queue.documents.peek();
+
+        return head && isTransient(head.job);
+      })
+    )
       return;
     let skipped = 0;
 
@@ -168,15 +279,8 @@ export function createLocalExtractionQueue({
       const queue = workspaceQueues.get(workspaceId);
       // Packet fan-out must not leave ready child extractions behind an entire
       // upload backlog. Alternate stages, preserving FIFO within each stage.
-      const previousPacket = lastWasPacket.get(workspaceId);
-
-      const alternate =
-        previousPacket === undefined
-          ? -1
-          : (queue?.findIndex((item) => (item.kind === "packet") !== previousPacket) ?? -1);
-
-      const nextIndex = alternate < 0 ? 0 : alternate;
-      const first = queue?.[nextIndex];
+      const stage = queue && nextStage(queue, lastWasPacket.get(workspaceId));
+      const first = stage?.peek()?.job;
 
       if (
         workspaceActive >= getWorkspaceMaxConcurrent(workspaceId) ||
@@ -189,7 +293,7 @@ export function createLocalExtractionQueue({
 
       skipped = 0;
       readyWorkspaceSet.delete(workspaceId);
-      const job = queue?.splice(nextIndex, 1)[0];
+      const job = stage?.shift()?.job;
 
       if (!job) {
         workspaceQueues.delete(workspaceId);
@@ -199,7 +303,7 @@ export function createLocalExtractionQueue({
       lastWasPacket.set(workspaceId, job.kind === "packet");
       pending -= 1;
 
-      if (queue!.length > 0) {
+      if (workspaceQueueLength(queue!) > 0) {
         readyWorkspaceSet.add(workspaceId);
         readyWorkspaces.push(workspaceId);
       } else {
@@ -304,7 +408,6 @@ export function createLocalExtractionQueue({
   };
 
   const armDeferredTimer = () => {
-    deferredJobs.sort((left, right) => left.dueAt - right.dueAt);
     const nextDueAt = deferredJobs[0]?.dueAt ?? null;
 
     if (nextDueAt === null) {
@@ -325,10 +428,11 @@ export function createLocalExtractionQueue({
         const firedDueAt = nextDueAt;
         deferredTimer = null;
         deferredTimerDueAt = null;
-        const due = deferredJobs.filter((entry) => entry.dueAt <= firedDueAt);
-        deferredJobs.splice(0, due.length);
+        let dueCount = 0;
 
-        for (const entry of due) enqueueReady(entry.job);
+        while (dueCount < deferredJobs.length && deferredJobs[dueCount]!.dueAt <= firedDueAt) dueCount += 1;
+
+        for (const entry of deferredJobs.splice(0, dueCount)) enqueueReady(entry.job);
         pump();
         armDeferredTimer();
       },
@@ -349,12 +453,13 @@ export function createLocalExtractionQueue({
 
         for (const { job } of deferredJobs) if (isTransient(job)) job.discard();
 
-        for (const queue of workspaceQueues.values()) for (const job of queue) if (isTransient(job)) job.discard();
+        for (const queue of workspaceQueues.values())
+          for (const { job } of queue.documents.values()) if (isTransient(job)) job.discard();
         deferredJobs.splice(0);
         workspaceQueues.clear();
         lastWasPacket.clear();
         pending = 0;
-        readyWorkspaces.splice(0);
+        readyWorkspaces.clear();
         readyWorkspaceSet.clear();
         knownJobs.clear();
         settleIdle();
@@ -401,16 +506,15 @@ export function createLocalExtractionQueue({
       };
 
       for (const [id, queue] of workspaceQueues) {
-        const remaining = queue.filter((job) => !remove(job));
-        pending -= queue.length - remaining.length;
+        // Transient tasks never wait in the packet stage.
+        const before = queue.documents.length;
+        queue.documents.retain(({ job }) => !remove(job));
+        pending -= before - queue.documents.length;
 
-        if (remaining.length) workspaceQueues.set(id, remaining);
-        else {
+        if (!workspaceQueueLength(queue)) {
           workspaceQueues.delete(id);
           readyWorkspaceSet.delete(id);
-          const index = readyWorkspaces.indexOf(id);
-
-          if (index >= 0) readyWorkspaces.splice(index, 1);
+          readyWorkspaces.remove(id);
         }
       }
 
@@ -464,11 +568,11 @@ function jobKey(job: ScheduledWork): string {
   );
 }
 
-function oldestEnqueuedAt(workspaceQueues: Map<string, ScheduledWork[]>, deferredJobs: DeferredJob[]): string | null {
+function oldestEnqueuedAt(workspaceQueues: Map<string, WorkspaceQueue>, deferredJobs: DeferredJob[]): string | null {
   let oldest: string | null = null;
 
   for (const queue of workspaceQueues.values()) {
-    for (const job of queue) {
+    for (const { job } of [...queue.packets.values(), ...queue.documents.values()]) {
       if (!oldest || job.enqueued_at < oldest) oldest = job.enqueued_at;
     }
   }

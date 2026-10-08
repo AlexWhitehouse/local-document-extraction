@@ -489,6 +489,25 @@ it("ranks candidates by accuracy, then table cells, then time, and names one lea
   expect(bestCandidateId(candidates.slice(0, 1), scores)).toBeNull();
 });
 
+it("breaks accuracy ties by reported cost, then time, and names no leader for an exact tie", () => {
+  const score = { byField: { a: { state: "Match" }, b: { state: "Mismatch" } }, tables: null };
+  const scores = { cheap: score, costly: score, partial: score, twin: score };
+
+  const candidate = (id, cost, processingMs = 100) => ({ id, result: { processingMs, cost } });
+  const reported = (amount, complete = true) => ({ amount, complete });
+
+  // Cost decides before time; a partly reported cost is not compared.
+  expect(bestCandidateId([candidate("costly", reported(0.5), 10), candidate("cheap", reported(0.1), 900)], scores)).toBe(
+    "cheap",
+  );
+  expect(
+    bestCandidateId([candidate("partial", reported(0.01, false), 900), candidate("costly", reported(0.5), 10)], scores),
+  ).toBe("costly");
+  // Nothing breaks the tie: no leader.
+  expect(bestCandidateId([candidate("twin", null), candidate("cheap", null)], scores)).toBeNull();
+  expect(bestCandidateId([candidate("twin", reported(0.1)), candidate("cheap", reported(0.1))], scores)).toBeNull();
+});
+
 it("normalizes answers before deciding whether candidates disagree", () => {
   const number = { data_type: "number" };
   expect(answerSignature(number, { status: "ok", answer: "1,200" })).toBe(

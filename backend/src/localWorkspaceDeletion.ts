@@ -19,6 +19,7 @@ export function createLocalWorkspaceDeletion({
   productStoreRegistry,
   sourceObjectManifest,
   onWorkspaceAccessRevoked,
+  onWorkspaceErased,
 }: {
   sourceFileStore: LocalSourceFileStore;
   stateDirectory: string;
@@ -28,6 +29,8 @@ export function createLocalWorkspaceDeletion({
   /** Remote originals are released to background cleanup; logical deletion never waits on remote storage. */
   sourceObjectManifest?: Pick<LocalSourceObjectManifest, "markWorkspaceDeleting">;
   onWorkspaceAccessRevoked?: (input: { workspaceId: string; reason: "workspace_access"; occurredAt: string }) => void;
+  /** Runs once the Workspace's product data and Source files have been erased. */
+  onWorkspaceErased?: (workspaceId: string) => void;
 }): LocalWorkspaceDeletion {
   const announceAccessRevoked = (workspaceId: string) =>
     onWorkspaceAccessRevoked?.({ workspaceId, reason: "workspace_access", occurredAt: nowIso() });
@@ -42,6 +45,7 @@ export function createLocalWorkspaceDeletion({
     ]);
     workspaceControl.completeWorkspaceDeletionIntent({ workspaceId });
     workspaceProductOperations?.completeDeletion({ workspaceId });
+    onWorkspaceErased?.(workspaceId);
   };
 
   return {

@@ -10,6 +10,8 @@ import { ProcessingCost } from "./ProcessingCost.jsx";
 import { Button } from "../ui/Button.jsx";
 import { Segmented, Tabs } from "../ui/Tabs.jsx";
 import { StatusDot } from "../ui/Status.jsx";
+import { AssistantIcon } from "../layout/Icons.jsx";
+import { improvableTemplate } from "./templateImprovement.js";
 
 const NARROW_SPLIT_WIDTH = 600;
 
@@ -98,6 +100,7 @@ function DocumentDetail({
   onViewingLayoutChange,
   loadOriginal,
   sourceStorageConfigured = false,
+  onImproveTemplate,
 }) {
   const results = Array.isArray(selectedDocument.results) ? selectedDocument.results : [];
 
@@ -124,6 +127,7 @@ function DocumentDetail({
 
   const layout = canViewOriginal ? viewingLayout : "results";
   const isHeld = status === "awaiting_template" || selectedDocument.routing_status === "awaiting_template";
+  const improvable = onImproveTemplate ? improvableTemplate(selectedDocument, templates) : null;
 
   const resultDisplay = (
     <>
@@ -165,6 +169,18 @@ function DocumentDetail({
           <DocumentLayoutToggle layout={layout} onChange={onViewingLayoutChange} />
         ) : sourceStorageConfigured ? (
           <span className="document-original-note">Original not retained</span>
+        ) : null}
+        {improvable ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="document-improve-template"
+            title={`Open ${improvable.name || "the template"} with the assistant and this document’s results`}
+            onClick={() => onImproveTemplate(selectedDocument)}
+          >
+            <AssistantIcon />
+            Improve template
+          </Button>
         ) : null}
       </div>
       {isHeld ? (

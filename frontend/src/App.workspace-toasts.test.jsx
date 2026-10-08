@@ -893,6 +893,72 @@ describe("Workspace action toast feedback", () => {
       });
     });
 
+    describe("demoting an admin", () => {
+      function routeAdminAction(response) {
+        routeFetch((url, method) => {
+          if (url.endsWith("/workspaces/ws_1/users") && method === "GET") {
+            return jsonResponse({ users: [workspaceMember({ role: "admin" })] });
+          }
+
+          if (url.endsWith("/workspaces/ws_1/users/user_2") && method === "POST") return response;
+        });
+      }
+
+      it("offers Make member for an admin, not for a member", async () => {
+        routeMemberAction(jsonResponse({ updated: true }));
+        await openMemberModal();
+
+        expect(await screen.findByRole("button", { name: "Make admin" })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Make member" })).toBeNull();
+      });
+
+      it("confirms before making an admin a member and sends the action", async () => {
+        routeAdminAction(jsonResponse({ user_id: "user_2", action: "make_member", role: "member" }));
+        const user = await openMemberModal();
+
+        expect(screen.queryByRole("button", { name: "Make admin" })).toBeNull();
+        await user.click(await screen.findByRole("button", { name: "Make member" }));
+
+        const dialog = await screen.findByRole("alertdialog", { name: "Make Grace Hopper a member?" });
+        expect(
+          within(dialog).getByText("They'll keep access but can no longer manage members or workspace settings."),
+        ).toBeTruthy();
+        expect(memberMutationCalls()).toEqual([]);
+
+        await confirmInDialog(user, "Make member");
+
+        await waitFor(() => {
+          expect(toastMock.success).toHaveBeenCalledWith("Admin made member: Grace Hopper", expect.anything());
+        });
+        expect(JSON.parse(memberMutationCalls()[0][1].body)).toEqual({ action: "make_member" });
+        expect(screen.queryByRole("dialog", { name: "Manage user" })).toBeNull();
+      });
+
+      it("does nothing when the demotion is cancelled", async () => {
+        routeAdminAction(jsonResponse({ updated: true }));
+        const user = await openMemberModal();
+
+        await user.click(await screen.findByRole("button", { name: "Make member" }));
+        await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+
+        await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+        expect(memberMutationCalls()).toEqual([]);
+        expect(screen.getByRole("dialog", { name: "Manage user" })).toBeTruthy();
+      });
+
+      it("keeps a refused demotion inline in the confirmation", async () => {
+        routeAdminAction(jsonResponse({ error: { code: "forbidden", message: "policy detail" } }, { status: 403 }));
+        const user = await openMemberModal();
+
+        await user.click(await screen.findByRole("button", { name: "Make member" }));
+        await confirmInDialog(user, "Make member");
+
+        const dialog = await screen.findByRole("alertdialog");
+        expect(await within(dialog).findByText("You don't have permission to do that.")).toBeTruthy();
+        expect(toastMock.error).not.toHaveBeenCalled();
+      });
+    });
+
     it("asks for confirmation before removing a member and does nothing on Cancel", async () => {
       routeMemberAction(jsonResponse({ updated: true }));
       const user = await openMemberModal();

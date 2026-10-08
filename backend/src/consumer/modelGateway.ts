@@ -12,6 +12,7 @@ import type { ModelFieldResult } from "./modelResultNormalizer";
 import { MAX_RENDERED_PDF_BYTES, renderPdfPages, withPdfOperationCapacity } from "../lib/pdfPageOperations";
 import { PdfSourceFileLimitError } from "../lib/sourceFilePageCount";
 import { createByteBudget } from "../lib/byteBudget";
+import { readObjectSchemaBlock } from "../../../shared/templateMarkers";
 import { localMemoryLimits } from "../localMemoryLimits";
 import { readModelCallUsage, type ModelCallObserver } from "./modelUsage";
 
@@ -467,14 +468,14 @@ function buildObjectAnswerSchema(field: FieldDefinition): JsonObject {
 function readObjectSchemaColumns(
   description: string,
 ): Array<{ key: string; dataType: "string" | "number" | "boolean" | "date" }> {
-  const match = description.match(/\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/);
+  const schemaJson = readObjectSchemaBlock(description);
 
-  if (!match?.[1]) {
+  if (!schemaJson) {
     return [];
   }
 
   try {
-    const schema = parseJson(match[1]);
+    const schema = parseJson(schemaJson);
 
     if (!isJsonObject(schema) || !isJsonArray(schema.columns)) {
       return [];

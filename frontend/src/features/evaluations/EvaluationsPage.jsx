@@ -18,9 +18,19 @@ import { pluralize } from "../../lib/text.js";
 import { createNotifier, defaultToast } from "../../lib/notify";
 import { describeError } from "../../lib/describeError";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
-import { validateTemplateJsonPayload } from "../templates/templateFields.js";
+import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "../templates/templateFields.js";
+import { TemplateAssistant } from "../templates/TemplateAssistant.jsx";
+import { useTemplateAssistant } from "../templates/useTemplateAssistant.js";
+import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
 import { templateLabel } from "./evaluationFormat.js";
 import { TemplateVersionDialog } from "./TemplateVersionDialog.jsx";
+import { CandidateTrial } from "./CandidateTrial.jsx";
+import {
+  collectEvaluationEvidence,
+  failingFieldNames,
+  improvementRequest,
+  shownRecord,
+} from "./candidateImprovement.js";
 import { MAX_CANDIDATES, documentRunnable, pairBusy } from "./useEvaluations.js";
 import { documentCompatibility, unverifiedFields } from "./evaluationScoring.js";
 import { documentDirty, saveUnavailableMessage } from "./evaluationLibrary.js";
@@ -32,6 +42,10 @@ import { Segmented } from "../ui/Tabs.jsx";
 import { Dropzone } from "../ui/Dropzone.jsx";
 import { Callout } from "../ui/Callout.jsx";
 import { CloseIcon, ExternalIcon } from "../layout/Icons.jsx";
+import { AcceptAnswersDialog } from "./AcceptAnswers.jsx";
+import { planAcceptAnswers } from "./acceptAnswers.js";
+import { extractionModelAvailability } from "./extractionModel.js";
+import { confirmDialog } from "../ui/confirm.jsx";
 
 export function EvaluationsPage({
   evaluation,
@@ -42,6 +56,7 @@ export function EvaluationsPage({
   suggestedModels,
   onTemplateSaved,
   onOpenWorkspace,
+  modelConfiguration = null,
   toast = defaultToast,
 }) {
   const { state, patch, edit, api } = evaluation;
@@ -57,9 +72,17 @@ export function EvaluationsPage({
   const [filter, setFilter] = useState("all");
   // The document whose unverified fields are flagged after a blocked save.
   const [missingFor, setMissingFor] = useState(null);
+  // The open "Accept all answers" confirmation: the candidate and one plan per document.
+  const [accepting, setAccepting] = useState(null);
+  // "Test changes": an edited copy of a candidate, run on the original's documents and compared with it.
+  const [trial, setTrial] = useState(null);
+  // The candidate the assistant panel works on, and the request it opens with.
+  const [assistantFor, setAssistantFor] = useState(null);
   const lifetime = useRef(0);
   useEffect(() => {
     lifetime.current++;
+    setTrial(null);
+    setAssistantFor(null);
     setEditor(null);
     setReplacement(null);
     setUploadOpen(false);
@@ -69,6 +92,7 @@ export function EvaluationsPage({
     setDialog(null);
     setView(null);
     setFilter("all");
+    setAccepting(null);
   }, [state.id]);
   // Setup can start and run in one step; run once the new candidates are in state.
   useEffect(() => {
@@ -76,11 +100,24 @@ export function EvaluationsPage({
     setAutoRun(null);
     evaluation.run(autoRun);
   }, [autoRun, state.candidates, evaluation]);
+  // The tested copy runs through the normal run path once it is in state.
+  useEffect(() => {
+    if (!trial) return;
+    const present = state.candidates.some((c) => c.id === trial.copyId);
+
+    // A copy removed from its column menu ends the comparison too.
+    if (!trial.pending && !present) setTrial(null);
+
+    if (!trial.pending || !present) return;
+    setTrial({ ...trial, pending: false });
+    evaluation.run([trial.copyId], trial.documentKeys);
+  }, [trial, state.candidates, evaluation]);
   const editingLibrary = !!state.libraryEditor;
   const batch = !editingLibrary && state.documents.length > 1;
   useEffect(() => {
     setFilter("all");
     setReplacement(null);
+    setAssistantFor(null);
   }, [state.libraryEditor]);
 
   // One document at a time, as in a single-document Evaluation; Previous/Next move through the rest.
@@ -259,7 +296,12 @@ export function EvaluationsPage({
       const next = { ...payload };
 
       evaluation.editLibraryTemplate(next, editor.documentKey);
-    } else if (state.mode === "models") {
+    } else applyToCandidate(editor.candidateId, payload);
+  };
+
+  // A model comparison shares one template, so its edits reach every candidate.
+  const applyToCandidate = (candidateId, payload) => {
+    if (state.mode === "models")
       patch({
         candidates: state.candidates.map((c) => ({
           ...c,
@@ -267,13 +309,180 @@ export function EvaluationsPage({
           revision: c.revision + 1,
         })),
       });
-    } else
-      edit(editor.candidateId, {
+    else
+      edit(candidateId, {
         template: {
           ...payload,
-          source: modifiedSource(state.candidates.find((c) => c.id === editor.candidateId).template.source),
+          source: modifiedSource(state.candidates.find((c) => c.id === candidateId).template.source),
         },
       });
+  };
+
+  // Assistant requests share the Evaluation's Workspace request path.
+  const assistRequest = useCallback(async (path, options) => (await api(path, options)).json(), [api]);
+  const candidateNumber = (candidate) => state.candidates.findIndex((c) => c.id === candidate.id) + 1;
+
+  const assistantCandidate = assistantFor ? state.candidates.find((c) => c.id === assistantFor.candidateId) || null : null;
+  const assistantTemplate = assistantCandidate?.template;
+
+  // The assistant works on a hydrated copy of the candidate's template, as the template editor does.
+  const assistantDraft = useMemo(
+    () =>
+      assistantTemplate
+        ? {
+            name: assistantTemplate.name,
+            description: assistantTemplate.description || "",
+            fields: assistantTemplate.fields.map(hydrateFieldFromTemplate),
+          }
+        : { name: "", description: "", fields: [] },
+    [assistantTemplate],
+  );
+
+  const assistantIssues = useMemo(() => diagnoseTemplateDraft(assistantDraft), [assistantDraft]);
+  const assistantRevision = assistantCandidate?.revision ?? 0;
+  const assistantRevisionRef = useRef(assistantRevision);
+  assistantRevisionRef.current = assistantRevision;
+  // Applied edits wait here until the user tests them on a copy or applies them to the candidate.
+  const [assistantResult, setAssistantResult] = useState(null);
+
+  const assistant = useTemplateAssistant({
+    request: assistRequest,
+    workspaceId: state.id,
+    sessionId: String(assistantFor?.opened ?? 0),
+    activePage: "evaluations",
+    templateId: assistantFor?.candidateId ?? "",
+    templateVersion: null,
+    hasApiAccess: Boolean(enabled && assistantCandidate),
+    draft: assistantDraft,
+    revision: assistantRevision,
+    getRevision: () => assistantRevisionRef.current,
+    maxSourceFileBytes,
+    onApply: setAssistantResult,
+  });
+
+  const openAssistantWith = assistant.openWith;
+  useEffect(() => {
+    if (assistantFor) openAssistantWith(assistantFor.intent);
+    // Opens once per request to open it; later renders keep the panel's own state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assistantFor?.opened]);
+
+  const cancelAssistant = assistant.cancel;
+
+  // A removed candidate closes the panel that was working on it.
+  useEffect(() => {
+    if (assistantFor && !assistantCandidate) {
+      cancelAssistant();
+      setAssistantFor(null);
+      setAssistantResult(null);
+    }
+  }, [assistantFor, assistantCandidate, cancelAssistant]);
+
+  const openAssistant = (candidate, intent = {}) => {
+    setAssistantResult(null);
+    setAssistantFor({ candidateId: candidate.id, intent, opened: (assistantFor?.opened ?? 0) + 1 });
+  };
+
+  const closeAssistant = () => {
+    assistant.cancel();
+    setAssistantFor(null);
+    setAssistantResult(null);
+  };
+
+  const assistantOpen = Boolean(assistantCandidate && assistant.panel.isOpen);
+
+  // Applied edits are tested on a copy, or applied to the candidate (or, comparing models, the shared template).
+  const finishAssistant = (action) => {
+    if (!assistantResult || !assistantCandidate) return;
+    const target = `Candidate ${candidateNumber(assistantCandidate)}`;
+
+    try {
+      action(assistantCandidate.id, validateTemplateJsonPayload(assistantResult));
+    } catch (error) {
+      notify("evaluation.applyAssistant", "failure", { error });
+
+      return;
+    }
+
+    if (action === applyToCandidate) notify("evaluation.applyAssistant", "success", { targetName: target });
+    closeAssistant();
+  };
+
+  const testLimit =
+    state.candidates.length >= MAX_CANDIDATES
+      ? `You can compare up to ${MAX_CANDIDATES} candidates. Remove one to test these changes on a copy.`
+      : "";
+
+  const assistantApplied =
+    state.mode === "templates"
+      ? {
+          notice:
+            testLimit ||
+            "Ready to test. Test the changes on a copy and compare the results, or apply them to this candidate.",
+          actions: (
+            <>
+              <Button variant="secondary" onClick={() => finishAssistant(applyToCandidate)}>
+                Apply to candidate
+              </Button>
+              <Button disabled={Boolean(testLimit)} onClick={() => finishAssistant(testChanges)}>
+                Test changes
+              </Button>
+            </>
+          ),
+        }
+      : {
+          notice: "Ready. Every candidate shares this template, so the changes apply to all of them. Run again to test.",
+          actions: <Button onClick={() => finishAssistant(applyToCandidate)}>Apply to template</Button>,
+        };
+
+  // Opens the assistant on the candidate's template with its failing fields and their verified expected answers.
+  const improveFailingFields = async (candidate) => {
+    const owner = lifetime.current;
+
+    try {
+      const collected = await collectEvaluationEvidence(
+        evaluation,
+        candidate,
+        `Candidate ${candidateNumber(candidate)}: ${labelFor(candidate)}`,
+        document?.key,
+      );
+
+      if (owner !== lifetime.current || !collected) return;
+      openAssistant(candidate, {
+        instructions: improvementRequest(collected.fieldNames),
+        evaluation: { evidence: collected.evidence, sample: collected.sample },
+      });
+    } catch (error) {
+      if (owner === lifetime.current)
+        notify("evaluation.improve", "failure", { error, retry: () => improveFailingFields(candidate) });
+    }
+  };
+
+  // Copies the candidate with the edited template and runs the copy on the documents the original ran on.
+  const testChanges = (candidateId, payload) => {
+    const original = state.candidates.find((c) => c.id === candidateId);
+    const copyId = original && evaluation.branch(original.id, { ...payload, source: modifiedSource(original.template.source) });
+
+    if (!copyId) throw new Error("The copy couldn’t be created.");
+
+    const tested = state.documents.flatMap((d) =>
+      documentRunnable(d) && shownRecord(state.pairs[d.key]?.[original.id]) ? [d.key] : [],
+    );
+
+    setTrial({
+      originalId: original.id,
+      copyId,
+      documentKeys: tested.length ? tested : runnable.map((d) => d.key),
+      pending: true,
+    });
+    notify("evaluation.testChanges", "success", { targetName: `Candidate ${candidateNumber(original) + 1}` });
+  };
+
+  const removeTrialCopy = async () => {
+    const copy = state.candidates.find((c) => c.id === trial.copyId);
+    setTrial(null);
+
+    if (copy) await removeCandidate(copy);
   };
 
   // In Template mode, input settings are shared by every candidate.
@@ -299,16 +508,138 @@ export function EvaluationsPage({
     if (undo) notify("evaluation.discardChanges", "success", { undo });
   };
 
+  // Plans "Accept all answers" for the open document, or for every document with a result from the candidate.
+  const openAcceptAnswers = async (candidate, everyDocument) => {
+    const owner = lifetime.current;
+
+    if (!everyDocument) {
+      const plan = planAcceptAnswers({ document, candidate, candidates: viewCandidates, alignments: state.alignments });
+
+      setAccepting({ candidate, everyDocument, plans: [{ document, plan }] });
+
+      return;
+    }
+
+    const plans = [];
+
+    for (const current of state.documents) {
+      const pairs = state.pairs[current.key] || {};
+      const record = shown(pairs[candidate.id]);
+
+      if (!record || (record === pairs[candidate.id].result && pairs[candidate.id].detail === "unavailable")) continue;
+      let detail;
+
+      try {
+        detail = await evaluation.loadDetail(record.recordId);
+      } catch {
+        continue;
+      }
+
+      if (!detail) continue;
+      const candidates = state.candidates.map((c) => ({ ...c, result: shown(pairs[c.id]) }));
+
+      plans.push({
+        document: current,
+        plan: planAcceptAnswers({
+          document: current,
+          candidate: { ...candidate, result: { ...record, raw: detail.raw } },
+          candidates,
+          alignments: state.alignments,
+        }),
+      });
+    }
+
+    if (owner === lifetime.current) setAccepting({ candidate, everyDocument, plans });
+  };
+
+  const acceptAnswers = (candidate, changes) => {
+    const undo = evaluation.acceptReferences(changes);
+
+    if (undo)
+      notify("evaluation.acceptAnswers", "success", { count: changes.length, targetName: labelFor(candidate), undo });
+  };
+
+  // Promotes a model candidate to the workspace extraction model. Only owners and admins see it.
+  const extractionFor = (candidate) => {
+    if (state.mode !== "models" || !modelConfiguration?.canManage) return null;
+    const results = Object.values(state.pairs).map((byCandidate) => byCandidate[candidate.id]?.result);
+    const { reason, model } = extractionModelAvailability(modelConfiguration, candidate, results);
+
+    return { disabled: !!reason, reason, onClick: () => void promoteModel(model) };
+  };
+
+  const promoteModel = async (model) => {
+    const record = modelConfiguration.record;
+    const flag = (on) => (on ? "on" : "off");
+
+    // Task roles without their own model follow the extraction model.
+    const shared =
+      !record.assistant_model && !record.classification_model
+        ? " The Template assistant and document classification use it too."
+        : !record.assistant_model
+          ? " The Template assistant uses it too."
+          : !record.classification_model
+            ? " Document classification uses it too."
+            : "";
+
+    const changed = await confirmDialog({
+      title: `Use “${model.model_name}” for extraction?`,
+      body: `Extraction model: ${record.model_name} → ${model.model_name}, with Direct PDF input ${flag(model.supports_pdf_input)} and Structured output ${flag(model.supports_structured_output)}.${shared} To run candidates again afterwards, start a new evaluation.`,
+      confirmLabel: "Change extraction model",
+      pendingLabel: "Saving…",
+      tone: "default",
+      action: () => modelConfiguration.setExtractionModel(model),
+    });
+
+    if (changed)
+      notify("workspace.extractionModel", "success", {
+        targetName: model.model_name,
+        link: onOpenWorkspace && { label: "Open model settings", onClick: onOpenWorkspace },
+      });
+  };
+
+  // The candidate menu entry for "Use for extraction", with the reason when it's unavailable.
+  const extractionAction = (candidate) => {
+    const extraction = extractionFor(candidate);
+
+    return (
+      extraction && {
+        label: "Use for extraction…",
+        disabled: extraction.disabled,
+        hint: extraction.reason,
+        onClick: extraction.onClick,
+      }
+    );
+  };
+
   const menuFor = (candidate) => ({
     inputs: { shared: state.mode === "templates" },
     onInputChange: (key, value) => setInput(candidate, key, value),
+    // Shown as its own button beside the menu while the candidate fails verified fields.
+    improve:
+      enabled && failingFieldNames(state, document, candidate).length > 0
+        ? () => void improveFailingFields(candidate)
+        : null,
     actions: [
       { label: "Edit template", onClick: () => openEditor(candidate) },
+      enabled && { label: "Ask assistant", onClick: () => openAssistant(candidate) },
       state.mode === "templates" && {
         label: "Choose another template version",
         onClick: () => setReplacement({ candidateId: candidate.id, source: candidate.template.source }),
       },
       { label: "Save as new template", onClick: () => openEditor(candidate, true) },
+      {
+        label: "Accept all answers…",
+        disabled: !candidate.result,
+        hint: candidate.result ? undefined : "Run this candidate on this document first.",
+        onClick: () => void openAcceptAnswers(candidate, false),
+      },
+      batch && {
+        label: "Accept answers for every document…",
+        disabled: !Object.values(state.pairs).some((byCandidate) => shown(byCandidate[candidate.id])),
+        onClick: () => void openAcceptAnswers(candidate, true),
+      },
+      extractionAction(candidate),
       {
         label: "Duplicate candidate",
         disabled: state.candidates.length >= MAX_CANDIDATES,
@@ -346,9 +677,10 @@ export function EvaluationsPage({
   const dialogDocument = dialog?.key && state.documents.find((d) => d.key === dialog.key);
   const dialogFields = dialog?.fields || fields;
 
-  // The template editor and library save dialogs hold unapplied edits.
+  // The library save dialogs hold unapplied edits. The template editor guards its own
+  // edits once they differ from the opening draft.
   useUnsavedGuard(
-    Boolean(editor || (dialog?.kind === "save" && dialogDocument) || (dialog?.kind === "update" && dialogDocument?.entry)),
+    Boolean((dialog?.kind === "save" && dialogDocument) || (dialog?.kind === "update" && dialogDocument?.entry)),
     "Evaluation dialog",
   );
   const compatibility = document && documentCompatibility(document, fields);
@@ -368,6 +700,7 @@ export function EvaluationsPage({
   };
 
   return (
+    <div className={`evaluations-workspace${assistantOpen ? " has-assistant" : ""}`}>
     <section className="evaluations-page" aria-label="Evaluations">
       <PageHeader
         label="Evaluations"
@@ -581,6 +914,16 @@ export function EvaluationsPage({
             </div>
           </div>
           {document && <DocumentBanner evaluation={evaluation} document={document} notify={notify} />}
+          {trial && !editingLibrary && (
+            <CandidateTrial
+              evaluation={evaluation}
+              trial={trial}
+              labelFor={(candidate) => `Candidate ${candidateNumber(candidate)} (${labelFor(candidate)})`}
+              onKeep={() => setTrial(null)}
+              onRemove={() => void removeTrialCopy()}
+              onRun={() => evaluation.run([trial.copyId], trial.documentKeys)}
+            />
+          )}
           {document && (
             <div className="evaluation-toolbar-row">
               <FieldFilters value={filter} onChange={setFilter} editing={editingLibrary} />
@@ -614,6 +957,7 @@ export function EvaluationsPage({
               filter={filter}
               onFilterChange={setFilter}
               showMissing={missingFor === document.key}
+              extractionFor={extractionFor}
             />
           ) : (
             <Dropzone
@@ -720,7 +1064,28 @@ export function EvaluationsPage({
           onClose={() => setDialog(null)}
         />
       )}
+      {accepting && (
+        <AcceptAnswersDialog
+          candidateLabel={labelFor(accepting.candidate)}
+          plans={accepting.plans}
+          everyDocument={accepting.everyDocument}
+          onAccept={(changes) => acceptAnswers(accepting.candidate, changes)}
+          onClose={() => setAccepting(null)}
+        />
+      )}
       {preview && <DocumentPreview evaluation={evaluation} document={preview} onClose={() => setPreview(null)} />}
     </section>
+      {assistantCandidate ? (
+        <TemplateAssistant
+          assistant={{ ...assistant.panel, onClose: closeAssistant }}
+          draft={assistantDraft}
+          issues={assistantIssues}
+          allowJobs={false}
+          eyebrow={`Candidate ${candidateNumber(assistantCandidate)}`}
+          draftStatus={assistantCandidate.template.source?.modified ? "edited in this evaluation" : "as chosen for this evaluation"}
+          applied={assistantApplied}
+        />
+      ) : null}
+    </div>
   );
 }

@@ -8,19 +8,19 @@ import {
   type JsonValue,
 } from "../../../shared/json";
 import { diagnoseTemplateDraft } from "../../../shared/templateDiagnostics";
+import {
+  OBJECT_GUIDANCE_END,
+  OBJECT_GUIDANCE_START,
+  OBJECT_SCHEMA_END,
+  OBJECT_SCHEMA_START,
+  readObjectSchemaBlock,
+  stripObjectMarkers,
+} from "../../../shared/templateMarkers";
 import { normalizeTemplateTags } from "../../../shared/templateTags";
 import { HttpError } from "./http";
 import type { DataType, FieldDefinition } from "./types";
 
 const ALLOWED_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
-
-const OBJECT_GUIDANCE_START = "[[OBJECT_TABLE_GUIDANCE]]";
-
-const OBJECT_GUIDANCE_END = "[[/OBJECT_TABLE_GUIDANCE]]";
-
-const OBJECT_SCHEMA_START = "[[OBJECT_SCHEMA]]";
-
-const OBJECT_SCHEMA_END = "[[/OBJECT_SCHEMA]]";
 
 const OBJECT_SCHEMA_DATA_TYPES: ReadonlySet<DataType> = new Set(["string", "number", "boolean", "date"]);
 
@@ -328,19 +328,16 @@ function appendObjectMetadata(
 }
 
 function extractObjectMetadata(description: string) {
-  const schemaPattern = /\[\[OBJECT_SCHEMA\]\]\s*([\s\S]*?)\s*\[\[\/OBJECT_SCHEMA\]\]/;
-  const guidancePattern = /\[\[OBJECT_TABLE_GUIDANCE\]\][\s\S]*?\[\[\/OBJECT_TABLE_GUIDANCE\]\]\s*/g;
-
-  const schemaMatch = description.match(schemaPattern);
+  const schemaJson = readObjectSchemaBlock(description);
   let objectSchema: ObjectSchemaInput | null = null;
 
-  if (schemaMatch?.[1]) {
+  if (schemaJson) {
     try {
-      const parsed = parseJson(schemaMatch[1]);
+      const parsed = parseJson(schemaJson);
 
       if (!isJsonObject(parsed))
         return {
-          baseDescription: description.replace(schemaPattern, "").replace(guidancePattern, "").trim(),
+          baseDescription: stripObjectMarkers(description),
           objectSchema: null,
         };
       objectSchema = normalizeObjectSchemaInput({
@@ -352,7 +349,7 @@ function extractObjectMetadata(description: string) {
     }
   }
 
-  const baseDescription = description.replace(schemaPattern, "").replace(guidancePattern, "").trim();
+  const baseDescription = stripObjectMarkers(description);
 
   return {
     baseDescription,

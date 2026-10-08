@@ -263,6 +263,75 @@ async function waitFor(condition: () => boolean): Promise<void> {
   throw new Error("Timed out waiting for queue state");
 }
 
+test("deferred retries admitted in any order become ready in due order, ties first-come", async () => {
+  let clock = Date.parse("2026-07-10T20:00:00.000Z");
+  const timers: Array<{ handler: () => void; dueAt: number }> = [];
+
+  const queue = createLocalExtractionQueue({
+    maxConcurrent: 1,
+    now: () => clock,
+    scheduleTimer: (handler, delayMs) => {
+      timers.push({ handler, dueAt: clock + delayMs });
+
+      return timers.length;
+    },
+    cancelTimer: () => {},
+  });
+
+  queue.setMaxConcurrent(0);
+  const minutes = [7, 3, 9, 3, 1, 5, 9, 2];
+
+  for (const [index, minute] of minutes.entries()) {
+    await queue.schedule({
+      ...job(`retry_${index}`, "workspace_one"),
+      attempt: 2,
+      not_before: new Date(Date.parse("2026-07-10T20:00:00.000Z") + minute * 60_000).toISOString(),
+    });
+  }
+
+  expect(queue.snapshot()).toMatchObject({ deferred: minutes.length, pending: 0 });
+
+  // Fire only the newest armed timer, as a real cancellation of the others would leave.
+  while (queue.snapshot().deferred) {
+    const timer = timers.at(-1)!;
+    clock = timer.dueAt;
+    timer.handler();
+  }
+
+  const order: string[] = [];
+  queue.subscribe((item) => {
+    order.push(item.job_id);
+  });
+  queue.setMaxConcurrent(1);
+  await queue.waitForIdle();
+  expect(order).toEqual(["retry_4", "retry_7", "retry_1", "retry_3", "retry_5", "retry_0", "retry_2", "retry_6"]);
+  await queue.close();
+});
+
+test("a large multi-Workspace backlog stays fair across Workspaces and FIFO within each", async () => {
+  const queue = createLocalExtractionQueue({ maxConcurrent: 1, maxBuffered: 100_000 });
+  queue.setMaxConcurrent(0);
+  const workspaces = ["workspace_a", "workspace_b", "workspace_c"];
+
+  for (let index = 0; index < 5_000; index++)
+    for (const workspaceId of workspaces) await queue.schedule(job(`${workspaceId}_${index}`, workspaceId));
+
+  const order: string[] = [];
+  queue.subscribe((item) => {
+    order.push(item.job_id);
+  });
+  queue.setMaxConcurrent(1);
+  await queue.waitForIdle();
+  expect(order).toHaveLength(15_000);
+
+  for (const [position, jobId] of order.entries()) {
+    const workspaceId = workspaces[position % workspaces.length]!;
+    expect(jobId).toBe(`${workspaceId}_${Math.floor(position / workspaces.length)}`);
+  }
+
+  await queue.close();
+});
+
 test("packet backlog and extraction alternate without starving either stage or reordering a stage", async () => {
   const queue = createLocalExtractionQueue({ maxConcurrent: 1 });
   queue.setMaxConcurrent(0);

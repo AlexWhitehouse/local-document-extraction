@@ -3,22 +3,18 @@ import React, { useMemo, useRef } from "react";
 import { diagnoseTemplateDraft, identityImpacts, previewRows } from "../../../../shared/templateAssistant.ts";
 import { getDataTypeLabel } from "./templateFields.js";
 import { pluralize } from "../../lib/text.js";
-import { CloseIcon, MagicIcon } from "../layout/Icons.jsx";
+import { CloseIcon, EditIcon, MagicIcon } from "../layout/Icons.jsx";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
 import "./TemplateAssistant.css";
 import { Button, IconButton } from "../ui/Button.jsx";
-import { Badge, CountBadge } from "../ui/Status.jsx";
+import { Badge } from "../ui/Status.jsx";
 import { Field, Textarea } from "../ui/Field.jsx";
 import { DataTable } from "../ui/DataTable.jsx";
 import { Pager } from "../ui/Pager.jsx";
-import { Segmented, Tabs } from "../ui/Tabs.jsx";
+import { Segmented } from "../ui/Tabs.jsx";
 import { Callout } from "../ui/Callout.jsx";
-
-const TABS = [
-  { value: "explain", label: "Explain problems" },
-  { value: "edit", label: "Propose edits" },
-];
+import { weakResultFields } from "../documents/templateImprovement.js";
 
 const OBSERVATION_LISTS = [
   {
@@ -38,7 +34,6 @@ const OBSERVATION_LISTS = [
     tone: "neutral",
     label: "Suggestion",
     title: "Suggestions",
-    hint: "Test changes with an evaluation.",
   },
 ];
 
@@ -63,72 +58,89 @@ const truncate = (text, length) => (text.length > length ? `${text.slice(0, leng
 
 const jobName = (job) => job.original_filename || job.job_id;
 
-export function TemplateAssistant({ assistant, draft, issues = [], isEditing = false, isDirty = false }) {
+const failureCount = (evidence) => evidence.documents.reduce((sum, document) => sum + document.failures.length, 0);
+
+/**
+ * `allowJobs` hides the completed-document picker. `eyebrow` and `draftStatus` describe the draft when it
+ * isn't the Templates page editor. `applied` replaces the post-apply notice and adds actions, e.g. to test the
+ * changes on a copy.
+ */
+export function TemplateAssistant({
+  assistant,
+  draft,
+  issues = [],
+  isEditing = false,
+  isDirty = false,
+  allowJobs = true,
+  eyebrow = "Template",
+  draftStatus = null,
+  applied: appliedView = null,
+}) {
   if (!assistant?.isOpen) return null;
-  const { action, pending, response, applied } = assistant;
+  const { pending, response, applied } = assistant;
 
   return (
     <aside className="template-assistant" aria-label="Template assistant">
       <header className="template-assistant-head">
         <div>
-          <p className="studio-eyebrow">Template</p>
+          <p className="studio-eyebrow">{eyebrow}</p>
           <h2>Assistant</h2>
         </div>
         <IconButton label="Close assistant" icon={CloseIcon} onClick={assistant.onClose} />
       </header>
-      <div className="template-assistant-tabs">
-        <Tabs
-          label="Assistant mode"
-          idPrefix="template-assistant"
-          items={TABS.map((tab) => ({
-            ...tab,
-            disabled: pending && action !== tab.value,
-            meta: tab.value === "explain" && issues.length ? <CountBadge count={issues.length} label={`${issues.length} problems`} tone="danger" /> : undefined,
-          }))}
-          value={action}
-          onChange={(value) => action !== value && assistant.onActionChange(value)}
-        />
-      </div>
-      <ScrollArea
-        id={`template-assistant-panel-${action}`}
-        className="template-assistant-body"
-        role="tabpanel"
-        aria-labelledby={`template-assistant-tab-${action}`}
-        tabIndex={0}
-      >
+      <ScrollArea className="template-assistant-body" tabIndex={0}>
         {pending ? (
           <PendingView assistant={assistant} />
         ) : response ? (
           <ResultView assistant={assistant} />
         ) : applied ? (
-          <AppliedView />
+          <AppliedView notice={appliedView?.notice} />
         ) : (
-          <ComposeView assistant={assistant} draft={draft} issues={issues} isEditing={isEditing} isDirty={isDirty} />
+          <ComposeView
+            assistant={assistant}
+            draft={draft}
+            issues={issues}
+            draftStatus={draftStatus ?? (isEditing ? (isDirty ? "unsaved changes" : "matches saved version") : "new, unsaved")}
+            allowJobs={allowJobs}
+          />
         )}
       </ScrollArea>
       <footer className="template-assistant-foot">
-        <FooterActions assistant={assistant} issues={issues} />
+        <FooterActions assistant={assistant} appliedActions={appliedView?.actions} />
       </footer>
       {assistant.picker.isOpen ? <JobPicker picker={assistant.picker} selectedJobId={assistant.job?.job_id} /> : null}
     </aside>
   );
 }
 
-function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
+function ComposeView({ assistant, draft, issues, draftStatus, allowJobs }) {
   const fileInput = useRef(null);
-  const { action, instructions, file, job, useRetainedSource, error, stale } = assistant;
-  const binary = useRetainedSource ? "job_source" : file ? "upload" : "none";
+  const { instructions, file, job, evaluation, evaluationSample, useRetainedSource, error, stale } = assistant;
+
+  const binary = useRetainedSource
+    ? "job_source"
+    : evaluationSample
+      ? "evaluation_source"
+      : file
+        ? "upload"
+        : "none";
 
   const binaryOptions = [
-    { id: "none", label: job ? "Result only" : "No file", enabled: true },
+    { id: "none", label: job ? "Result only" : evaluation ? "Results only" : "No file", enabled: true },
     ...(job ? [{ id: "job_source", label: "Original", enabled: job.source_available }] : []),
+    ...(evaluation?.sample
+      ? [{ id: "evaluation_source", label: "Original", enabled: !assistant.sampleLoading }]
+      : []),
     ...(file ? [{ id: "upload", label: "Uploaded sample", enabled: true }] : []),
   ];
 
   const chooseBinary = (id) => {
     if (id === "job_source") assistant.onRetainedSourceChange(true);
+    else if (id === "evaluation_source") assistant.onEvaluationSampleChange(true);
     else if (id === "none") {
       assistant.onRetainedSourceChange(false);
+
+      if (evaluationSample) assistant.onEvaluationSampleChange(false);
 
       if (file) assistant.onFileChange(null);
     }
@@ -147,30 +159,25 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
         </Callout>
       ) : null}
       <p className="template-assistant-muted">
-        {action === "explain"
-          ? "Ask why something’s wrong. Your draft won’t change."
-          : "Describe a change. You’ll review each edit before it’s applied."}
+        Ask a question or describe a change. You’ll review each edit before it’s applied.
       </p>
       <Field
-        label={action === "explain" ? "What would you like explained?" : "Describe your change"}
-        hint={action === "explain" ? "Optional." : undefined}
+        label="What do you need?"
+        hint="Optional. Leave it empty to review the draft and its evidence."
         className="template-assistant-label"
       >
         <Textarea
           rows={3}
           value={instructions}
-          placeholder={
-            action === "explain"
-              ? "e.g. Why is Total often empty?"
-              : "e.g. Rename Invoice No to Invoice number"
-          }
+          placeholder="e.g. Why is Total often empty? or Rename Invoice No to Invoice number"
           onChange={(event) => assistant.onInstructionsChange(event.target.value)}
         />
       </Field>
       <SuggestionCards
         suggestions={assistant.suggestions}
         selected={instructions}
-        onPick={assistant.onInstructionsChange}
+        onSend={assistant.onSuggestionSubmit}
+        onEdit={assistant.onInstructionsChange}
       />
 
       <section className="template-assistant-section" aria-label="Evidence">
@@ -179,6 +186,7 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
             Evidence <span>optional</span>
           </h3>
         </div>
+        {evaluation ? <EvaluationEvidenceCard assistant={assistant} /> : null}
         {job ? (
           <div className="template-assistant-evidence-card">
             <div className="template-assistant-evidence-title">
@@ -203,6 +211,7 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                 <Badge tone="success">Latest saved version</Badge>
               )}
             </p>
+            <WeakFields results={job.results} />
             <details className="template-assistant-details">
               <summary>Historical fields and results</summary>
               <pre>{JSON.stringify({ fields: job.fields, results: job.results }, null, 2)}</pre>
@@ -211,11 +220,11 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
               {job.source_available ? "Original available." : "Original not kept. Only the result can be checked."}
             </p>
           </div>
-        ) : (
+        ) : allowJobs && !evaluation ? (
           <Button type="button" variant="secondary" className="template-assistant-evidence-add" onClick={assistant.picker.onOpen}>
             Choose a completed document…
           </Button>
-        )}
+        ) : null}
 
         {file ? (
           <div className="template-assistant-evidence-card">
@@ -260,7 +269,7 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
           </>
         )}
 
-        {job || file ? (
+        {job || file || evaluation?.sample ? (
           <div className="template-assistant-binary">
             <span className="template-assistant-label-text">File sent to the model</span>
             <Segmented
@@ -271,7 +280,12 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
                 value: option.id,
                 label: option.label,
                 disabled: !option.enabled,
-                title: option.enabled ? undefined : "The original isn’t available for this document",
+                title:
+                  option.id === "evaluation_source"
+                    ? evaluation.sample.name
+                    : option.enabled
+                      ? undefined
+                      : "The original isn’t available for this document",
               }))}
             />
           </div>
@@ -285,30 +299,33 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
         <ul>
           <li>
             <strong>Current draft</strong> {draft.name ? `“${draft.name}”` : "(untitled)"} ·{" "}
-            {pluralize(draft.fields.length, "field")} ·{" "}
-            {isEditing ? (isDirty ? "unsaved changes" : "matches saved version") : "new, unsaved"}
+            {pluralize(draft.fields.length, "field")} · {draftStatus}
             {issues.length ? ` · ${issues.length} problem${issues.length === 1 ? "" : "s"}` : ""}
           </li>
           <li>
             <strong>Your request</strong>{" "}
-            {instructions.trim()
-              ? `“${truncate(instructions.trim(), 80)}”`
-              : action === "explain"
-                ? "General explanation"
-                : "—"}
+            {instructions.trim() ? `“${truncate(instructions.trim(), 80)}”` : "Review the draft"}
           </li>
           {job ? (
             <li>
               <strong>Stored result</strong> {jobName(job)}, extracted with v{job.template_version}
             </li>
           ) : null}
+          {evaluation ? (
+            <li>
+              <strong>Evaluation results</strong> {pluralize(failureCount(evaluation.evidence), "failing field")} with
+              verified expected answers
+            </li>
+          ) : null}
           <li>
             <strong>File</strong>{" "}
             {binary === "job_source"
               ? `${jobName(job)} (the original)`
-              : binary === "upload"
-                ? `${file.name} (uploaded sample)`
-                : "None"}
+              : binary === "evaluation_source"
+                ? `${evaluation.sample.name} (the original)`
+                : binary === "upload"
+                  ? `${file.name} (uploaded sample)`
+                  : "None"}
           </li>
         </ul>
       </section>
@@ -316,7 +333,55 @@ function ComposeView({ assistant, draft, issues, isEditing, isDirty }) {
   );
 }
 
-function SuggestionCards({ suggestions, selected, onPick }) {
+// The fields this document's result suggests the template extracts poorly.
+function WeakFields({ results }) {
+  const weak = weakResultFields(results);
+
+  if (!weak.length) return <p className="template-assistant-muted">No fields were missing or low confidence.</p>;
+
+  return (
+    <p>
+      {pluralize(weak.length, "field")} missing, unreadable or low confidence:{" "}
+      {weak.slice(0, 6).map((name) => `“${name}”`).join(", ")}
+      {weak.length > 6 ? ` and ${weak.length - 6} more` : ""}
+    </p>
+  );
+}
+
+function EvaluationEvidenceCard({ assistant }) {
+  const { evidence } = assistant.evaluation;
+  const failures = failureCount(evidence);
+  const omitted = evidence.omitted.failures;
+
+  return (
+    <div className="template-assistant-evidence-card">
+      <div className="template-assistant-evidence-title">
+        <div>
+          <strong>Evaluation results</strong>
+          <span>{evidence.candidate.label}</span>
+        </div>
+        <Button type="button" variant="danger-text" onClick={assistant.onRemoveEvaluation}>
+          Remove
+        </Button>
+      </div>
+      <p>
+        {evidence.accuracy.matched} of {evidence.accuracy.total} fields correct ·{" "}
+        {pluralize(failures, "failing field")} in {pluralize(evidence.documents.length, "document")}
+      </p>
+      {omitted ? (
+        <p className="template-assistant-muted">
+          {pluralize(omitted, "more failing field")} left out to keep the request small.
+        </p>
+      ) : null}
+      <details className="template-assistant-details">
+        <summary>Failing fields and expected answers</summary>
+        <pre>{JSON.stringify(evidence.documents, null, 2)}</pre>
+      </details>
+    </div>
+  );
+}
+
+function SuggestionCards({ suggestions, selected, onSend, onEdit }) {
   const { status, source, items, notice } = suggestions;
   const isLoading = status !== "ready";
 
@@ -342,19 +407,26 @@ function SuggestionCards({ suggestions, selected, onPick }) {
           {items.length ? (
             <div className="template-assistant-suggestion-list">
               {items.map((suggestion) => (
-                <button
-                  key={suggestion.id}
-                  type="button"
-                  className={
-                    selected === suggestion.request
-                      ? "template-assistant-suggestion selected"
-                      : "template-assistant-suggestion"
-                  }
-                  onClick={() => onPick(suggestion.request)}
-                >
-                  <strong>{suggestion.label}</strong>
-                  <span>{suggestion.reason}</span>
-                </button>
+                <div key={suggestion.id} className="template-assistant-suggestion-row">
+                  <button
+                    type="button"
+                    className={
+                      selected === suggestion.request
+                        ? "template-assistant-suggestion selected"
+                        : "template-assistant-suggestion"
+                    }
+                    onClick={() => onSend(suggestion.request)}
+                  >
+                    <strong>{suggestion.label}</strong>
+                    <span>{suggestion.reason}</span>
+                  </button>
+                  <IconButton
+                    size="sm"
+                    label={`Edit “${truncate(suggestion.label, 40)}” before sending`}
+                    icon={EditIcon}
+                    onClick={() => onEdit(suggestion.request)}
+                  />
+                </div>
               ))}
             </div>
           ) : (
@@ -410,9 +482,6 @@ function ResultView({ assistant }) {
 
       <section className="template-assistant-section" aria-label="Explanation">
         <p className="template-assistant-summary">{response.explanation}</p>
-        <Badge tone="warning" className="template-assistant-tag">
-          Not verified
-        </Badge>
         {checked.length ? (
           <EvidenceList
             kind="checked"
@@ -461,7 +530,7 @@ function ResultView({ assistant }) {
   );
 }
 
-function EvidenceList({ kind, tone, label, title, hint, items }) {
+function EvidenceList({ kind, tone, label, title, items }) {
   return (
     <div className={`template-assistant-evidence-list ${kind}`}>
       <div className="template-assistant-evidence-list-head">
@@ -470,7 +539,6 @@ function EvidenceList({ kind, tone, label, title, hint, items }) {
         </Badge>
         <strong>{title}</strong>
       </div>
-      {hint ? <p className="template-assistant-muted">{hint}</p> : null}
       <ul>
         {items.map((item, index) => (
           <li key={index}>{item.text}</li>
@@ -636,21 +704,21 @@ function SelectionCheck({ selection, baseHadIssues }) {
     );
   }
 
-  return <p className="template-assistant-check good">The result passes the same checks as Save.</p>;
+  return null;
 }
 
-function AppliedView() {
+function AppliedView({ notice = "Applied. Save the template to keep these changes." }) {
   return (
     <div className="template-assistant-stack template-assistant-fade-in">
       <Callout tone="success" role="status">
-        Applied. Save the template to keep these changes.
+        {notice}
       </Callout>
     </div>
   );
 }
 
-function FooterActions({ assistant, issues }) {
-  const { action, pending, response, applied, stale, selection } = assistant;
+function FooterActions({ assistant, appliedActions }) {
+  const { pending, response, applied, stale, selection } = assistant;
   const revise = () => assistant.onInstructionsChange(assistant.instructions);
   let actions;
 
@@ -675,24 +743,9 @@ function FooterActions({ assistant, issues }) {
         </Button>
       </>
     ) : (
-      <>
-        <Button type="button" variant="secondary" onClick={revise}>
-          Ask something else
-        </Button>
-        {action === "explain" && issues.length ? (
-          <Button
-            type="button"
-
-            onClick={() => {
-              assistant.onActionChange("edit");
-              assistant.onInstructionsChange("Fix the draft’s problems so the template can save");
-            }}
-          >
-            <MagicIcon />
-            Propose fixes
-          </Button>
-        ) : null}
-      </>
+      <Button type="button" variant="secondary" onClick={revise}>
+        Ask something else
+      </Button>
     );
   } else if (applied) {
     actions = (
@@ -700,21 +753,25 @@ function FooterActions({ assistant, issues }) {
         <Button type="button" variant="secondary" onClick={assistant.onClose}>
           Close
         </Button>
-        <Button type="button" onClick={() => assistant.onInstructionsChange("")}>
+        <Button
+          type="button"
+          variant={appliedActions ? "secondary" : "primary"}
+          onClick={() => assistant.onInstructionsChange("")}
+        >
           New request
         </Button>
+        {appliedActions}
       </>
     );
   } else {
-    const canSend = action === "explain" || assistant.instructions.trim();
     actions = (
       <>
         <Button type="button" variant="secondary" onClick={assistant.onClose}>
           Cancel
         </Button>
-        <Button type="button" disabled={!canSend} onClick={assistant.onSubmit}>
+        <Button type="button" onClick={assistant.onSubmit}>
           <MagicIcon />
-          {assistant.error || stale ? "Try again" : action === "explain" ? "Explain" : "Propose edits"}
+          {assistant.error || stale ? "Try again" : assistant.instructions.trim() ? "Send" : "Review draft"}
         </Button>
       </>
     );
@@ -728,7 +785,7 @@ function FooterActions({ assistant, issues }) {
 }
 
 function RequestRecap({ assistant, onRevise }) {
-  const { action, instructions, job, file, useRetainedSource, templateVersion } = assistant;
+  const { instructions, job, file, evaluation, evaluationSample, useRetainedSource, templateVersion } = assistant;
 
   const versionNote =
     job && templateVersion && job.template_id === assistant.templateId && job.template_version !== templateVersion
@@ -737,7 +794,14 @@ function RequestRecap({ assistant, onRevise }) {
 
   const evidence = [
     job ? `Result: ${jobName(job)} (v${job.template_version}${versionNote})` : null,
-    useRetainedSource ? "File: original" : file ? `File: ${file.name}` : job ? "No file sent" : null,
+    evaluation ? `Evaluation: ${pluralize(failureCount(evaluation.evidence), "failing field")}` : null,
+    useRetainedSource || evaluationSample
+      ? "File: original"
+      : file
+        ? `File: ${file.name}`
+        : job || evaluation
+          ? "No file sent"
+          : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -745,16 +809,8 @@ function RequestRecap({ assistant, onRevise }) {
   return (
     <div className="template-assistant-recap">
       <div>
-        <span className="template-assistant-label-text">
-          {action === "explain" ? "You asked for an explanation" : "You asked for edits"}
-        </span>
-        <p>
-          {instructions.trim()
-            ? `“${instructions.trim()}”`
-            : action === "explain"
-              ? "General explanation of the draft"
-              : "Fix the draft’s problems"}
-        </p>
+        <span className="template-assistant-label-text">You asked</span>
+        <p>{instructions.trim() ? `“${instructions.trim()}”` : "Review the draft and its evidence"}</p>
         <p className="template-assistant-muted">{evidence || "No evidence attached"}</p>
       </div>
       {onRevise ? (

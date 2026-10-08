@@ -35,13 +35,15 @@ An explicit Template ID takes priority. Unknown tags do not create tags or expan
 
 The app derives each field ID from its name. Field names must be unique. `object` and `array<object>` fields can define table columns. A template permits only one such field, with at most 20 columns.
 
-## Explain problems and propose focused edits
+## Ask the Template assistant
 
 The editor shows validation problems beside affected inputs. Select a problem to focus its input. Validation works without a model and also applies in the Evaluation Template editor.
 
-On **Templates**, select **Assistant**, then **Explain issues** or **Propose edits**. Enter your request. Optionally attach a sample or select a completed Extraction job. Submit the request to the configured Workspace model.
+On **Templates**, select **Assistant**. Ask a question or describe a change, or leave the request empty to review the draft and its evidence. Optionally attach a sample or select a completed Extraction job. Submit the request to the configured Workspace model. On a completed document, **Improve template** opens its template with the Assistant, that document as evidence and a request naming weak fields.
 
-The panel suggests requests from the open Template. Select a suggestion to fill the request. Without a model, suggestions use application validation. Submitted assistance requests require a configured model.
+The panel suggests requests from the open Template and its evidence: possible problems first, then useful additions. Select a suggestion to send it, or use its edit icon to change the request first. Without a model, suggestions use application validation. Submitted assistance requests require a configured model.
+
+In Evaluations, the Assistant docks beside the evaluation. **Ask assistant** in a candidate’s menu opens it on that candidate’s template. The magic-wand button beside the menu, **Improve failing fields**, also attaches the failing fields as evidence. Verified expected answers are treated as correct for that evidence. **Test changes** runs the edits on a copy of the candidate and compares accuracy before and after.
 
 Review the reasons and before/after values for proposed changes. Include field IDs and column keys affected by renames. Select the required change groups. Dependent changes apply together, and the combined draft must be valid. Select **Apply** to update the draft once, then **Save** to persist it. Editing or leaving the draft invalidates old proposals.
 

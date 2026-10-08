@@ -48,3 +48,6 @@
 .source-availability p { margin: 4px 0 0; color: var(--text-2); font-size: var(--font-size-3); line-height: 1.45; }
 
 @media (max-width: 1440px) { .document-split { margin-inline: -22px; } }
+
+/* Opens the Templates assistant with this document as evidence. */
+.studio-document-summary .document-improve-template { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-body); }

@@ -30,6 +30,7 @@ export function useAuthProfileController({
   onClearWorkspaceScopedDocuments,
   onClearSessionWorkspaceData,
   onSessionChanging,
+  confirmSignOut,
 }) {
   const [authMode, setAuthMode] = useState(initialAuthMode);
   const [isStartingGoogleSignIn, setIsStartingGoogleSignIn] = useState(false);
@@ -402,7 +403,10 @@ export function useAuthProfileController({
         setProfileDraftName(value);
       },
       onSaveProfile: saveProfile,
-      onSignOut: runSignOut,
+      // Unsaved edits are confirmed before the pending sign-out starts.
+      onSignOut: async () => {
+        if (!confirmSignOut || (await confirmSignOut())) await runSignOut();
+      },
     },
   };
 }

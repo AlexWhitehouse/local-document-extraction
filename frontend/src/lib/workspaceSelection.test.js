@@ -205,7 +205,7 @@ describe("Workspace roles", () => {
 
   it.each([
     ["owner", "owner", ["make_admin"]],
-    ["owner", "admin", ["remove_user", "make_owner"]],
+    ["owner", "admin", ["remove_user", "make_member", "make_owner"]],
     ["owner", "member", ["remove_user", "make_admin", "make_owner"]],
     ["admin", "owner", []],
     ["admin", "admin", ["remove_user", "make_owner"]],

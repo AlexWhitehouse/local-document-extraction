@@ -217,7 +217,7 @@ A temporary user-provided file used to infer a reusable **Template**, without be
 _Avoid_: extraction job source, retained document
 
 **Template assistance**:
-A model request to explain a captured **Template** draft or propose focused edits. Optional binary evidence is one **Template sample** or an explicitly selected retained **Source file**. Evidence can also include one completed **Extraction job**, with its historical **Template version** and results. Assistance neither saves a Template nor creates an Extraction job.
+A model request about a captured **Template** draft: a question, a change, or an empty request that asks for a review. It returns an explanation and optional focused edits. Optional binary evidence is one **Template sample** or an explicitly selected retained **Source file**. Evidence can also include one completed **Extraction job**, with its historical **Template version** and results, or browser-supplied **Evaluation evidence**: failing fields with verified Expected answers, validated strictly and limited to 128 KiB. Only Evaluation evidence treats Expected answers as ground truth; job results remain model output. Assistance neither saves a Template nor creates an Extraction job.
 _Avoid_: automatic template repair, verified answer, persistent assistant conversation
 
 **Template change group**:
@@ -409,6 +409,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - An absent **Workspace model configuration** means the **Workspace** is unconfigured; blank Workspaces do not require placeholder configuration.
 - **Workspace model configuration** is complete or absent; creating it requires a gateway, model, and **Model gateway credential**.
 - Updating non-secret **Workspace model configuration** may preserve an existing credential, while credential replacement is explicit and atomic with the update.
+- Promoting an **Evaluation** candidate's model uses the same conditional update without a credential. It changes the extraction model and its capabilities only, so the gateway, credential and task-role models are preserved.
 - Configuration replacement can omit the credential only when the stored **Model gateway credential** remains usable. An unreadable credential requires explicit replacement.
 - Clearing **Workspace model configuration** removes the complete configuration rather than leaving partial gateway, model, or credential state.
 - Clearing **Workspace model configuration** requires the current resource ETag. A concurrent change or earlier clear fails the precondition. An unconfigured Workspace has no mutation ETag. Repeated clearing is not an idempotent success.
@@ -448,6 +449,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - **Workspace live updates** use a versioned batch message envelope.
 - **Extraction job lifecycle** live update events must not include extracted answers, evidence text, Source file binary contents, account emails, API keys, or Document contents.
 - **Workspace context invalidation** live update events must not include account identity, API keys, extracted answers, evidence text, Source file binary contents, or Document contents.
+- A completed **Workspace member action** emits **Workspace context invalidation** with reason `workspace_membership_changed`. Open SPA clients reload accepted **Workspace context**, so a changed role takes effect without a reload. A removed member's subscription fails its membership check and closes instead.
 - Committed model-configuration creation, replacement, credential rotation, or clearing emits **Workspace context invalidation** with reason `model_configuration_changed`. The event excludes configuration fields. Other open SPA clients retrieve the authoritative product resource again.
 - Model-configuration readiness is absent from **Workspace control data** and Workspace-list responses. The initiating client uses its mutation response. Other clients reload after invalidation.
 - Creating a **Workspace** and generating a **Workspace API key** are separate user intents.
@@ -495,7 +497,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Authoritative **Extraction job lifecycle** state belongs to **Workspace product data**.
 - The **Extraction processor** performs long-running extraction work but does not own authoritative **Extraction job lifecycle** state.
 - Background processor instance details are implementation metadata, not durable **Extraction job lifecycle** states.
-- The **Local extraction runner** scans authoritative **Workspace product data** on startup for resumable `queued` and stale `processing` **Extraction jobs**.
+- The **Local extraction runner** scans authoritative **Workspace product data** on startup for resumable `queued` and `processing` **Extraction jobs**. Nothing runs before that first pass, so it re-queues every interrupted `processing` job and packet at once. Later passes re-queue only `processing` work that has been unchanged past the stale threshold.
 - A server restart must not permanently strand an accepted **Extraction job** that has not reached `completed` or `failed`.
 - The **Local extraction runner** owns bounded retry attempts as processor metadata, not as additional **Extraction job lifecycle** states.
 - Each **Extraction processor** attempt reads the latest complete **Workspace model configuration** at startup. An active attempt retains its captured revision.
@@ -527,7 +529,8 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - A processing failure marks the **Extraction job** `failed` with durable error details. A Source file that is not retained is kept for recovery or inspection for seven days by default.
 - Configuration-related terminal processing failures follow the same failed **Source file** retention policy as other processing failures.
 - Successful processing immediately deletes non-retained **Source files**. A sweep that survives restarts completes interrupted cleanup and removes expired failed-source binaries. It preserves job metadata, errors, and results. Neither cleanup path removes retained originals.
-- The memory queue is a bounded, Workspace-fair metadata accelerator for authoritative queued **Workspace product data**. Periodic reconciliation recovers work stored only in SQLite.
+- The memory queue is a bounded, Workspace-fair metadata accelerator for authoritative queued **Workspace product data**. Periodic reconciliation recovers work stored only in SQLite. It visits Workspaces recorded at admission as possibly having pending work. An infrequent full sweep covers every Workspace (ADR-0026).
+- A **Document packet** that is extracting its children finishes in the same transaction that completes, fails or deletes its last remaining child. Deleted children neither block nor fail it. Reading a packet never changes its state.
 - Individual **Extraction job** retrieval uses entity validators and server-directed retry timing so unchanged polls do not hydrate or serialize **Extraction results**.
 - Each active **Workspace product data** database has one process owner that tracks leases. SQLite write transactions remain short. Use rollback journaling until the bundled SQLite passes the WAL safety gate.
 - **Workspace** deletion cleanup sweeps residual **Source files** that normal **Extraction job lifecycle** cleanup did not delete.
@@ -554,7 +557,8 @@ The **Go document processor** executes Document processing stages through a priv
 - Current workspace members and pending **Workspace invitations** are separate access-management lists.
 - Accepting a **Workspace invitation** creates **Workspace membership** and moves the user into **Accepted workspace context**.
 - Declining a **Workspace invitation** makes it non-actionable and removes it from the invitee's workspace list.
-- A **Workspace member action** may remove a member, make a member an admin, or transfer workspace ownership to a member.
+- A **Workspace member action** may remove a member, make a member an admin, make an admin a member, or transfer workspace ownership to a member.
+- Only the owner makes a member an admin or an admin a member. An owner is never demoted directly: transferring ownership makes the previous owner an admin. Nobody applies a **Workspace member action** to themselves; unpermitted actions return `403 forbidden` and an unknown target returns `404 not_found`.
 - **Leave Workspace** removes a non-owner member's **Workspace membership** without deleting the **Workspace**.
 - **Leave Workspace** creates a **Replacement personal Workspace** when it removes the user's last accepted **Workspace**.
 - A **Pending workspace invitation context** is locked until the **Workspace invitation** is accepted or declined.

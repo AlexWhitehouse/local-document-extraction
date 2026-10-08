@@ -18,7 +18,7 @@ import { Badge } from "../ui/Status.jsx";
 import { Segmented } from "../ui/Tabs.jsx";
 import { DataTable } from "../ui/DataTable.jsx";
 import { Callout } from "../ui/Callout.jsx";
-import { CloseIcon, ExternalIcon, PlayIcon, PlusIcon } from "../layout/Icons.jsx";
+import { CloseIcon, ExternalIcon, MagicIcon, PlayIcon, PlusIcon } from "../layout/Icons.jsx";
 import {
   answerSignature,
   bestCandidateId,
@@ -78,6 +78,7 @@ export function CandidateHead({
   run,
 }) {
   const label = `Candidate ${index + 1}`;
+  const { improve, ...menuProps } = menu;
 
   return (
     <th className="evaluation-candidate">
@@ -93,7 +94,16 @@ export function CandidateHead({
         ) : (
           <strong title={templateLabel(candidate.template)}>{templateLabel(candidate.template)}</strong>
         )}
-        <CandidateMenu label={label} candidate={menuCandidate} {...menu} />
+        {improve ? (
+          <IconButton
+            size="sm"
+            label={`Improve failing fields for ${label}`}
+            title="Improve failing fields"
+            icon={MagicIcon}
+            onClick={improve}
+          />
+        ) : null}
+        <CandidateMenu label={label} candidate={menuCandidate} {...menuProps} />
       </div>
       {children}
       <div className="evaluation-candidate-foot">
@@ -126,6 +136,7 @@ export function DocumentMatrix({
   filter = "all",
   onFilterChange,
   showMissing = false,
+  extractionFor = () => null,
 }) {
   const { state } = evaluation;
   const [referenceEditor, setReferenceEditor] = useState(null);
@@ -482,6 +493,8 @@ export function DocumentMatrix({
                   const score = scores[candidate.id];
                   const accuracy = candidateAccuracy(score);
                   const best = candidate.id === bestId;
+                  // The leader offers its model for extraction when it can be used as it was run.
+                  const extraction = best ? extractionFor(candidate) : null;
 
                   const previous =
                     candidate.result &&
@@ -522,6 +535,11 @@ export function DocumentMatrix({
                         {best && <Badge tone="success">Best</Badge>}
                         <RunCost result={candidate.result} />
                         <Meter value={accuracy?.ratio} best={best} />
+                        {extraction && !extraction.disabled && (
+                          <Button variant="text" className="evaluation-use-model" onClick={extraction.onClick}>
+                            Use for extraction…
+                          </Button>
+                        )}
                       </div>
                       {candidate.message && (
                         <p role="alert" className="evaluation-candidate-alert" title={candidate.message}>

@@ -456,6 +456,46 @@ it("discards answer edits at once, and undo restores them unless they changed si
   expect(current()).toEqual({ verified: true, value: 13 });
 });
 
+it("accepts many answers in one update, replaces an earlier field type, and undo keeps newer edits", async () => {
+  const text = { id: "total", name: "Total", data_type: "string" };
+  const supplier = { id: "supplier", name: "Supplier", data_type: "string" };
+
+  const reference = {
+    version: 1,
+    definitions: { "total:string": text },
+    references: { "total:string": { verified: true, value: "ten" } },
+  };
+
+  overrides["GET /evaluations/documents/evd_a"] = () => Response.json({ document: { id: "evd_a", name: "A", revision: 1 }, reference });
+  const { result } = await initialized({ documents: 0 });
+
+  await act(async () => { await result.current.addSaved([{ id: "evd_a" }]); });
+  const doc = result.current.state.documents[0].key;
+  const set = () => result.current.state.documents[0].reference;
+  const total = { verified: true, absent: false, exact: false, value: 10 };
+  const name = { verified: true, absent: false, exact: false, value: "Fenwick" };
+  let undo;
+
+  act(() => {
+    undo = result.current.acceptReferences([
+      { docKey: doc, identity: "total:number", from: "total:string", value: total, definition: template.fields[0] },
+      { docKey: doc, identity: "supplier:string", value: name, definition: supplier },
+      { docKey: "gone", identity: "supplier:string", value: name, definition: supplier },
+    ]);
+  });
+  expect(set().references).toEqual({ "total:number": total, "supplier:string": name });
+  expect(set().definitions).toEqual({ "total:number": template.fields[0], "supplier:string": supplier });
+  expect(calls("PATCH", "/evaluations/documents/evd_a")).toHaveLength(0);
+
+  // Edited since: undo keeps the newer Supplier answer and restores the rest.
+  const edited = { verified: true, absent: false, exact: false, value: "Harbour" };
+  act(() => result.current.setReference(doc, "supplier:string", edited, supplier));
+  act(() => undo());
+  expect(set().references).toEqual({ "total:string": { verified: true, value: "ten" }, "supplier:string": edited });
+  expect(set().definitions["total:string"]).toEqual(text);
+  expect(result.current.acceptReferences([{ docKey: "gone", identity: "x:string", value: name, definition: supplier }])).toBeNull();
+});
+
 it("does not restore a removed candidate after the mode changed", async () => {
   const { result } = await initialized();
   let undo;

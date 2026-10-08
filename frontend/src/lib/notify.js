@@ -7,11 +7,13 @@ export const TOAST_DURATION = { success: 4000, error: 8000 };
 
 export const defaultToast = sonnerToast;
 
-function toastSettings(severity, { undo, retry, persistent } = {}) {
+// `link` is a follow-up such as opening related settings: { label, onClick }.
+function toastSettings(severity, { undo, retry, link, persistent } = {}) {
   const settings = { duration: persistent ? Infinity : TOAST_DURATION[severity] };
 
   if (undo) settings.action = { label: "Undo", onClick: undo };
   else if (retry) settings.action = { label: "Try again", onClick: retry };
+  else if (link) settings.action = { label: link.label, onClick: link.onClick };
 
   return settings;
 }
@@ -20,7 +22,7 @@ export function showToast(toast, { severity, message }, options) {
   toast[severity](message, toastSettings(severity, options));
 }
 
-// notify(actionKey, outcome, { targetName, error, count, total, undo, retry, ... })
+// notify(actionKey, outcome, { targetName, error, count, total, undo, retry, link, ... })
 export function createNotifier(toast = sonnerToast) {
   const notify = (action, outcome, options = {}) => showToast(toast, getActionToast(action, outcome, options), options);
 

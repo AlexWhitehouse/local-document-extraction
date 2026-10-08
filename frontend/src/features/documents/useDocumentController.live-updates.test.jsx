@@ -367,24 +367,30 @@ describe("useDocumentController Workspace live updates", () => {
     expect(controller().toolbar.documentCount).toBe(1);
   });
 
-  it("refreshes Workspace context when live invalidation updates arrive", async () => {
-    const WebSocketStub = installWebSocketStub();
-    const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+  // A membership change keeps access, so the role refreshes without access recovery.
+  it.each(["workspace_product_changed", "workspace_membership_changed"])(
+    "refreshes Workspace context when a %s invalidation arrives",
+    async (reason) => {
+      const WebSocketStub = installWebSocketStub();
+      const onWorkspaceCapacityRefresh = vi.fn(async () => {});
+      const onWorkspaceAccessRevalidation = vi.fn(async () => {});
 
-    renderController({ onWorkspaceCapacityRefresh });
+      renderController({ onWorkspaceCapacityRefresh, onWorkspaceAccessRevalidation });
 
-    await waitFor(() => {
-      expect(WebSocketStub.instances).toHaveLength(1);
-    });
+      await waitFor(() => {
+        expect(WebSocketStub.instances).toHaveLength(1);
+      });
 
-    act(() => {
-      WebSocketStub.instances[0].onmessage(liveMessage(invalidation("workspace_product_changed")));
-    });
+      act(() => {
+        WebSocketStub.instances[0].onmessage(liveMessage(invalidation(reason)));
+      });
 
-    await waitFor(() => {
-      expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
-    });
-  });
+      await waitFor(() => {
+        expect(onWorkspaceCapacityRefresh).toHaveBeenCalledOnce();
+      });
+      expect(onWorkspaceAccessRevalidation).not.toHaveBeenCalled();
+    },
+  );
 
   it("immediately revalidates Workspace context when Workspace access invalidation arrives", async () => {
     vi.useFakeTimers();

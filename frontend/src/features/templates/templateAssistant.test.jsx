@@ -92,7 +92,7 @@ describe("Template assistance", () => {
     expect(request.mock.calls.some(([path, options]) => path === "/templates" && options.method === "POST")).toBe(true);
   });
 
-  it("explains invalid drafts without edits and rejects malformed output", async () => {
+  it("reviews an invalid draft from an empty request without edits and rejects malformed output", async () => {
     let malformed = false;
 
     const request = vi.fn(async (path, options) => {
@@ -108,8 +108,10 @@ describe("Template assistance", () => {
     act(() => result.current.toolbar.onCreateTemplate({ empty: true }));
     const before = result.current.templatePage.templateFields;
     act(() => result.current.templatePage.onOpenAssistant());
-    expect(result.current.templatePage.assistant.action).toBe("explain");
+    expect(result.current.templatePage.assistant.instructions).toBe("");
     await submit(result);
+    const sent = JSON.parse(request.mock.calls.find(([path]) => path === "/templates/assist")[1].body.get("payload"));
+    expect(sent).toMatchObject({ action: "edit", instructions: "" });
     expect(result.current.templatePage.assistant.response.groups).toEqual([]);
     expect(result.current.templatePage.templateFields).toEqual(before);
     malformed = true;
@@ -277,7 +279,6 @@ describe("Template assistance", () => {
     const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
     await act(() => result.current.contextList.onSelectTemplate("invoice"));
     act(() => result.current.templatePage.onOpenAssistant());
-    act(() => result.current.templatePage.assistant.onActionChange("explain"));
     await act(() => result.current.templatePage.assistant.picker.onChoose("old_job"));
     await submit(result);
     expect(result.current.templatePage.assistant.error).toBe("");
@@ -305,7 +306,6 @@ describe("Template assistance", () => {
     const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
     act(() => result.current.templatePage.onTemplateNameChange(""));
     open(result);
-    act(() => result.current.templatePage.assistant.onActionChange("edit"));
     await submit(result);
     expect(result.current.templatePage.assistant.selection.canApply).toBe(true);
     act(() => result.current.templatePage.assistant.onToggleGroup("name"));
@@ -344,15 +344,10 @@ describe("suggested requests", () => {
     reason: "Line Items has no VAT column",
   };
 
-  it("asks the model for suggestions about the open draft while composing, and refetches when the tab changes", async () => {
-    const request = vi.fn(async (path, options) =>
+  it("asks the model for suggestions about the open draft while composing, without sending a request", async () => {
+    const request = vi.fn(async (path) =>
       path === "/templates/assist/suggestions"
-        ? {
-            source: "model",
-            suggestions: [
-              { ...modelSuggestion, label: `${JSON.parse(options.body).action}: ${modelSuggestion.label}` },
-            ],
-          }
+        ? { source: "model", suggestions: [modelSuggestion] }
         : { templates: [] },
     );
 
@@ -362,7 +357,7 @@ describe("suggested requests", () => {
     await waitFor(() => expect(result.current.templatePage.assistant.suggestions.status).toBe("ready"));
     expect(result.current.templatePage.assistant.suggestions).toMatchObject({
       source: "model",
-      items: [{ label: `edit: ${modelSuggestion.label}` }],
+      items: [{ label: modelSuggestion.label }],
     });
     const body = JSON.parse(request.mock.calls.find(([path]) => path === "/templates/assist/suggestions")[1].body);
     expect(body).toEqual({
@@ -371,14 +366,7 @@ describe("suggested requests", () => {
         description: result.current.templatePage.templateDescription,
         fields: result.current.templatePage.templateFields,
       },
-      action: "edit",
     });
-    act(() => result.current.templatePage.assistant.onActionChange("explain"));
-    await waitFor(() =>
-      expect(result.current.templatePage.assistant.suggestions.items[0].label).toBe(
-        `explain: ${modelSuggestion.label}`,
-      ),
-    );
     expect(request.mock.calls.some(([path]) => path === "/templates/assist")).toBe(false);
   });
 
@@ -464,7 +452,7 @@ describe("suggested requests", () => {
     },
   );
 
-  it("discards late suggestions after changing the tab or guidance", async () => {
+  it("discards late suggestions after changing evidence or guidance", async () => {
     vi.useFakeTimers();
 
     try {
@@ -481,7 +469,7 @@ describe("suggested requests", () => {
       const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
       act(() => result.current.templatePage.onOpenAssistant());
       await act(() => vi.advanceTimersByTimeAsync(400));
-      act(() => result.current.templatePage.assistant.onActionChange("explain"));
+      act(() => result.current.templatePage.assistant.onFileChange(new File(["%PDF"], "sample.pdf", { type: "application/pdf" })));
       await act(() => vi.advanceTimersByTimeAsync(400));
       act(() => result.current.templatePage.onTemplateDescriptionChange("Updated extraction scope"));
       await act(() => vi.advanceTimersByTimeAsync(400));

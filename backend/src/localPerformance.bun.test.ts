@@ -129,6 +129,80 @@ test("search and count migration backfills an existing history once", async () =
   }
 });
 
+test("reopening a current product database runs no schema DDL, while an older one is brought up to date", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "extraction-schema-fast-path-"));
+  const path = join(dir, "data/workspaces/test.sqlite");
+  createLocalWorkspaceProductStore({ stateDirectory: dir, workspaceId: "test" }).close();
+
+  const hasIndex = () => {
+    const db = new Database(path);
+
+    try {
+      return Boolean(db.query("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_jobs_created_id'").get());
+    } finally {
+      db.close();
+    }
+  };
+
+  try {
+    // Every open would recreate this base-schema index if it ran the schema DDL.
+    const db = new Database(path);
+    db.exec("DROP INDEX idx_jobs_created_id");
+    db.close();
+    openLocalWorkspaceProductStore({ stateDirectory: dir, workspaceId: "test" })!.close();
+    expect(hasIndex()).toBe(false);
+
+    // A database missing any known version runs the idempotent initializers again.
+    const older = new Database(path);
+    older.exec("DELETE FROM product_schema_version WHERE version = 16");
+    older.close();
+    openLocalWorkspaceProductStore({ stateDirectory: dir, workspaceId: "test" })!.close();
+    expect(hasIndex()).toBe(true);
+
+    const versions = new Database(path);
+    expect(versions.query("SELECT MAX(version) AS version FROM product_schema_version").get()).toEqual({ version: 16 });
+    versions.close();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the diagnostic Source inventory walks the Source tree far less often than storage sampling", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "extraction-source-inventory-"));
+  await mkdir(join(dir, "source-files"));
+  await mkdir(join(dir, "data", "workspaces"), { recursive: true });
+  await writeFile(join(dir, "source-files", "first"), new Uint8Array(10));
+  await writeFile(join(dir, "data", "workspaces", "w.sqlite"), new Uint8Array(5));
+  const queue = createLocalExtractionQueue();
+  let clock = Date.parse("2026-09-04T12:00:00.000Z");
+
+  const controller = createLocalResourceController({
+    stateDirectory: dir,
+    diskReserveBytes: 0,
+    now: () => clock,
+    setPermits() {},
+    getQueueSnapshot: queue.snapshot,
+    sourceInventoryIntervalMs: 15 * 60_000,
+  });
+
+  try {
+    await controller.sampleNow();
+    expect(controller.snapshot().disk).toMatchObject({ sourceBytes: 10, sqliteBytes: 5 });
+    await writeFile(join(dir, "source-files", "second"), new Uint8Array(20));
+    await writeFile(join(dir, "data", "workspaces", "w.sqlite"), new Uint8Array(7));
+    clock += 61_000;
+    await controller.sampleNow();
+    expect(controller.snapshot().disk).toMatchObject({ sourceBytes: 10, sqliteBytes: 7 });
+    clock += 15 * 60_000;
+    await controller.sampleNow();
+    expect(controller.snapshot().disk.sourceBytes).toBe(30);
+  } finally {
+    controller.stop();
+    await queue.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("admission samples free disk without scanning Source history", async () => {
   const dir = await mkdtemp(join(tmpdir(), "extraction-admission-sampling-"));
   await mkdir(join(dir, "source-files"));

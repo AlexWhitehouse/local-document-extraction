@@ -108,6 +108,10 @@ describe("app action toast notifications", () => {
       severity: "error",
       message: "Couldn't make linus@example.com an admin.",
     });
+    expect(getActionToast("workspaceMember.makeMember", "failure", { targetName: "Grace Hopper" })).toEqual({
+      severity: "error",
+      message: "Couldn't make Grace Hopper a member.",
+    });
     expect(getActionToast("workspaceMember.transferOwnership", "failure")).toEqual({
       severity: "error",
       message: "Couldn't transfer ownership.",
@@ -161,6 +165,10 @@ describe("app action toast notifications", () => {
     ).toEqual({
       severity: "success",
       message: "Member made admin: linus@example.com",
+    });
+    expect(getActionToast("workspaceMember.makeMember", "success", { targetName: "Grace Hopper" })).toEqual({
+      severity: "success",
+      message: "Admin made member: Grace Hopper",
     });
     expect(
       getActionToast("workspaceMember.transferOwnership", "success", {

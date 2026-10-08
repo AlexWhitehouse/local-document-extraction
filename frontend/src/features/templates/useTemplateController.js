@@ -6,6 +6,7 @@ import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { copyWithFeedback } from "../../lib/copyWithFeedback";
 import { describeError } from "../../lib/describeError";
 import { defaultToast } from "../../lib/notify";
+import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -267,6 +268,25 @@ export function useTemplateController({
 
   assistantRef.current = assistant;
   const cancelAssistant = assistant.cancel;
+
+  // "Improve template" from a document: opens the assistant once its Template is the open draft.
+  // The request stays in memory only; leaving for another Template drops it.
+  const assistantIntentRef = useRef(null);
+  useEffect(() => {
+    const intent = assistantIntentRef.current;
+
+    if (!intent || activePage !== "templates") return;
+
+    if (routeTemplateId !== intent.templateId) {
+      assistantIntentRef.current = null;
+
+      return;
+    }
+
+    if (updateTemplateId !== intent.templateId || routeLoad.status === "loading") return;
+    assistantIntentRef.current = null;
+    assistantRef.current?.openWith(intent);
+  }, [activePage, routeTemplateId, updateTemplateId, routeLoad.status]);
 
   const filteredTemplates = useMemo(() => {
     const query = templateSearch.trim().toLowerCase();
@@ -894,6 +914,54 @@ export function useTemplateController({
   const hasUnsavedChanges =
     (isEditingTemplate ? isEditedTemplateDirty : hasNewDraftEdits) || (showTemplateJsonModal && isJsonDraftDirty);
 
+  // Returns the editor to its saved state: the loaded Template, or no draft at all.
+  function discardTemplateEdits() {
+    saveRequestRef.current += 1;
+    touchDraft();
+    cancelAssistant();
+    cancelGeneration();
+    setIsSavingTemplate(false);
+    setShowTemplateJsonModal(false);
+    setIsJsonDraftDirty(false);
+    setTemplateJsonError("");
+    setTemplateJsonDiagnostics([]);
+    setValidationFocus(null);
+    setHasNewDraftEdits(false);
+
+    if (isEditingTemplate) {
+      if (!loadedTemplateSnapshot) return;
+      const saved = JSON.parse(loadedTemplateSnapshot);
+      setTemplateName(saved.name);
+      setTemplateDescription(saved.description || "");
+      setTemplateTags(saved.tags);
+      setTemplateFields(saved.fields.map(hydrateFieldFromTemplate));
+
+      return;
+    }
+
+    setShowDraftTemplateNav(false);
+    setTemplateName(DEFAULT_TEMPLATE_NAME);
+    setTemplateDescription(DEFAULT_TEMPLATE_DESCRIPTION);
+    setTemplateTags([]);
+    setTemplateFields(copyDefaultFields());
+  }
+
+  // Leaving the open editor, opening another Template or changing Workspace loses the
+  // edits. Sections that don't show the editor leave an off-screen draft untouched.
+  useUnsavedGuard(hasApiAccess && hasUnsavedChanges, "Template", {
+    leaves: (next) => {
+      const editorTemplateId = updateTemplateId || (showDraftTemplateNav ? "new" : "");
+      const sameWorkspace = next.workspaceId === workspaceId;
+
+      if (next.page === "templates" && sameWorkspace && (!next.templateId || next.templateId === editorTemplateId)) {
+        return false;
+      }
+
+      return activePage === "templates" || next.page === "templates" || !sameWorkspace;
+    },
+    onDiscard: discardTemplateEdits,
+  });
+
   const routeActionsRef = useRef(null);
   routeActionsRef.current = {
     loadTemplateForEditing,
@@ -947,7 +1015,6 @@ export function useTemplateController({
       isDraft: showDraftTemplateNav,
       load: routeLoad,
       retry: () => loadTemplateForEditing(routeTemplateId),
-      confirmDiscard: () => !hasUnsavedChanges || confirmDialog({ ...DISCARD_CHANGES }),
       invalidatePendingLoad: () => {
         editorRequestRef.current += 1;
       },
@@ -1064,6 +1131,10 @@ export function useTemplateController({
       clearWorkspaceScopedTemplates,
       handleTemplateNavigation,
       listTemplates,
+      // { templateId, action, instructions, jobId, useOriginal }; consumed when that Template is open.
+      prepareAssistant: (intent) => {
+        assistantIntentRef.current = intent;
+      },
     },
   };
 }

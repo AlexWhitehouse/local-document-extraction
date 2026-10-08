@@ -1049,5 +1049,6 @@ export function useWorkspaceController({
 
 const WORKSPACE_MEMBER_ACTION_TOASTS = {
   make_admin: "workspaceMember.makeAdmin",
+  make_member: "workspaceMember.makeMember",
   make_owner: "workspaceMember.transferOwnership",
 };

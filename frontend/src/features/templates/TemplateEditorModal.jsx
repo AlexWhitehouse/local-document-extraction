@@ -6,7 +6,8 @@ import { TemplateProblems } from "./TemplateDiagnostics.jsx";
 import { issueMessage, templateIssues } from "./issueMessages.js";
 import { describeError } from "../../lib/describeError";
 import { CloseIcon } from "../layout/Icons.jsx";
-import { ModalDialog } from "../layout/ModalDialog.jsx";
+import { ModalDialog, ModalDismiss } from "../layout/ModalDialog.jsx";
+import { useUnsavedGuard } from "../../lib/unsavedChanges.js";
 import { TemplateFieldEditor } from "./TemplateFieldEditor.jsx";
 import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "./templateFields.js";
 import { Button, IconButton } from "../ui/Button.jsx";
@@ -27,8 +28,12 @@ export function TemplateEditorModal({
     fields: initial.fields.map(hydrateFieldFromTemplate),
   }));
 
+  // The opening draft, so closing and navigation ask only once something has changed.
+  const [openingDraft] = useState(() => JSON.stringify(draft));
+  const isDirty = useMemo(() => JSON.stringify(draft) !== openingDraft, [draft, openingDraft]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  useUnsavedGuard(isDirty, "Template", { onDiscard: onClose });
   const rootRef = useRef(null);
   const [focusRequest, setFocusRequest] = useState(null);
   const [problemIndex, setProblemIndex] = useState(0);
@@ -47,7 +52,7 @@ export function TemplateEditorModal({
     try {
       payload = validateTemplateJsonPayload(draft);
     } catch (failure) {
-      setError(failure.message);
+      setError(describeError(failure, "Template draft is incomplete. Fix required fields before saving."));
       focus(failure.diagnostics?.[0] || issues[0]);
 
       return;
@@ -71,16 +76,16 @@ export function TemplateEditorModal({
       className="template-editor-modal"
       label={title}
       initialFocus="input"
-      onClose={() => {
-        if (!saving) onClose();
-      }}
+      isDirty={isDirty}
+      closeDisabled={saving}
+      onClose={onClose}
     >
       <header className="template-editor-modal-header">
         <div>
           <h2>{title}</h2>
           {notice && <p>{notice}</p>}
         </div>
-        <IconButton label="Close template editor" icon={CloseIcon} disabled={saving} onClick={onClose} />
+        <ModalDismiss as={IconButton} label="Close template editor" icon={CloseIcon} disabled={saving} />
       </header>
       <div ref={rootRef}>
         <div className="studio-template-meta">
@@ -124,9 +129,9 @@ export function TemplateEditorModal({
           </p>
         )}
         <div className="actions">
-          <Button type="button" variant="secondary" disabled={saving} onClick={onClose}>
+          <ModalDismiss as={Button} type="button" variant="secondary" disabled={saving}>
             Cancel
-          </Button>
+          </ModalDismiss>
           <Button type="button" disabled={saving} onClick={submit}>
             {saving ? "Saving…" : action}
           </Button>

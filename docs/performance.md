@@ -1,21 +1,25 @@
 # Performance notes
 
-This guide describes performance controls as job, document, and user counts increase. [ADR-0009](../backend/docs/adr/0009-indexed-work-and-resource-admission.md) and [ADR-0010](../backend/docs/adr/0010-ram-aware-model-preparation.md) record the design decisions.
+This guide describes performance controls as job, document, and user counts increase. [ADR-0009](../backend/docs/adr/0009-indexed-work-and-resource-admission.md), [ADR-0010](../backend/docs/adr/0010-ram-aware-model-preparation.md) and [ADR-0026](../backend/docs/adr/0026-persisted-packet-completion-and-targeted-reconciliation.md) record the design decisions.
 
 ## Job lists and search
 
 - **Paging** uses a cursor, also called keyset pagination. Later pages remain as fast as the first.
 - **Totals and per-status counts** update through SQLite triggers. The server does not recount them for every request. Job lists include `total` and `status_counts`. `/v1/jobs/counts` returns only the counts.
-- **Search** uses a SQLite FTS5 trigram index to find candidates. Each candidate must then match a literal substring without case sensitivity. Results match a plain substring search, including `%`, `_`, quotes, and backslashes. Searches shorter than three characters and very broad searches use an ordered scan.
+- **Search** uses a SQLite FTS5 trigram index to find candidates. Each candidate must then match a literal substring without case sensitivity. Results match a plain substring search, including `%`, `_`, quotes, and backslashes. Searches shorter than three characters and very broad searches use an ordered scan. The grouped Document list (`group_packets=true`) uses the same candidate step for jobs and a matching index of packet names and IDs.
+- A grouped page loads its jobs, packets and packet children with a fixed number of queries. Reading a page or a packet never writes to SQLite.
 - The migration fills these indexes from existing jobs. On large databases, the first start after an upgrade takes longer and requires more disk space.
 
 ## Extraction queue
 
 - By default, extraction starts with 16 simultaneous jobs and can adapt up to 32. Explicit environment settings replace these defaults. Changes apply after server restart.
 - Within a Workspace, packet processing and ready extraction alternate when both stages are waiting. FIFO order is preserved within each stage so a packet backlog cannot starve its child Documents.
-- Before each job starts, the queue reads the Workspace's current sequential-calls setting. Jobs waiting for a sequential Workspace keep only a small amount of queue metadata in memory.
+- Before each job starts, the queue checks the Workspace's sequential-calls setting. The setting is cached in memory, and saving or clearing the model configuration refreshes it. Jobs waiting for a sequential Workspace keep only a small amount of queue metadata in memory.
 - An empty Workspace queue refills from SQLite. Queue overflow also causes recovery from SQLite.
-- The runtime reconciles the queue with SQLite every minute (`EXTRACTION_RECONCILE_INTERVAL_MS`) to recover missed work. Recovery does not take over running attempts. It orders jobs by `COALESCE(next_retry_at, updated_at)`, then ID.
+- The runtime reconciles the queue with SQLite every minute (`EXTRACTION_RECONCILE_INTERVAL_MS`) to recover missed work. That pass opens only Workspaces that may have queued, retrying or processing work. A full sweep of every Workspace runs at startup and then every 15 minutes. Recovery does not take over running attempts. It orders jobs by `COALESCE(next_retry_at, updated_at)`, then ID.
+- After a crash or restart, interrupted `processing` work is re-queued immediately at startup. While the server runs, recovery waits until such work has been unchanged for five minutes.
+- Opening a Workspace database whose schema is current runs no schema statements.
+- The diagnostic Source byte total in `/v1/health` is sampled every 15 minutes. Database file sizes are still sampled every minute.
 
 ## Memory for preparing documents
 

@@ -643,6 +643,7 @@ function WorkspaceUserActionDialog({ target, options, onClose, onApplyAction }) 
 const WORKSPACE_USER_ACTION_LABELS = {
   remove_user: { label: "Remove user", pending: "Removing…" },
   make_admin: { label: "Make admin", pending: "Making admin…" },
+  make_member: { label: "Make member", pending: "Making member…" },
   make_owner: { label: "Make owner", pending: "Transferring…" },
 };
 
@@ -653,6 +654,15 @@ const WORKSPACE_USER_CONFIRMATIONS = {
       confirmLabel: `Remove ${name}`,
       pendingLabel: "Removing…",
       tone: "danger",
+    }),
+  },
+  make_member: {
+    dialog: (name) => ({
+      title: `Make ${name} a member?`,
+      body: "They'll keep access but can no longer manage members or workspace settings.",
+      confirmLabel: "Make member",
+      pendingLabel: "Making member…",
+      tone: "default",
     }),
   },
   make_owner: {

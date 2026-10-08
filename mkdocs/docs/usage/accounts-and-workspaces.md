@@ -20,7 +20,9 @@ A Workspace holds templates, documents, jobs, members, API keys, and model setti
 | --- | --- |
 | Member | Use templates, documents, and Evaluations. View model configuration status. Leave the Workspace. |
 | Admin | All member permissions. Invite users, manage invitations, remove members, rename the Workspace, rotate its API key, and configure its model. |
-| Owner | All admin permissions. Promote members to admin or owner, remove admins, and delete the Workspace. Owners cannot leave their Workspace. |
+| Owner | All admin permissions. Promote members to admin or owner, make admins members, remove admins, and delete the Workspace. Owners cannot leave their Workspace. |
+
+To change an owner's role, the owner transfers ownership with **Make owner**. The previous owner becomes an admin. Role changes apply to the member's open tabs without a reload.
 
 Invitations appear in the app when the invited user signs in. The app does not email invitations.
 
@@ -35,6 +37,8 @@ Each Workspace has a model gateway URL, encrypted credential, and model roles. A
 Classification and Template assistant inherit Extraction settings unless you select **Different model**. Different models share the gateway and credential. Each has separate Direct PDF input and Structured output settings.
 
 Test connection verifies a text reply from each distinct model. It does not verify document support or provider image limits.
+
+Owners and admins can also change the Extraction model from a model comparison in Evaluations with **Use for extraction…**. It keeps the gateway, credential, and any different Classification or Template assistant models.
 
 ## Document processing
 

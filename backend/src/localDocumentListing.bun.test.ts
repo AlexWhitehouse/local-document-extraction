@@ -239,3 +239,132 @@ test("combined cursors traverse equal timestamps and survive deletion of the bou
   expect(new Set(seen).size).toBe(56);
   expect(seen.slice(5, 7)).toEqual(["packet:same_date", "document:job_49"]);
 });
+
+type FixtureStore = Awaited<ReturnType<typeof fixture>>["store"];
+
+function addPacket(store: FixtureStore, packetId: string, sourceName: string, submittedAt: string, templateId = "invoice") {
+  store.createDocumentPacket({
+    packetId,
+    templateId,
+    templateVersion: 1,
+    templateTags: [],
+    selectedPages: [1],
+    processingPolicy: { enable_smart_splitting: true, exclude_blank_pages: false },
+    sourceFileKey: `${packetId}/source.pdf`,
+    sourceMimeType: "application/pdf",
+    sourceName,
+    sourceFilePageCount: 1,
+    submittedAt,
+  });
+}
+
+function addDocument(store: FixtureStore, jobId: string, sourceName: string, submittedAt: string) {
+  store.createQueuedExtractionJob({
+    jobId,
+    templateId: "invoice",
+    templateVersion: 1,
+    sourceFileKey: `${jobId}/source.pdf`,
+    sourceMimeType: "application/pdf",
+    sourceName,
+    sourceFilePageCount: 1,
+    submittedAt,
+  });
+}
+
+test("grouped search narrows Documents and packets through indexed metadata with literal semantics", async () => {
+  const { adapter, store } = await fixture();
+  store.createTemplate({
+    templateId: "northwind_tpl",
+    name: "Northwind",
+    description: null,
+    fields: [{ id: "total", name: "Total", description: "Amount", data_type: "number" }],
+    createdAt: at(0),
+  });
+  addDocument(store, "northwind_doc", "Northwind receipt.pdf", at(57));
+  addPacket(store, "northwind_packet", "Northwind bundle.pdf", at(58));
+  addPacket(store, "contoso", "Contoso.pdf", at(59), "northwind_tpl");
+  store.claimPacketRound({ packetId: "contoso", updatedAt: at(59), configurationSnapshot: {} });
+
+  const [child] = store.acceptDocumentPacketPlan({
+    packetId: "contoso",
+    revision: 1,
+    expectedRound: 1,
+    groups: [[1]],
+    exclusions: [],
+    updatedAt: at(59),
+  })!.child_slots;
+
+  store.materializePacketChild({
+    packetId: "contoso",
+    jobId: child!.job_id,
+    sourceFileKey: `${child!.job_id}/source.pdf`,
+    sourceFilePageCount: 1,
+    updatedAt: at(59),
+  });
+  addPacket(store, "held", "Held.pdf", at(40));
+  store.claimPacketRound({ packetId: "held", updatedAt: at(40), configurationSnapshot: {} });
+  store.holdDocumentPacket({ packetId: "held", reason: "Uncertain", updatedAt: at(40) });
+
+  const entries = (search: string) => store.listDocumentEntries({ search, limit: 100 }).map((entry) => entry.entry_id);
+
+  // One packet matches by its own name, the other through its child's Template.
+  expect(entries("northwind")).toEqual(["packet:contoso", "packet:northwind_packet", "document:northwind_doc"]);
+  expect(entries("NORTHWIND")).toEqual(entries("northwind"));
+  expect(entries("contoso")).toEqual(["packet:contoso"]);
+  expect(entries("ind bun")).toEqual(["packet:northwind_packet"]);
+  // `_` and `%` are literal characters on both the indexed and the literal path.
+  expect(entries("wind_b")).toEqual([]);
+  expect(entries("wind_p")).toEqual(["packet:northwind_packet"]);
+  expect(entries("%")).toEqual([]);
+  // Lifecycle terms are matched literally, including packet-only statuses.
+  expect(entries("review")).toEqual(["packet:held"]);
+  expect(entries("awaiting_rev")).toEqual(["packet:held"]);
+  // With a model filter a packet matches only through a child, never by its own name.
+  expect(store.listDocumentEntries({ search: "northwind bundle", model: "split-model", limit: 100 })).toEqual([]);
+  expect(
+    store.listDocumentEntries({ search: "bundle_2", model: "split-model", limit: 100 }).map((entry) => entry.id),
+  ).toEqual(["packet_2"]);
+
+  const page = await adapter.listDocumentEntries({ search: "  Northwind " });
+  expect(page.packets.map((packet: { packet_id: string }) => packet.packet_id)).toEqual([
+    "contoso",
+    "northwind_packet",
+  ]);
+  expect(page.jobs.map((job: { job_id: string }) => job.job_id)).toEqual(["northwind_doc"]);
+  expect(page.packets[0].children.map((job: { job_id: string }) => job.job_id)).toEqual([child!.job_id]);
+});
+
+test("grouped cursors traverse Documents and packets that share a created_at exactly once, in order", async () => {
+  const { store } = await fixture();
+
+  for (const id of ["tie_a", "tie_b", "tie_c", "tie_d"]) addDocument(store, id, `${id}.pdf`, at(30));
+
+  for (const id of ["tie_p1", "tie_p2", "tie_p3"]) addPacket(store, id, `${id}.pdf`, at(30));
+
+  for (const query of [{}, { search: "tie_" }, { dateFrom: "2026-10-02" }]) {
+    const all = store.listDocumentEntries({ ...query, limit: 1000 });
+    const tied = all.flatMap((entry) => (entry.created_at === at(30) ? [entry.entry_id] : []));
+
+    // Equal timestamps order by kind-qualified identity, descending.
+    expect(tied).toEqual([...tied].sort().reverse());
+    expect(tied).toEqual(
+      expect.arrayContaining(["packet:tie_p3", "packet:tie_p1", "document:tie_d", "document:tie_a"]),
+    );
+
+    for (const limit of [1, 2, 3]) {
+      const seen: string[] = [];
+      let cursor: { createdAt: string; jobId: string } | undefined;
+
+      for (;;) {
+        const page = store.listDocumentEntries({ ...query, cursor, limit });
+
+        if (!page.length) break;
+        seen.push(...page.map((entry) => entry.entry_id));
+        const last = page.at(-1)!;
+        cursor = { createdAt: last.created_at, jobId: last.entry_id };
+      }
+
+      expect(seen).toEqual(all.map((entry) => entry.entry_id));
+    }
+  }
+});
