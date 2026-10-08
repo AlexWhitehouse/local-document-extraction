@@ -63,7 +63,7 @@ Select **Ask assistant** in a candidate’s **⋯** menu to open the [Template a
 
 ## Improve failing fields
 
-When a candidate gets verified fields wrong on the open document, its **⋯** menu offers **Improve failing fields**. It opens the Assistant beside the evaluation, on the candidate’s template. The request names the failing fields, and the candidate’s results on every document are attached as evidence. Only fields with verified expected answers are included. See [Evaluation results](template-assistant.md#evaluation-results) for what is sent.
+When a candidate gets verified fields wrong on the open document, a magic-wand button, **Improve failing fields**, appears beside its **⋯** menu. It opens the Assistant beside the evaluation, on the candidate’s template. The request names the failing fields, and the candidate’s results on every document are attached as evidence. Only fields with verified expected answers are included. See [Evaluation results](template-assistant.md#evaluation-results) for what is sent.
 
 After you apply proposed changes in the Assistant, select **Test changes**:
 

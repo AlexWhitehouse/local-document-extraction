@@ -197,8 +197,11 @@ describe("Improve failing fields and Test changes", () => {
 
   it("opens the assistant with the failing fields, then tests the edits on a copy and compares accuracy", async () => {
     const { evaluation, rerender } = setup();
+    // Its own button beside the menu, not a menu item.
     fireEvent.click(screen.getByRole("button", { name: "Candidate 1 options" }));
-    fireEvent.click(screen.getByRole("button", { name: "Improve failing fields" }));
+    expect(screen.queryByRole("button", { name: "Improve failing fields" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Candidate 1 options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Improve failing fields for Candidate 1" }));
     // The assistant docks beside the evaluation; no template editor opens.
     const assistant = await screen.findByRole("complementary", { name: "Template assistant" });
     expect(screen.queryByRole("dialog", { name: "Edit template" })).toBeNull();
@@ -273,5 +276,6 @@ describe("Improve failing fields and Test changes", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Candidate 1 options" }));
     expect(screen.queryByRole("button", { name: "Improve failing fields" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Improve failing fields for Candidate 1" })).toBeNull();
   });
 });

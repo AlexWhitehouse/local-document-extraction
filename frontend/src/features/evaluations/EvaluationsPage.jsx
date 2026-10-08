@@ -615,13 +615,14 @@ export function EvaluationsPage({
   const menuFor = (candidate) => ({
     inputs: { shared: state.mode === "templates" },
     onInputChange: (key, value) => setInput(candidate, key, value),
+    // Shown as its own button beside the menu while the candidate fails verified fields.
+    improve:
+      enabled && failingFieldNames(state, document, candidate).length > 0
+        ? () => void improveFailingFields(candidate)
+        : null,
     actions: [
       { label: "Edit template", onClick: () => openEditor(candidate) },
       enabled && { label: "Ask assistant", onClick: () => openAssistant(candidate) },
-      enabled && failingFieldNames(state, document, candidate).length > 0 && {
-        label: "Improve failing fields",
-        onClick: () => void improveFailingFields(candidate),
-      },
       state.mode === "templates" && {
         label: "Choose another template version",
         onClick: () => setReplacement({ candidateId: candidate.id, source: candidate.template.source }),

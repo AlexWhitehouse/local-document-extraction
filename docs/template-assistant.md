@@ -50,7 +50,7 @@ The prepared request lives in the open tab only. It is not part of the URL, so r
 
 ### Evaluation results
 
-In an Evaluation, the Assistant docks to the right of the evaluation, as on Templates. A candidate’s **⋯** menu opens it with **Ask assistant**, or with **Improve failing fields**, which attaches the candidate’s evaluation results as evidence. For each document, they list the failing and partly correct fields only, with the candidate’s value, the verified expected answer and the comparison result. Table fields send their mismatched cells and missing or extra rows. The evidence also names the candidate’s model and template and its overall accuracy.
+In an Evaluation, the Assistant docks to the right of the evaluation, as on Templates. A candidate’s **⋯** menu opens it with **Ask assistant**. The magic-wand button beside that menu, **Improve failing fields**, opens it and attaches the candidate’s evaluation results as evidence. For each document, they list the failing and partly correct fields only, with the candidate’s value, the verified expected answer and the comparison result. Table fields send their mismatched cells and missing or extra rows. The evidence also names the candidate’s model and template and its overall accuracy.
 
 Only verified expected answers are sent. Unverified answers are never scored, so they are left out. For this evidence the model treats verified expected answers as ground truth for their documents; candidate values remain model output. The rule for document results is unchanged.
 

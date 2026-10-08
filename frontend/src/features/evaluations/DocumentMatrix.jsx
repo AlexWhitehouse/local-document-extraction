@@ -18,7 +18,7 @@ import { Badge } from "../ui/Status.jsx";
 import { Segmented } from "../ui/Tabs.jsx";
 import { DataTable } from "../ui/DataTable.jsx";
 import { Callout } from "../ui/Callout.jsx";
-import { CloseIcon, ExternalIcon, PlayIcon, PlusIcon } from "../layout/Icons.jsx";
+import { CloseIcon, ExternalIcon, MagicIcon, PlayIcon, PlusIcon } from "../layout/Icons.jsx";
 import {
   answerSignature,
   bestCandidateId,
@@ -78,6 +78,7 @@ export function CandidateHead({
   run,
 }) {
   const label = `Candidate ${index + 1}`;
+  const { improve, ...menuProps } = menu;
 
   return (
     <th className="evaluation-candidate">
@@ -93,7 +94,16 @@ export function CandidateHead({
         ) : (
           <strong title={templateLabel(candidate.template)}>{templateLabel(candidate.template)}</strong>
         )}
-        <CandidateMenu label={label} candidate={menuCandidate} {...menu} />
+        {improve ? (
+          <IconButton
+            size="sm"
+            label={`Improve failing fields for ${label}`}
+            title="Improve failing fields"
+            icon={MagicIcon}
+            onClick={improve}
+          />
+        ) : null}
+        <CandidateMenu label={label} candidate={menuCandidate} {...menuProps} />
       </div>
       {children}
       <div className="evaluation-candidate-foot">

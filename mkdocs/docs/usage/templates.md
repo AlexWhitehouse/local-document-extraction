@@ -43,7 +43,7 @@ On **Templates**, select **Assistant**. Ask a question or describe a change, or 
 
 The panel suggests requests from the open Template and its evidence: possible problems first, then useful additions. Select a suggestion to send it, or use its edit icon to change the request first. Without a model, suggestions use application validation. Submitted assistance requests require a configured model.
 
-In Evaluations, the Assistant docks beside the evaluation. **Ask assistant** or **Improve failing fields** in a candidate’s menu opens it on that candidate’s template; **Improve failing fields** also attaches the failing fields as evidence. Verified expected answers are treated as correct for that evidence. **Test changes** runs the edits on a copy of the candidate and compares accuracy before and after.
+In Evaluations, the Assistant docks beside the evaluation. **Ask assistant** in a candidate’s menu opens it on that candidate’s template. The magic-wand button beside the menu, **Improve failing fields**, also attaches the failing fields as evidence. Verified expected answers are treated as correct for that evidence. **Test changes** runs the edits on a copy of the candidate and compares accuracy before and after.
 
 Review the reasons and before/after values for proposed changes. Include field IDs and column keys affected by renames. Select the required change groups. Dependent changes apply together, and the combined draft must be valid. Select **Apply** to update the draft once, then **Save** to persist it. Editing or leaving the draft invalidates old proposals.
 
