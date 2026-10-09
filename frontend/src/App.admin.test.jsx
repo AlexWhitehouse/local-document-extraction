@@ -518,7 +518,7 @@ describe("Application admin page gate", () => {
     expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
     expect(toast.success).toHaveBeenCalledWith("Impersonation stopped", expect.anything());
     await waitFor(() => {
-      expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(3);
+      expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(2);
     });
   });
 

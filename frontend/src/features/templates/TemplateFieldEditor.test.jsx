@@ -168,9 +168,9 @@ describe("Template field editor", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit columns" }));
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" }));
-    // Focus wraps to the last focusable element, the scrollable column table.
+    // Focus wraps to the last focusable element in document order, the footer Done button.
     await user.tab({ shift: true });
-    expect(document.activeElement).toBe(screen.getByRole("region", { name: "Table columns" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Done" }));
     await user.tab();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" }));
     await user.click(screen.getByRole("button", { name: "Add column" }));
