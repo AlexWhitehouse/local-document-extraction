@@ -14,7 +14,7 @@
     "build": "bun run build:go && bun run --cwd frontend build",
     "check:agent": "bun backend/scripts/runAgentChecks.ts",
     "ci": "bun run ci:quality && bun run test:e2e",
-    "ci:quality": "bun run typecheck && bun run lint && bun run test && bun run --cwd frontend test:coverage && bun run build",
+    "ci:quality": "bun run typecheck && bun run lint && bun run build && bun run --cwd backend test:evidence && bun run --cwd frontend test:coverage",
     "dev": "bun run build:go && bun --watch backend/src/server.ts",
     "dev:frontend": "bun run --cwd frontend dev",
     "migrate": "bun run --cwd backend migrate",

@@ -30,6 +30,8 @@ let archive: string;
 
 let checksum: string;
 
+let installerScript: string;
+
 let root: string;
 
 let state: string;
@@ -71,7 +73,7 @@ async function install(extra: string[] = [], environment: Record<string, string>
   return command(
     [
       "bash",
-      join(repository, "scripts/install.sh"),
+      installerScript,
       "--archive",
       archive,
       "--sha256",
@@ -94,16 +96,22 @@ beforeAll(async () => {
   config = join(temporary, "configuration with spaces");
   state = join(temporary, "state with spaces");
   launcher = join(root, "document-extraction");
-  const output = join(temporary, "release");
-  passed(
-    await command([
-      process.execPath,
-      "--no-env-file",
-      join(repository, "scripts/packageRelease.ts"),
-      "--output",
-      output,
-    ]),
-  );
+  const suppliedRelease = process.env.INSTALLER_TEST_RELEASE_DIR;
+  const output = suppliedRelease ? resolve(suppliedRelease) : join(temporary, "release");
+
+  if (!suppliedRelease) {
+    passed(
+      await command([
+        process.execPath,
+        "--no-env-file",
+        join(repository, "scripts/packageRelease.ts"),
+        "--output",
+        output,
+      ]),
+    );
+  }
+
+  installerScript = join(output, "install.sh");
   archive = join(output, "document-extraction.tar.gz");
   checksum = (await readFile(`${archive}.sha256`, "utf8")).split(" ")[0]!;
   const noCompiler = join(temporary, "without-go-compiler");
@@ -119,8 +127,32 @@ afterAll(async () => {
 }, 40_000);
 
 describe("macOS/Linux release installer", () => {
+  test("the release matches the checkout and includes every supported native platform", async () => {
+    const metadataResult = await command(["tar", "-xOf", archive, "./release.json"]);
+    passed(metadataResult);
+    const metadata = parseJson(metadataResult.output);
+    const revision = await command(["git", "rev-parse", "HEAD"]);
+    passed(revision);
+    expect(metadata).toMatchObject({ revision: revision.output.trim() });
+    expect(new Bun.CryptoHasher("sha256").update(await readFile(archive)).digest("hex")).toBe(checksum);
+    expect(await readFile(installerScript, "utf8")).toBe(await readFile(join(repository, "scripts/install.sh"), "utf8"));
+    const listing = await command(["tar", "-tzf", archive]);
+    passed(listing);
+    const entries = new Set(listing.output.trim().split("\n"));
+
+    for (const platform of ["linux", "darwin"]) {
+      for (const architecture of ["x64", "arm64"]) {
+        const directory = `./backend-go/bin/${platform}-${architecture}`;
+
+        for (const binary of ["document-extraction", "document-extraction-pdf", platform === "linux" ? "libpdfium.so" : "libpdfium.dylib"]) {
+          expect(entries.has(`${directory}/${binary}`)).toBe(true);
+        }
+      }
+    }
+  });
+
   test("an incomplete piped script executes no installer commands", async () => {
-    const script = await readFile(join(repository, "scripts/install.sh"), "utf8");
+    const script = await readFile(installerScript, "utf8");
     const partial = join(temporary, "incomplete-install.sh");
     await writeFile(partial, script.slice(0, script.indexOf("work=$(mktemp")));
     const result = await command(pipeInstaller(["bash", partial, "--help"]));
@@ -134,7 +166,7 @@ describe("macOS/Linux release installer", () => {
       await command(
         pipeInstaller([
           "bash",
-          join(repository, "scripts/install.sh"),
+          installerScript,
           "--archive",
           archive,
           "--sha256",
@@ -203,7 +235,7 @@ describe("macOS/Linux release installer", () => {
 
     const args = [
       "bash",
-      join(repository, "scripts/install.sh"),
+      installerScript,
       "--archive",
       archive,
       "--sha256",
@@ -538,7 +570,7 @@ try {
 
     const missing = await command([
       "bash",
-      join(repository, "scripts/install.sh"),
+      installerScript,
       "--repo",
       "document-extraction-installer-test/missing-repository",
       "--install-dir",
@@ -624,7 +656,7 @@ esac
       await command(
         [
           "bash",
-          join(repository, "scripts/install.sh"),
+          installerScript,
           "--repo",
           "installer-fixture/public-fork",
           "--version",
