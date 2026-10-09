@@ -338,7 +338,7 @@ describe("Workspace Model gateway", () => {
     expect(screen.queryByLabelText("Gateway URL")).toBeNull();
     expect(screen.queryByText("Saved")).toBeNull();
     expect(screen.queryByText("Same as extraction")).toBeNull();
-    expect(screen.getByRole("button", { name: "Test connection" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Test" }).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByLabelText("Gateway URL"), { target: { value: draft.gateway_url } });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -377,7 +377,7 @@ describe("Workspace Model gateway", () => {
     await waitFor(() => expect(showActionToast).toHaveBeenCalledWith("workspace.modelGateway.clear", "success"));
     expect(screen.getByText("Not configured")).toBeTruthy();
     expect(screen.queryByLabelText("Gateway URL")).toBeNull();
-    expect(screen.getByRole("button", { name: "Test connection" }).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Test" }).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByLabelText("Gateway URL").value).toBe("");
   });
@@ -458,6 +458,43 @@ describe("Workspace Model gateway", () => {
     expect(await act(() => result.current.save())).toBe(false);
     expect(result.current.error).toContain("model names");
     expect(coreRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("toasts the connection test outcome and flashes a tick on the Test button after a pass", async () => {
+    const coreRequest = apiFixture(configured);
+    const showActionToast = vi.fn();
+
+    function Editor() {
+      const controller = useWorkspaceModelConfiguration({ ...props, coreRequest, showActionToast });
+
+      return <WorkspaceModelConfiguration controller={controller} />;
+    }
+
+    render(<Editor />);
+    const button = await screen.findByRole("button", { name: "Test" });
+    await waitFor(() => expect(button.disabled).toBe(false));
+    vi.useFakeTimers();
+
+    try {
+      coreRequest.mockResolvedValueOnce(response({ status: "passed", tested_models: [{ model_role: "extraction" }] }));
+      await act(async () => fireEvent.click(button));
+      expect(showActionToast).toHaveBeenCalledWith("workspace.modelGateway.test", "success", {
+        message: expect.stringContaining("Connection test passed"),
+      });
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(screen.getByRole("button", { name: "Test passed" }).className).toContain("workspace-model-test-passed");
+      act(() => vi.advanceTimersByTime(2000));
+      expect(screen.getByRole("button", { name: "Test" }).className).not.toContain("workspace-model-test-passed");
+      coreRequest.mockRejectedValueOnce(Object.assign(new Error("rejected"), { status: 422 }));
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Test" })));
+      expect(showActionToast).toHaveBeenLastCalledWith("workspace.modelGateway.test", "failure", {
+        message: expect.stringContaining("Connection test failed"),
+      });
+      expect(screen.getByRole("button", { name: "Test" })).toBeTruthy();
+      expect(screen.queryByText(/Connection test failed/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reports which model failed a connection test and when both models passed", async () => {

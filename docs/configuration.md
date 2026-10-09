@@ -238,7 +238,7 @@ Some limits are fixed in the code rather than configurable:
 - Automatic selection permits at most 100 matching templates and 64 KiB of candidate metadata. Narrow the tags if the scope exceeds these limits. Smart splitting assesses at most 128 selected PDF pages and creates at most 100 child Documents. Work above these limits stops with an actionable result. The app never silently truncates pages or candidates.
 - Split planning and each child classification have separate durable budgets. Each permits one initial assessment and at most two targeted reassessments. Separate bounds apply to transport retries.
 - PDF subsets, previews, and derived files use isolated, cancellable processing. Limits are four active operations, eight waiting operations, and 20 seconds per operation. Isolated workers recycle after 32 operations, 64 MiB of input, 128 MiB sampled RSS, or five seconds idle. Derived PDFs are limited to 32 MiB each and 64 MiB in total. Previews are limited to 16 MiB. Parser bounds also apply.
-- The **Test connection** button times out after 30 seconds.
+- The **Test** button times out after 30 seconds.
 - PDF pages sent as images are rendered with PDFium at up to 144 DPI and at most 2000 pixels on each side, with at most 64 MiB of lossless PNG images per document. Some providers reject larger edges in requests with more than 20 images.
 - PDF validation permits 32 MiB per PDF, 16 MiB per decoded stream, and 32 MiB of total decoding work. Other limits are 10,000 pages and five seconds per validation. Eight PDFs can be validated concurrently. Validation workers use the same bounded recycling policy. Eight more can wait for up to five seconds. A full queue rejects uploads with `503 pdf_validation_capacity_unavailable`.
 - Excel exports: at most 500 documents and 32 MiB of results, with two exports running at a time.
@@ -274,7 +274,7 @@ After you save, the panel shows a summary. Select **Edit** to change the setting
 
 - **Extraction** runs Extraction jobs and Evaluations.
 - **Document classification & splitting** selects tag-matching Templates and identifies PDF boundaries, including targeted reassessments. It inherits Extraction settings unless you select **Different model**. A different model has its own direct PDF and structured-output settings. It shares the Workspace gateway, credential, and sequential-call policy. Failure of a custom model does not cause a fallback to Extraction.
-- **Template assistant** supplies assistance, suggested requests, and Auto generate. It inherits the extraction model unless you select **Different model**. A different model shares the gateway, credential, and call behavior, with its own capabilities. **Test connection** tests each distinct model.
+- **Template assistant** supplies assistance, suggested requests, and Auto generate. It inherits the extraction model unless you select **Different model**. A different model shares the gateway, credential, and call behavior, with its own capabilities. **Test** tests each distinct model.
 
 The app encrypts model credentials with `secrets/model-gateway.key` in the data folder. Include this file in backups. Workspace admins can select any gateway address, including private network addresses. Give this role only to people you trust.
 

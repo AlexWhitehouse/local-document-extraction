@@ -4,11 +4,14 @@ These rules keep the SPA consistent. Issue #64 introduced them. When a change co
 
 ## Feedback: inline, toast, banner or modal
 
+**Statuses and responses are toasts.** The outcome of anything the user triggers (success, failure or a check result) goes through `lib/notify.js`, not inline text. Inline feedback is only for field validation, errors inside an open modal, load failures of a region and persistent must-act callouts.
+
 | Situation | Channel | Rules |
 | --- | --- | --- |
 | Field validation (required, format, mismatch, range) | Inline under the field | Set `aria-invalid` and `aria-describedby`. On submit, focus the first invalid field. Validate on submit and on blur. Never a toast. |
-| Form-level submit failure | Inline `role="alert"` above the submit button | Keep the user's input. Text comes from `describeError`. |
+| Form-level submit failure | Failure toast | Keep the user's input. Text comes from `describeError`. |
 | Completed user action | Action toast through `lib/notify.js` | Name the target. Show it as soon as the mutation succeeds and refresh in the background. Don't also show the outcome inline. |
+| Result of a check the user ran (for example a connection test) | Toast | Never inline text beside the button. The button may flash a brief state, such as a success tick, then return to its label. |
 | Cheaply reversible removal (draft-only) | Toast with **Undo** | No confirmation dialog. |
 | Retryable action failure | Failure toast, with **Try again** where it helps | The mapped reason is appended automatically. Give counts for partial bulk failures. |
 | One-time or must-act information | Persistent inline callout next to the control | Stays until dismissed or resolved. |
