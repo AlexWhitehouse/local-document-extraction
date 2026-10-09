@@ -38,3 +38,14 @@ describe("theme preference", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 });
+
+describe("theme preference without storage", () => {
+  it("falls back to dark when reading storage throws", () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Blocked", "SecurityError");
+    });
+
+    expect(readThemePreference()).toBe("dark");
+    vi.restoreAllMocks();
+  });
+});

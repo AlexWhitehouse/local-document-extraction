@@ -9,9 +9,10 @@ export const THEME_PREFERENCES = ["system", "light", "dark"];
 
 export const DEFAULT_THEME_PREFERENCE = "dark";
 
-export function readThemePreference(storage = window.localStorage) {
+export function readThemePreference() {
+  // Reading window.localStorage itself can throw (blocked site data), so it stays inside the try.
   try {
-    const stored = storage.getItem(THEME_STORAGE_KEY);
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
 
     return THEME_PREFERENCES.includes(stored) ? stored : DEFAULT_THEME_PREFERENCE;
   } catch {
