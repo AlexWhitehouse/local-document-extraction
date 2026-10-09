@@ -52,7 +52,7 @@ The [backend README](../backend/README.md#tests) lists backend commands for quie
 
 CI runs quality checks, browser journeys, Go race checks, and release packaging concurrently. Installer checks run on Linux x64, Linux arm64, and macOS using the same packaged archive. They run independently of quality checks after packaging finishes.
 
-The backend coverage run includes the complete suite and real-process smoke test. Frontend coverage also executes the complete frontend suite. Neither needs an additional ordinary test run in CI. Artifact uploads preserve the evidence produced by these runs, including on failure.
+The backend coverage run includes the complete suite and real-process smoke test. Frontend coverage also executes the complete frontend suite. Neither needs an additional ordinary test run in CI. GitHub Actions runs typecheck, lint, build, and both coverage suites as separate steps: once dependencies are installed, each runs even if an earlier check failed, unless the job is cancelled. Every failed check still fails the job. Artifact uploads run after successful or failed evidence generation and skip suites that never started. The local `ci:quality` command stops at the first failure.
 
 Worker-count benchmarks and randomized backend repetition run on the weekly schedule or when the CI workflow is dispatched manually. They do not run for PRs or when the Release workflow calls CI, including manual releases.
 

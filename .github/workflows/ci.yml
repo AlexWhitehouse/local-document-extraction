@@ -90,6 +90,7 @@ jobs:
           cache-dependency-path: backend-go/go.mod
 
       - name: Install dependencies
+        id: dependencies
         run: bun ci
 
       - name: Prove frozen lockfile stability
@@ -106,11 +107,25 @@ jobs:
           if-no-files-found: error
           path: .scratch/ci/package-hygiene/
 
-      - name: Run platform-neutral CI
-        run: bun run ci:quality
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: bun run typecheck
+
+      - name: Lint
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: bun run lint
+
+      - name: Build application
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: bun run build
+
+      - name: Generate backend test evidence
+        id: backend-evidence
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: bun run --cwd backend test:evidence
 
       - name: Upload backend test evidence
-        if: always()
+        if: always() && (steps.backend-evidence.outcome == 'success' || steps.backend-evidence.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: backend-test-evidence-${{ matrix.os }}
@@ -122,8 +137,13 @@ jobs:
             .scratch/ci/backend/backend-coverage-summary.md
             .scratch/ci/backend/coverage/lcov.info
 
+      - name: Generate frontend coverage evidence
+        id: frontend-evidence
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: bun run --cwd frontend test:coverage
+
       - name: Upload frontend coverage evidence
-        if: always()
+        if: always() && (steps.frontend-evidence.outcome == 'success' || steps.frontend-evidence.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: frontend-coverage-${{ matrix.os }}
