@@ -9,6 +9,6 @@
 
 `oxlint.config.ts` enables all generic rules and `oxc/no-accumulating-spread` as errors. The documented `allowInTypeGuards` option is enabled for `no-runtime-typeof`: this project uses typed boundary predicates rather than a schema library. Other runtime `typeof` checks remain prohibited, apart from upstream's binding-existence exception.
 
-`oxlint` and `@oxlint/plugins` are pinned together at `1.86.0`. `bun run lint` runs the existing ESLint checks and this plugin under Bun, including in CI. Vendored source, installed agent assets, generated output and local runtime state are excluded from application linting.
+`oxlint` and `@oxlint/plugins` are pinned together at `1.87.0`. `bun run lint` runs the existing ESLint checks and this plugin under Bun, including in CI. Vendored source, installed agent assets, generated output and local runtime state are excluded from application linting.
 
 For future updates, stage the incoming snapshot separately and compare it against this exact upstream commit before merging local changes. Do not overwrite this directory blindly.

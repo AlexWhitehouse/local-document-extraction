@@ -100,6 +100,8 @@ export async function createLocalAuth({
 
   const auth = betterAuth({
     advanced: {
+      // Migrations run below; the background check would race them and log false mismatches.
+      database: { validateSchema: false },
       ipAddress: {
         ipAddressHeaders: [LOCAL_AUTH_CLIENT_ADDRESS_HEADER],
         ipv6Subnet: 64,
