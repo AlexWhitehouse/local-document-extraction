@@ -122,3 +122,18 @@ describe("ProfileMenu keyboard shortcuts", () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 });
+
+describe("ProfileMenu appearance", () => {
+  it("defaults to dark and applies a chosen theme straight away", async () => {
+    window.localStorage.removeItem("studio.theme");
+    renderMenu();
+    const theme = screen.getByRole("radiogroup", { name: "Theme" });
+
+    expect(within(theme).getByRole("radio", { name: "Dark" }).getAttribute("aria-checked")).toBe("true");
+
+    await userEvent.click(within(theme).getByRole("radio", { name: "Light" }));
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(window.localStorage.getItem("studio.theme")).toBe("light");
+    window.localStorage.removeItem("studio.theme");
+  });
+});
