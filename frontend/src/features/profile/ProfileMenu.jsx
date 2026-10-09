@@ -4,6 +4,14 @@ import { ChevronDownIcon, CloseIcon } from "../layout/Icons.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { Field, TextInput } from "../ui/Field.jsx";
+import { Segmented } from "../ui/Tabs.jsx";
+import { useThemePreference } from "../../lib/theme.js";
+
+const THEME_OPTIONS = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
 
 export const ProfileMenu = React.forwardRef(function ProfileMenu(
   {
@@ -29,6 +37,7 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
     if (!isDirty || (await confirmDialog({ ...DISCARD_CHANGES }))) onToggle();
   };
 
+  const [themePreference, setThemePreference] = useThemePreference();
   const shortcutsRef = useRef(null);
   const focusShortcutsOnOpen = useRef(false);
 
@@ -141,6 +150,17 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         </Button>
                       </div>
                     </div>
+                    <section className="settings-appearance" aria-labelledby="settings-appearance-title">
+                      <div className="settings-section-intro">
+                        <h4 id="settings-appearance-title">Appearance</h4>
+                      </div>
+                      <Segmented
+                        label="Theme"
+                        items={THEME_OPTIONS}
+                        value={themePreference}
+                        onChange={setThemePreference}
+                      />
+                    </section>
                     <section
                       ref={shortcutsRef}
                       tabIndex={-1}

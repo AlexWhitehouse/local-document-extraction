@@ -24,7 +24,7 @@
   --control-h-md: 30px;
 
   /* Select chevron, drawn as a background image (backgrounds cannot read currentColor).
-     The stroke is --text-2; keep the two in step if that token changes. */
+     The stroke is --text-2 (light theme: its own copy below); keep them in step. */
   --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2391a0b7' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   /* One surface scale, darkest to lightest. */
@@ -141,6 +141,96 @@
   font-family: var(--font-body);
   line-height: 1.45;
   background: var(--pane-main);
+}
+
+/*
+ * Light theme: the same tokens with light values. lib/theme.js sets data-theme
+ * on <html>; dark is the default. Masks, the type scale, layers and control
+ * heights do not change between themes.
+ */
+:root[data-theme="light"] {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23475467' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  /* Surfaces, base to most raised. */
+  --pane-main: #ffffff;
+  --pane-nav: #f5f7fa;
+  --pane-context: #f8fafc;
+  --pane-raised: #f4f6f9;
+  --pane-elevated: #ffffff;
+  --pane-overlay: #eef2f6;
+  --pane-active: #e2e8f0;
+  --field-bg: #ffffff;
+  --row-hover: #f1f4f8;
+
+  --rule-subtle: #e2e7ee;
+  --rule: #e5e9ef;
+  --rule-strong: #cbd3de;
+  --rule-dashed: #a9b5c5;
+
+  --text-0: #0f1722;
+  --text-1: #2b3849;
+  --text-2: #475467;
+  --text-3: #5a687e;
+  --text-label: #46546a;
+  --text-selected: #064e47;
+  --text-on-accent: #ffffff;
+
+  --accent: #0a7f75;
+  --accent-strong: #08706a;
+  --accent-deep: #0a7f75;
+  --accent-fill: #0a7f75;
+  --accent-fill-hover: #08706a;
+  --meter-fill: linear-gradient(90deg, var(--accent-deep), #19b8ab);
+  --blue: #1d6bcc;
+  --amber: #9a5c08;
+  --rose: #c92d54;
+  --series-green: #13865e;
+  --series-orange: #c4501d;
+
+  --tone-neutral-fg: #475467;
+  --tone-neutral-text: #2b3849;
+  --tone-neutral-bg-subtle: rgba(71, 85, 105, 0.05);
+  --tone-neutral-bg: rgba(71, 85, 105, 0.1);
+  --tone-neutral-border: rgba(71, 85, 105, 0.35);
+
+  --tone-success-fg: #0a7f75;
+  --tone-success-text: #065a53;
+  --tone-success-bg-subtle: rgba(10, 127, 117, 0.06);
+  --tone-success-bg: rgba(10, 127, 117, 0.1);
+  --tone-success-border: rgba(10, 127, 117, 0.4);
+
+  --tone-info-fg: #1d6bcc;
+  --tone-info-text: #154e95;
+  --tone-info-bg-subtle: rgba(29, 107, 204, 0.06);
+  --tone-info-bg: rgba(29, 107, 204, 0.1);
+  --tone-info-border: rgba(29, 107, 204, 0.4);
+
+  --tone-warning-fg: #9a5c08;
+  --tone-warning-text: #774705;
+  --tone-warning-bg-subtle: rgba(201, 128, 20, 0.07);
+  --tone-warning-bg: rgba(201, 128, 20, 0.13);
+  --tone-warning-border: rgba(201, 128, 20, 0.45);
+
+  --tone-danger-fg: #c92d54;
+  --tone-danger-text: #981e3d;
+  --tone-danger-bg-subtle: rgba(201, 45, 84, 0.06);
+  --tone-danger-bg: rgba(201, 45, 84, 0.1);
+  --tone-danger-border: rgba(201, 45, 84, 0.4);
+
+  /* Overlays darken instead of lighten. */
+  --wash-1: rgba(15, 23, 34, 0.02);
+  --wash-2: rgba(15, 23, 34, 0.04);
+  --wash-3: rgba(15, 23, 34, 0.07);
+  --scrim: rgba(15, 23, 34, 0.4);
+  --pdf-surround: #d5dbe3;
+  --pane-glass: rgba(255, 255, 255, 0.9);
+  --pane-glass-strong: rgba(255, 255, 255, 0.98);
+  --pane-veil: rgba(238, 242, 246, 0.6);
+
+  --shadow-popover: 0 12px 32px rgba(15, 23, 34, 0.14);
+  --shadow-modal: 0 16px 48px rgba(15, 23, 34, 0.2);
+
+  color-scheme: light;
 }
 
 * {
@@ -537,7 +627,6 @@ button.danger:hover:not(:disabled) {
   right: 12px;
   width: min(280px, calc(100vw - 40px));
   padding: 0;
-  color-scheme: dark;
   font-family: var(--font-body);
   letter-spacing: 0;
   text-transform: none;
@@ -1473,6 +1562,7 @@ input[type="checkbox"]:disabled {
   padding-top: 2px;
 }
 
+.settings-appearance { display: grid; justify-items: start; gap: 12px; padding-top: 14px; border-top: 1px solid var(--rule); }
 .settings-shortcuts { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--rule); }
 .settings-shortcuts:focus { outline: none; }
 .settings-shortcuts:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
