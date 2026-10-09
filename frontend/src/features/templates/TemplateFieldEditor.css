@@ -18,8 +18,8 @@
   padding-right: 6px;
 }
 
-/* Row controls appear on the selected row and on hover or keyboard focus, so field
-   names keep their width in the narrow list. */
-.field-nav-row:not(:hover, :focus-within):not(:has(> .field-nav-item.active)) .field-nav-row-actions {
+/* Row controls appear only on hover, keyboard focus or while the row's menu is open,
+   so field names keep their width in the narrow list, selected row included. */
+.field-nav-row:not(:hover):not(:has(:focus-visible, [aria-expanded="true"])) .field-nav-row-actions {
   display: none;
 }
