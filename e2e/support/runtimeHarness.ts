@@ -250,6 +250,9 @@ try {
 
       if (input.model === "browser/cost-dashboard") return Response.json({ ...result, usage: { cost: 0.01234 } });
 
+      // Slower than browser/model, so the Evaluation journey's identical candidates have a clear Best.
+      if (input.model === "browser/model-b") await Bun.sleep(250);
+
       return Response.json(result);
     },
   });
