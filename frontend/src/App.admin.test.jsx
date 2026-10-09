@@ -118,19 +118,21 @@ describe("Application admin page gate", () => {
     expect(within(adminButton).queryByText(/\d+/)).toBeNull();
   });
 
-  it("returns a regular user with stale admin-page state to the Workspace page", async () => {
+  it("shows Page unavailable without admin content when an open Admin page loses its admin role", async () => {
     const user = userEvent.setup();
     currentSession = sessionForRole("admin");
 
-    render(<App createAuthClient={createAuthClient} notifications={toast} />);
+    const { rerender } = render(<App createAuthClient={createAuthClient} notifications={toast} />);
 
-    const adminButton = await screen.findByRole("link", { name: /^Admin$/ });
+    await user.click(await screen.findByRole("link", { name: /^Admin$/ }));
+    expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
+
+    // A session store update re-renders the app with the downgraded role.
     currentSession = sessionForRole("user");
-    await user.click(adminButton);
+    rerender(<App createAuthClient={createAuthClient} notifications={toast} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Workspace details" })).toBeTruthy();
-    });
+    expect(await screen.findByRole("heading", { name: "Page unavailable" })).toBeTruthy();
+    expect(screen.getByText("This page is not available to your account.")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Admin" })).toBeNull();
     expect(screen.queryByRole("link", { name: /^Admin$/ })).toBeNull();
   });
@@ -518,7 +520,7 @@ describe("Application admin page gate", () => {
     expect(await screen.findByRole("heading", { name: "Admin" })).toBeTruthy();
     expect(toast.success).toHaveBeenCalledWith("Impersonation stopped", expect.anything());
     await waitFor(() => {
-      expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(3);
+      expect(globalThis.fetch.mock.calls.filter(([input]) => String(input).endsWith("/workspaces"))).toHaveLength(2);
     });
   });
 

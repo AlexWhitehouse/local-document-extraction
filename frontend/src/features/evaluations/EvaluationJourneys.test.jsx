@@ -135,6 +135,8 @@ async function startModels() {
   fireEvent.change(screen.getByRole("combobox", { name: "Template" }), { target: { value: "invoice" } });
   fireEvent.change(screen.getByRole("textbox", { name: "Candidate 2 model" }), { target: { value: "other" } });
   await screen.findByText(/2 fields/);
+  // Candidate 1 defaults to the Workspace model once setup loads.
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Candidate 1 model" }).value).toBe("model"));
 }
 
 const success = (stream, index, total) =>
