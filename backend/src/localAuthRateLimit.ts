@@ -14,14 +14,6 @@ export function createLocalAuthRateLimitStorage({
   let nextSweepAt = 0;
 
   return {
-    // Better Auth 1.6.23 requires these legacy methods in its type, but uses
-    // consume whenever provided. Never silently fall back to a racy get/set.
-    get: async () => {
-      throw new Error("Authentication rate limits require atomic consumption.");
-    },
-    set: async () => {
-      throw new Error("Authentication rate limits require atomic consumption.");
-    },
     consume: async (key, rule) => {
       const timestamp = now();
 

@@ -12,17 +12,17 @@
     "preview": "bunx vite preview"
   },
   "dependencies": {
-    "better-auth": "^1.6.6",
+    "better-auth": "^1.7.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "sonner": "^2.0.7"
+    "sonner": "^2.0.8"
   },
   "devDependencies": {
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
-    "@vitest/coverage-v8": "4.1.10",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@vitest/coverage-v8": "4.1.11",
     "jsdom": "^29.1.1",
-    "vite": "^8.2.2",
-    "vitest": "^4.1.5"
+    "vite": "^8.3.2",
+    "vitest": "^4.1.11"
   }
 }
