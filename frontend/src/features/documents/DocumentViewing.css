@@ -42,6 +42,7 @@
   display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: auto; max-width: 380px; padding: 16px;
   border: 1px solid var(--rule-strong); border-left: 2px solid var(--text-2); background: var(--pane-main);
 }
+.source-availability > button { flex-shrink: 0; white-space: nowrap; }
 .source-availability.unavailable { border-left-color: var(--amber); }
 .source-availability.missing { border-left-color: var(--rose); }
 .source-availability strong { font-size: var(--font-size-4); font-weight: 500; }

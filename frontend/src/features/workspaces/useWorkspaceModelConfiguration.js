@@ -379,6 +379,7 @@ export function useWorkspaceModelConfiguration({
 
       if (activeScope.current === scope && draftVersion.current === version) {
         setState((previous) => ({ ...previous, testing: false, testResult: { passed: true, message: passedMessage } }));
+        notify.current?.("workspace.modelGateway.test", "success", { message: passedMessage });
       }
     } catch (error) {
       const failedModel =
@@ -400,6 +401,7 @@ export function useWorkspaceModelConfiguration({
           conflict: error.status === 412,
           testResult: { passed: false, message },
         }));
+        notify.current?.("workspace.modelGateway.test", "failure", { message });
       }
     }
   }

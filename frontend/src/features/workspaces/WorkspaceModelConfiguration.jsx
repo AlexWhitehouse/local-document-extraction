@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import "./WorkspaceModelConfiguration.css";
 import { useUnsavedGuard } from "../../lib/unsavedChanges";
 import { confirmDialog } from "../ui/confirm.jsx";
@@ -6,6 +6,7 @@ import { Button } from "../ui/Button.jsx";
 import { DataTable } from "../ui/DataTable.jsx";
 import { Badge, StatusDot } from "../ui/Status.jsx";
 import { CheckboxField, Field, TextInput } from "../ui/Field.jsx";
+import { CheckIcon } from "../layout/Icons.jsx";
 
 const TASK_ROLES = [
   ["assistant", "Template assistant", "Template assistant and auto-generate"],
@@ -155,7 +156,6 @@ export function WorkspaceModelConfiguration({ controller }) {
             </div>
           ) : showSummary ? (
             <div className="workspace-model-summary">
-              <ConnectionTestResult result={controller.testResult} />
               {unavailable ? (
                 <p className="workspace-model-repair" role="alert">
                   {UNREADABLE_API_KEY_MESSAGE}
@@ -252,11 +252,10 @@ export function WorkspaceModelConfiguration({ controller }) {
                   Reload
                 </Button>
               ) : null}
-              <small>Tick what each model supports. Test connection doesn't check these.</small>
+              <small>Tick what each model supports. Test doesn't check these.</small>
               <div className="workspace-model-footer">
                 <div>
                   <TestConnectionButton controller={controller} disabled={saving || conflict} />
-                  <ConnectionTestResult result={controller.testResult} />
                 </div>
                 {configured ? (
                   <Button variant="danger-text" disabled={saving || conflict} onClick={clearGateway}>
@@ -272,28 +271,39 @@ export function WorkspaceModelConfiguration({ controller }) {
   );
 }
 
+const TEST_PASSED_MS = 2000;
+
+// The outcome is a toast; a pass also flashes a tick on the button.
 function TestConnectionButton({ controller, disabled }) {
+  const { testResult } = controller;
+  const [passed, setPassed] = useState(false);
+
+  useEffect(() => {
+    if (!testResult?.passed) return undefined;
+    setPassed(true);
+    const timer = setTimeout(() => setPassed(false), TEST_PASSED_MS);
+
+    return () => {
+      clearTimeout(timer);
+      setPassed(false);
+    };
+  }, [testResult]);
+
   return (
     <Button
       variant="secondary"
+      className={passed ? "workspace-model-test-passed" : undefined}
       pending={controller.testing}
       pendingLabel="Testing…"
       disabled={disabled}
+      aria-label={passed ? "Test passed" : undefined}
       onClick={controller.testConnection}
     >
-      Test connection
+      <span className="workspace-model-test-label">
+        <span aria-hidden={passed || undefined}>Test</span>
+        <CheckIcon />
+      </span>
     </Button>
-  );
-}
-
-// Connection test state shows beside its button; it is not an action outcome, so it is not toasted.
-function ConnectionTestResult({ result }) {
-  if (!result) return null;
-
-  return (
-    <span role="status" className={result.passed ? "workspace-model-test-result" : "workspace-model-test-result form-error"}>
-      {result.message}
-    </span>
   );
 }
 

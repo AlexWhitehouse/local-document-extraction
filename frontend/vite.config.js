@@ -30,6 +30,16 @@ export default defineConfig(({ mode }) => {
       },
       setupFiles: ["./src/test/setup.js"],
     },
+    build: {
+      rolldownOptions: {
+        // sonner ships a React Server Components "use client" directive, which
+        // means nothing in this client-only SPA.
+        onwarn(warning, warn) {
+          if (warning.code === "MODULE_LEVEL_DIRECTIVE" && warning.message.includes('"use client"')) return;
+          warn(warning);
+        },
+      },
+    },
     server: {
       port: 5173,
       proxy: {

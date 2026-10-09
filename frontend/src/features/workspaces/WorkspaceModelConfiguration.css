@@ -58,10 +58,11 @@
   .workspace-model-roles thead th:nth-child(n+3), .workspace-model-roles td:nth-child(n+3) { width:auto; }
 }
 
-.workspace-model-test-result {
-  margin-left: 10px;
-  font-size: var(--font-size-4);
-  color: var(--text-2);
-}
-
-.workspace-model-summary > .workspace-model-test-result { margin-left: 0; }
+/* The tick overlays the label so the button keeps its width. */
+.workspace-model-test-label { display:inline-grid; place-items:center; }
+.workspace-model-test-label > * { grid-area:1 / 1; }
+.workspace-model-test-label > svg { visibility:hidden; }
+button.workspace-model-test-passed,
+button.workspace-model-test-passed:hover:not(:disabled) { border-color:var(--tone-success-fg); color:var(--tone-success-fg); }
+.workspace-model-test-passed .workspace-model-test-label > span { visibility:hidden; }
+.workspace-model-test-passed .workspace-model-test-label > svg { visibility:visible; }

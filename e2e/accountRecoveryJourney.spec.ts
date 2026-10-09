@@ -61,7 +61,7 @@ async function updateLocalSettings(page: Page) {
   const gateway = page.getByRole("article", { name: "Model gateway" });
   await expect(gateway.getByRole("table", { name: "Models" })).toBeVisible();
   await expect(gateway.getByLabel("Gateway URL", { exact: true })).toHaveCount(0);
-  await expect(gateway.getByRole("button", { name: "Test connection" })).toBeDisabled();
+  await expect(gateway.getByRole("button", { name: "Test" })).toBeDisabled();
   await gateway.getByRole("button", { name: "Edit", exact: true }).click();
   await gateway.getByLabel("Gateway URL", { exact: true }).fill("http://127.0.0.1:11434/v1");
   await gateway.getByLabel("Extraction model", { exact: true }).fill("browser/vision-model");
