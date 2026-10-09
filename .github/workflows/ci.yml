@@ -4,6 +4,15 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      release-version:
+        description: Version embedded in the archive used by installer checks
+        type: string
+        default: development
+    outputs:
+      release-artifact-id:
+        description: The release archive validated by the installer matrix
+        value: ${{ jobs.package-release.outputs.artifact-id }}
   schedule:
     - cron: "17 4 * * 1"
 
@@ -81,6 +90,7 @@ jobs:
           cache-dependency-path: backend-go/go.mod
 
       - name: Install dependencies
+        id: dependencies
         run: bun ci
 
       - name: Prove frozen lockfile stability
@@ -97,18 +107,25 @@ jobs:
           if-no-files-found: error
           path: .scratch/ci/package-hygiene/
 
-      - name: Run platform-neutral CI
-        run: bun run ci:quality
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: bun run typecheck
 
-      - name: Verify clean local installation and upgrade
-        run: bun run test:installer
+      - name: Lint
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: bun run lint
+
+      - name: Build application
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: bun run build
 
       - name: Generate backend test evidence
-        if: always()
+        id: backend-evidence
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: bun run --cwd backend test:evidence
 
       - name: Upload backend test evidence
-        if: always()
+        if: always() && (steps.backend-evidence.outcome == 'success' || steps.backend-evidence.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: backend-test-evidence-${{ matrix.os }}
@@ -121,11 +138,12 @@ jobs:
             .scratch/ci/backend/coverage/lcov.info
 
       - name: Generate frontend coverage evidence
-        if: always()
+        id: frontend-evidence
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: bun run --cwd frontend test:coverage
 
       - name: Upload frontend coverage evidence
-        if: always()
+        if: always() && (steps.frontend-evidence.outcome == 'success' || steps.frontend-evidence.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: frontend-coverage-${{ matrix.os }}
@@ -135,12 +153,96 @@ jobs:
             .scratch/ci/frontend/coverage/coverage-summary.json
             .scratch/ci/frontend/coverage/lcov.info
 
+  package-release:
+    name: Package release assets
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      artifact-id: ${{ steps.release-artifact.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend-go/go.mod
+          cache-dependency-path: backend-go/go.mod
+      - name: Require the project license before packaging
+        run: test -s LICENSE
+      - name: Package source release and checksum
+        run: bun run package:release --version "$RELEASE_VERSION"
+        env:
+          RELEASE_VERSION: ${{ inputs.release-version || 'development' }}
+      - name: Upload release assets
+        id: release-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ github.run_attempt }}
+          if-no-files-found: error
+          compression-level: 0
+          path: dist/release/
+
+  installer:
+    name: Installation and upgrade (${{ matrix.os }})
+    needs: package-release
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: oven-sh/setup-bun@v2
+      - run: bun ci
+      - name: Download the release under test
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: ${{ needs.package-release.outputs.artifact-id }}
+          path: ${{ runner.temp }}/release
+      - name: Verify clean local installation and upgrade
+        run: bun run test:installer
+        env:
+          INSTALLER_TEST_RELEASE_DIR: ${{ runner.temp }}/release
+
+  backend-worker-benchmark:
+    name: Backend worker benchmark (${{ matrix.os }})
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.workflow == 'CI')
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend-go/go.mod
+          cache-dependency-path: backend-go/go.mod
+      - run: bun ci
+      - name: Build document processor
+        run: bun run build:go
       - name: Measure backend Bun worker caps
-        if: matrix.os == 'ubuntu-24.04' || matrix.os == 'macos-15'
+        shell: bash
         run: bun run --cwd backend benchmark:test-parallel | tee backend-test-parallel-${{ matrix.os }}.md
 
       - name: Upload backend worker-cap evidence
-        if: always() && (matrix.os == 'ubuntu-24.04' || matrix.os == 'macos-15')
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: backend-test-parallel-${{ matrix.os }}
@@ -170,7 +272,7 @@ jobs:
 
   backend-flake:
     name: Backend randomized repetition lane
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.workflow == 'CI')
     runs-on: ubuntu-24.04
 
     steps:

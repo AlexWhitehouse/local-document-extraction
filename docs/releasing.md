@@ -45,7 +45,9 @@ Without `--version`, the release name is `development`. This mode permits uncomm
    git push origin vX.Y.Z
    ```
 
-3. Wait for the [release workflow](../.github/workflows/release.yml). It reruns CI on the tag, verifies `LICENSE`, builds release files, and publishes a GitHub release. If `docs/releases/<tag>.md` exists, its notes precede the generated change list. A manual workflow run produces artifacts without publishing a release.
+3. Wait for the [release workflow](../.github/workflows/release.yml). It reruns CI on the tag and builds release files once, concurrently with quality and browser checks. Packaging verifies `LICENSE`. Installer checks on all three CI platforms consume that same archive. After every validation job passes, publication downloads the validated artifact by ID, checks its checksum, and publishes it without rebuilding. If `docs/releases/<tag>.md` exists, its notes precede the generated change list. A manual workflow run on a branch produces artifacts without publishing a release; selecting a tag publishes that tag after validation.
+
+Release artifacts are named `release-assets-<run attempt>` so a rerun cannot overwrite an earlier archive. Installer jobs and publication use the packaging job's artifact ID, including when rerunning failed jobs. CI reruns on the exact tagged commit; a green PR run does not substitute for tag validation. The weekly/manual CI benchmark and randomized repetition jobs are excluded from release validation.
 
 ## 4. Verify the published release
 

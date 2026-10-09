@@ -45,10 +45,18 @@ Negative checks remain useful for security and validation rules. For example, in
 | `bun run test` | Backend and frontend test suites. |
 | `bun run --cwd frontend test:coverage` | Frontend tests, failing if coverage drops below `frontend/coverage-baseline.json`. |
 | `bun run test:e2e` | Builds the frontend and runs the browser journeys (see [e2e/README.md](../e2e/README.md)). |
-| `bun run ci:quality` | Typecheck, lint, tests, frontend coverage, and build: what CI runs on Ubuntu and macOS. |
+| `bun run ci:quality` | Typecheck, lint, build, then one backend and one frontend test run with coverage and evidence: what CI runs on Ubuntu and macOS. |
 | `bun run ci` | `ci:quality` plus the browser journeys. In GitHub Actions the journeys run separately, on Ubuntu only. |
 
 The [backend README](../backend/README.md#tests) lists backend commands for quiet output, changed-file tests, and repeated tests that detect intermittent failures.
+
+CI runs quality checks, browser journeys, Go race checks, and release packaging concurrently. Installer checks run on Linux x64, Linux arm64, and macOS using the same packaged archive. They run independently of quality checks after packaging finishes.
+
+The backend coverage run includes the complete suite and real-process smoke test. Frontend coverage also executes the complete frontend suite. Neither needs an additional ordinary test run in CI. GitHub Actions runs typecheck, lint, build, and both coverage suites as separate steps: once dependencies are installed, each runs even if an earlier check failed, unless the job is cancelled. Every failed check still fails the job. Artifact uploads run after successful or failed evidence generation and skip suites that never started. The local `ci:quality` command stops at the first failure.
+
+Worker-count benchmarks and randomized backend repetition run on the weekly schedule or when the CI workflow is dispatched manually. They do not run for PRs or when the Release workflow calls CI, including manual releases.
+
+`bun run test:installer` normally packages a fresh release. To test existing release assets instead, set `INSTALLER_TEST_RELEASE_DIR` to the directory containing `install.sh`, `document-extraction.tar.gz`, and its `.sha256` file. The suite verifies the archive's revision and checksum before exercising installation and upgrades. The directory must contain assets from the current checkout.
 
 ## Coverage floors
 

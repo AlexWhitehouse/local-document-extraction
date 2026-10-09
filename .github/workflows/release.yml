@@ -11,39 +11,30 @@ permissions:
 jobs:
   validate:
     uses: ./.github/workflows/ci.yml
+    with:
+      release-version: ${{ github.ref_type == 'tag' && github.ref_name || 'development' }}
 
-  license:
+  publish:
+    name: Publish validated release
+    if: github.ref_type == 'tag'
+    needs: validate
     runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-      - name: Require the project license before releasing
-        run: test -s LICENSE
-
-  package:
-    needs: [validate, license]
-    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - uses: actions/setup-go@v7
+      - name: Download the validated release
+        uses: actions/download-artifact@v5
         with:
-          go-version-file: backend-go/go.mod
-      - uses: oven-sh/setup-bun@v2
-      - name: Package source release and checksum
-        run: bun run package:release --version "$RELEASE_VERSION"
-        env:
-          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'development' }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-assets
+          artifact-ids: ${{ needs.validate.outputs.release-artifact-id }}
           path: dist/release/
+      - name: Verify the release checksum
+        working-directory: dist/release
+        run: sha256sum --check document-extraction.tar.gz.sha256
       - name: Publish validated tag assets
-        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
