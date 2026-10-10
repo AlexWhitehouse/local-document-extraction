@@ -48,6 +48,7 @@ const child = Bun.spawn(
     "--no-env-file",
     "test",
     "--isolate",
+    "--parallel",
     "--max-concurrency=1",
     "--retry=0",
     "--no-orphans",

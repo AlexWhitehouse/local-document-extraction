@@ -39,6 +39,6 @@ The tests require the Bun version specified in `package.json`. If your version d
 | --- | --- |
 | `.scratch/ci/playwright/report` | HTML report. Open it with `bunx playwright show-report .scratch/ci/playwright/report`. |
 | `.scratch/ci/playwright/results` | Trace and screenshot for each failed test. |
-| `.scratch/ci/playwright/evidence` | Structured run summaries for tools. |
+| `.scratch/ci/playwright/evidence` | Structured run summaries for tools, in one directory per test. |
 
 Evidence files exclude sensitive content. Network entries contain only the method, status, resource type, and URL without its query string. Live-update entries contain only the event type, job ID, and status.

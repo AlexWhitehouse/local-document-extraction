@@ -1,7 +1,7 @@
 import { isJsonObject, isString, parseJson, type JsonValue } from "../../shared/json";
 import type { Page, TestInfo } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 type NetworkEntry = {
   method?: string;
@@ -150,7 +150,8 @@ export function summarizeWorkspaceFrame(payload: string | Buffer): LifecycleFram
 }
 
 async function attachJson(testInfo: TestInfo, name: string, value: JsonValue): Promise<void> {
-  const evidenceDirectory = resolve(process.cwd(), ".scratch/ci/playwright/evidence");
+  // Tests in other workers write the same names, so each test gets its own directory.
+  const evidenceDirectory = resolve(process.cwd(), ".scratch/ci/playwright/evidence", basename(testInfo.outputDir));
   const path = join(evidenceDirectory, `${name}.json`);
   await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");

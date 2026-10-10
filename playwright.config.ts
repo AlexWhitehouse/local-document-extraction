@@ -6,7 +6,8 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
-  workers: 1,
+  // Each spec starts its own runtime on a free port with private state.
+  workers: "50%",
   retries: 0,
   forbidOnly: Boolean(process.env.CI),
   outputDir: ".scratch/ci/playwright/results",
