@@ -1,0 +1,47 @@
+name: Warm caches
+
+# Pull requests can only restore caches saved on their own ref or on main, and
+# CI does not run on main. Save the release build cache here so every pull
+# request starts warm. The cache step must match the one in ci.yml.
+on:
+  push:
+    branches: [main]
+    paths:
+      - backend-go/**
+      - scripts/packageRelease.ts
+      - scripts/pdfium.ts
+      - .github/workflows/warm-caches.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  release-build:
+    name: Warm release build cache
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend-go/go.mod
+          cache: false
+      - name: Restore release build cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            backend-go/bin/.cache
+          key: release-build-${{ runner.os }}-${{ hashFiles('backend-go/go.sum', 'scripts/pdfium.ts') }}-${{ hashFiles('backend-go/**/*.go') }}
+          restore-keys: release-build-${{ runner.os }}-${{ hashFiles('backend-go/go.sum', 'scripts/pdfium.ts') }}-
+      - name: Build every release platform
+        run: bun run package:release

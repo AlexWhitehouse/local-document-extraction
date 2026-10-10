@@ -170,7 +170,20 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: backend-go/go.mod
-          cache-dependency-path: backend-go/go.mod
+          cache: false
+      # The shared setup-go cache is saved by whichever Linux job finishes first,
+      # without the macOS and arm64 builds this job needs. Keep its own cache,
+      # warmed on main by warm-caches.yml. Releases always build cold.
+      - name: Restore release build cache
+        if: github.event_name == 'pull_request'
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            backend-go/bin/.cache
+          key: release-build-${{ runner.os }}-${{ hashFiles('backend-go/go.sum', 'scripts/pdfium.ts') }}-${{ hashFiles('backend-go/**/*.go') }}
+          restore-keys: release-build-${{ runner.os }}-${{ hashFiles('backend-go/go.sum', 'scripts/pdfium.ts') }}-
       - name: Require the project license before packaging
         run: test -s LICENSE
       - name: Package source release and checksum

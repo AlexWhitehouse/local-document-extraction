@@ -29,6 +29,9 @@ export default defineConfig(({ mode }) => {
         },
       },
       setupFiles: ["./src/test/setup.js"],
+      // Reuse one jsdom per worker instead of building one per file, which took a
+      // third of the run. src/test/setup.js resets the DOM, storage and globals.
+      isolate: false,
     },
     build: {
       rolldownOptions: {
