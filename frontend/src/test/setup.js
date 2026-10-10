@@ -42,6 +42,10 @@ const capturedDescriptors = [
   ...["fetch", "WebSocket", "URL"].map((key) => captureDescriptor(globalThis, key)),
   ...["localStorage", "sessionStorage", "location"].map((key) => captureDescriptor(window, key)),
   captureDescriptor(navigator, "clipboard"),
+  captureDescriptor(navigator, "onLine"),
+  // Tests assign these directly. Test files share one jsdom per worker, so restore them too.
+  ...["createObjectURL", "revokeObjectURL"].map((key) => captureDescriptor(URL, key)),
+  captureDescriptor(Element.prototype, "scrollIntoView"),
 ];
 
 afterEach(() => {
