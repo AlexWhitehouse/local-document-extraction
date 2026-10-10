@@ -24,14 +24,14 @@
     "test:bun:smoke": "bun test src/localRuntimeSmoke.bun.test.ts --isolate --max-concurrency=1 --retry=0 --no-orphans",
     "test:evidence": "bun scripts/runBackendTestEvidence.ts",
     "test:target": "bun test --only-failures --bail=1 --isolate --max-concurrency=1 --retry=0 --no-orphans",
-    "typecheck": "bunx tsc --noEmit",
+    "typecheck": "bun check",
     "migrate": "bun src/migrate.ts"
   },
   "devDependencies": {
     "@napi-rs/canvas": "^1.0.10",
     "@types/busboy": "1.5.4",
     "@types/node": "26.6.4",
-    "bun-types": "1.4.2",
+    "bun-types": "1.4.3",
     "pdf-lib": "^1.17.1",
     "typescript": "^6.0.3"
   },

@@ -58,7 +58,7 @@ Analytics writes use batches of at most 64 KiB. At most 1 MiB can wait for stora
 ## Static files and SQLite
 
 - Frontend files with content hashes in their names use permanent caching. HTML and other files require revalidation.
-- SQLite uses `FULL` durability. WAL requires SQLite 3.51.3 or newer, which includes [the WAL reset fix](https://sqlite.org/wal.html#walreset). Older versions use rollback journaling. The installed Bun 1.4.2 reports SQLite 3.53.2, so WAL is enabled. The runtime checks the actual SQLite version rather than inferring it from the Bun version.
+- SQLite uses `FULL` durability. WAL requires SQLite 3.51.3 or newer, which includes [the WAL reset fix](https://sqlite.org/wal.html#walreset). Older versions use rollback journaling. The installed Bun 1.4.3 reports SQLite 3.53.4, so WAL is enabled. The runtime checks the actual SQLite version rather than inferring it from the Bun version.
 
 References: [Bun Workers](https://bun.sh/docs/runtime/workers), [SQLite FTS5 trigram tokenizer](https://sqlite.org/fts5.html#the_trigram_tokenizer).
 
