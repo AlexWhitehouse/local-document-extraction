@@ -73,6 +73,16 @@ Bun 1.4.2 qualification passed on macOS arm64 on 2026-09-23. Root runtime and ro
 
 All ten installer tests passed with 73 assertions. They verified that the installed application-owned Bun matched 1.4.2. This is local macOS evidence. Linux qualification remains a CI responsibility.
 
+## Bun 1.4.3 qualification (2026-10-10)
+
+Bun 1.4.3 qualification passed on the existing Ubuntu 26.04.1 x64 host on 2026-10-10. Root runtime and root/backend `bun-types` pins all used 1.4.3. Bun reports SQLite 3.53.4. Typechecks, lint, 673 backend tests, the runtime smoke test, and build passed. Three browser-evidence tests and all 19 Chromium journeys also passed.
+
+In the full frontend run, 850 of 853 tests passed. Three tests in `EvaluationJourneys.test.jsx` exceeded the 5-second timeout. The file passed 14 of 14 tests when run alone twice. Vitest runs on Node, so the Bun version does not affect it.
+
+All 20 installer tests passed with 141 assertions. They verified that the installed application-owned Bun matched 1.4.3.
+
+Typechecks now use `bun check` instead of `tsc`. Both checkers checked the same 230 backend, 23 e2e and 53 scripts files. They reported identical diagnostics for injected errors. The root typecheck went from about 27 seconds to about 1 second.
+
 ## v1.0.0 candidate verification (2026-10-02)
 
 The final automatic-processing candidate passed `bun run ci` on macOS arm64 with Bun 1.4.2. Typechecks, lint, 533 backend tests, the runtime smoke test, 480 frontend tests, coverage, and build passed. Three browser-evidence checks and all 13 Chromium journeys passed.
