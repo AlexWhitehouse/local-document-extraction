@@ -23,7 +23,7 @@ bun run build
 bunx playwright test e2e/extractionJourney.spec.ts
 ```
 
-The tests require the Bun version specified in `package.json`. If your version differs, use the specified version. For example, run `bunx bun@1.4.2 run test:e2e`.
+The tests require the Bun version specified in `package.json`. If your version differs, use the specified version. For example, run `bunx bun@1.4.3 run test:e2e`.
 
 ## What the harness does
 
