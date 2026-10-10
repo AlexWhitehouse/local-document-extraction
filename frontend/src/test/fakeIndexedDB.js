@@ -39,10 +39,26 @@ export function createFakeIndexedDB() {
         transaction: (name, mode) => {
           const store = stores.get(name);
           const tx = { error: null };
-          let failed = null;
+
+          let failed = null,
+            outstanding = 0,
+            ready = false,
+            done = false;
+
+          // Like IndexedDB, finish only after every request has run, even when timers fire late.
+          const finish = () => {
+            if (done || !ready || outstanding) return;
+            done = true;
+
+            if (failed) {
+              tx.error = failed;
+              tx.onabort?.();
+            } else tx.oncomplete?.();
+          };
 
           const run = (work) => {
             const request = {};
+            outstanding++;
             later(() => {
               try {
                 request.result = work();
@@ -50,6 +66,9 @@ export function createFakeIndexedDB() {
               } catch (error) {
                 failed = error;
               }
+
+              outstanding--;
+              finish();
             });
 
             return request;
@@ -79,10 +98,8 @@ export function createFakeIndexedDB() {
               }),
           });
           setTimeout(() => {
-            if (failed) {
-              tx.error = failed;
-              tx.onabort?.();
-            } else tx.oncomplete?.();
+            ready = true;
+            finish();
           }, 5);
 
           return tx;
