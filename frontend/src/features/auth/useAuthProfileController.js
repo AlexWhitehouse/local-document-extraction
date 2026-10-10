@@ -41,7 +41,6 @@ export function useAuthProfileController({
   const [authPasswordTouched, setAuthPasswordTouched] = useState(false);
   const [signUpSubmitAttempted, setSignUpSubmitAttempted] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
-  const [formError, setFormError] = useState("");
   const [focusRequest, setFocusRequest] = useState(null);
   const notify = useMemo(() => createNotifier(toast), [toast]);
 
@@ -110,13 +109,11 @@ export function useAuthProfileController({
   // Field errors sit under their inputs; the first invalid field takes focus.
   function rejectSubmit(errors) {
     setFieldErrors(errors);
-    setFormError("");
     setFocusRequest({ field: Object.keys(errors)[0] });
   }
 
   function clearSubmitErrors() {
     setFieldErrors({});
-    setFormError("");
   }
 
   const [isSigningIn, runSignIn] = useAsyncAction(signIn);
@@ -151,7 +148,10 @@ export function useAuthProfileController({
       setAuthPassword("");
       await refetchSession();
     } catch (error) {
-      setFormError(getSignInErrorMessage(error.message, authOptions.mailDelivery));
+      const message = getSignInErrorMessage(error.message, authOptions.mailDelivery);
+
+      // A verification prompt is must-act, so it stays until dismissed.
+      notify("auth.signIn", "failure", { message, persistent: message.startsWith("Verify") });
     }
   }
 
@@ -196,7 +196,7 @@ export function useAuthProfileController({
         await refetchSession();
       }
     } catch (error) {
-      setFormError(getSignUpErrorMessage(error.message));
+      notify("auth.signUp", "failure", { message: getSignUpErrorMessage(error.message) });
     }
   }
 
@@ -213,7 +213,7 @@ export function useAuthProfileController({
         throw new Error(result.error.message || "Google sign in failed");
       }
     } catch {
-      setFormError("Couldn't start Google sign-in. Try again.");
+      notify("auth.googleSignIn", "failure", { retry: () => void signInWithGoogle() });
       setIsStartingGoogleSignIn(false);
     }
   }
@@ -242,7 +242,7 @@ export function useAuthProfileController({
 
       setAccountPasswordResetRequestedEmail(requestedEmail);
     } catch {
-      setFormError("Couldn't send reset link. Try again.");
+      notify("auth.requestPasswordReset", "failure", { retry: () => void runRequestAccountPasswordReset() });
     }
   }
 
@@ -360,7 +360,6 @@ export function useAuthProfileController({
       isStartingGoogleSignIn,
       isAuthPending,
       fieldErrors,
-      formError,
       focusRequest,
       shouldShowPasswordRequirements: shouldShowAccountPasswordRequirements,
       unmetPasswordRequirements: unmetAccountPasswordRequirements,

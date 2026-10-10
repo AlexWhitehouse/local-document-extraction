@@ -671,15 +671,17 @@ describe("Workspace action toast feedback", () => {
 
     });
 
-    it("shows friendly failure copy inline above the submit button when creating a Workspace invitation fails", async () => {
+    it("shows a failure toast and keeps the email when creating a Workspace invitation fails", async () => {
       routeInvitationCreate(jsonResponse({ error: "Database internal detail" }, { status: 500 }));
 
       await inviteTeammate("grace@example.com");
 
-      const alert = await screen.findByRole("alert");
-      expect(alert.textContent).toBe("Couldn't send the invitation. Try again.");
+      await waitFor(() =>
+        expect(toastMock.error).toHaveBeenCalledWith("Couldn't invite grace@example.com.", expect.anything()),
+      );
+      expect(toastMock.error.mock.calls[0][0]).not.toContain("Database");
+      expect(screen.queryByRole("alert")).toBeNull();
       expect(screen.getByLabelText("Invite email").value).toBe("grace@example.com");
-      expect(toastMock.error).not.toHaveBeenCalled();
     });
 
     function routeInvitationCancel(response) {

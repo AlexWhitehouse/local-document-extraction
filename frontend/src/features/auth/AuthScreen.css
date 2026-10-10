@@ -3,12 +3,6 @@
   justify-self: end;
 }
 
-.auth-form-error {
-  margin: 12px 0 0;
-  color: var(--tone-danger-text);
-  font-size: var(--font-size-4);
-}
-
 /* Mode switches are buttons, styled as the inline links they replace. */
 button.auth-text-button {
   background: transparent;

@@ -44,6 +44,7 @@ export function useTemplateAssistant({
   revision,
   getRevision,
   onApply,
+  showActionToast,
   maxSourceFileBytes = 10 * 1024 * 1024,
 }) {
   const [isOpen, setOpen] = useState(false);
@@ -202,7 +203,7 @@ export function useTemplateAssistant({
       setRetainedSource(Boolean(useOriginal && detail.source_available));
     } catch (failure) {
       if (state.open && !controller.signal.aborted && generation === state.generation)
-        setError(describeError(failure, "Couldn't load that document. Choose it again or continue without it."));
+        showActionToast?.("assistant.evidence", "failure", { error: failure });
     }
   }
 
@@ -230,7 +231,7 @@ export function useTemplateAssistant({
       });
     } catch (failure) {
       if (state.open && generation === state.generation)
-        setError(describeError(failure, "Couldn't load the original. Try again or send the results only."));
+        showActionToast?.("assistant.sample", "failure", { error: failure, retry: () => void chooseEvaluationSample(true) });
     } finally {
       if (state.open && generation === state.generation) setSampleLoading(false);
     }
@@ -339,7 +340,7 @@ export function useTemplateAssistant({
       setSelectedIds(new Set(output.groups.map((group) => group.id)));
     } catch (failure) {
       if (isCurrent(captured) && !controller.signal.aborted)
-        setError(describeError(failure, "Couldn’t get a response. Your draft is unchanged. Try again."));
+        showActionToast?.("assistant.request", "failure", { error: failure, retry: () => void submit(text) });
     } finally {
       if (isCurrent(captured)) {
         lifetime.current.controller = null;
@@ -580,10 +581,7 @@ export function useTemplateAssistant({
       onSubmit: () => submit(),
       onApply: apply,
       onClose: cancel,
-      onCancelRequest: () => {
-        invalidate();
-        setError("Request cancelled. Your draft is unchanged.");
-      },
+      onCancelRequest: invalidate,
       picker: {
         ...picker,
         onOpen: () => loadEvidencePage(),

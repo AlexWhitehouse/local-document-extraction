@@ -124,7 +124,7 @@ test("destructive flows use the in-app dialog and never a native dialog", async 
   }
 });
 
-test("the sign-in form shows field errors inline and a rejected password as a form alert", async ({ page, request }) => {
+test("the sign-in form shows field errors inline and a rejected password as a toast", async ({ page, request }) => {
   const harness = await startRuntimeHarness();
 
   try {
@@ -150,15 +150,13 @@ test("the sign-in form shows field errors inline and a rejected password as a fo
     await password.fill("Wrong-password1!");
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
 
-    const formAlert = page.locator("form").getByRole("alert");
-    await expect(formAlert).toHaveCount(1);
-    await expect(formAlert).toBeVisible();
-    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
+    const failure = page.locator("[data-sonner-toast]");
+    await expect(failure).toHaveCount(1);
+    await expect(failure).toContainText("Sign in failed. Check your email and password and try again.");
+    await expect(page.locator("form").getByRole("alert")).toHaveCount(0);
+    await expect(email).toHaveValue(ACCOUNT.email);
 
-    // The alert sits above the Sign in button, not beside the fields.
-    const alertBox = await formAlert.boundingBox();
-    const submitBox = await page.getByRole("button", { name: "Sign in", exact: true }).boundingBox();
-    expect(alertBox && submitBox && alertBox.y + alertBox.height <= submitBox.y).toBe(true);
+    for (const close of await page.getByRole("button", { name: "Close toast" }).all()) await close.click();
 
     await password.fill(ACCOUNT.password);
     await signIn(page, ACCOUNT);

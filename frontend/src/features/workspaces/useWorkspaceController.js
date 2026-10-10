@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createWorkspaceRequestLayer } from "../../lib/appRuntime";
 import { copyWithFeedback } from "../../lib/copyWithFeedback";
-import { describeError } from "../../lib/describeError";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { useAsyncAction } from "../ui/useAsyncAction";
 import { createWorkspaceRequestAdapter } from "./workspaceRequestAdapter";
@@ -69,7 +68,6 @@ export function useWorkspaceController({
   const [isDecliningWorkspaceInvitation, setIsDecliningWorkspaceInvitation] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
-  const [inviteError, setInviteError] = useState("");
   const [isInvitingUser, setIsInvitingUser] = useState(false);
   const [workspaceUsersStatus, setWorkspaceUsersStatus] = useState("loading");
   const [workspaceUsersError, setWorkspaceUsersError] = useState(null);
@@ -627,7 +625,6 @@ export function useWorkspaceController({
 
     if (!email) return;
 
-    setInviteError("");
     setIsInvitingUser(true);
 
     try {
@@ -640,16 +637,13 @@ export function useWorkspaceController({
       setInviteEmail("");
       void listWorkspaceInvitations(normalizedWorkspaceId);
     } catch (error) {
-      setInviteError(describeError(error, "Couldn't send the invitation. Try again."));
+      showActionToast("workspaceInvitation.create", "failure", { targetEmail: email, error });
     } finally {
       setIsInvitingUser(false);
     }
   }
 
-  function changeInviteEmail(value) {
-    setInviteEmail(value);
-    setInviteError("");
-  }
+
 
   async function cancelWorkspaceInvitation(invitation) {
     const invitationId = String(invitation.id || "").trim();
@@ -1002,8 +996,7 @@ export function useWorkspaceController({
       workspaceApiKeyPendingLabel: selectedWorkspaceHasApiKey ? "Rotating…" : "Generating…",
       onRefreshApiKey: refreshApiKey,
       inviteEmail,
-      onInviteEmailChange: changeInviteEmail,
-      inviteError,
+      onInviteEmailChange: setInviteEmail,
       isInvitingUser,
       inviteRole,
       onInviteRoleChange: setInviteRole,

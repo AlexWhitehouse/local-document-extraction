@@ -140,7 +140,7 @@ describe("auth form feedback", () => {
     expect(result.current.authScreen.focusRequest).toEqual({ field: "email" });
   });
 
-  it("shows a form-level message when sign-in is rejected and keeps the email", async () => {
+  it("toasts a rejected sign-in and keeps the email", async () => {
     const authClient = { signIn: { email: vi.fn(async () => ({ error: { message: "Invalid credentials" } })) } };
     const { result, toast } = renderAuth(authClient);
 
@@ -148,9 +148,11 @@ describe("auth form feedback", () => {
     act(() => result.current.authScreen.onPasswordChange("wrong"));
     await act(async () => result.current.authScreen.onSubmit(event()));
 
-    expect(result.current.authScreen.formError).toBe("Sign in failed. Check your email and password and try again.");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Sign in failed. Check your email and password and try again.",
+      expect.any(Object),
+    );
     expect(result.current.authScreen.email).toBe("ada@example.com");
-    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it("reports a sign-up mismatch under the confirm field without calling auth", async () => {

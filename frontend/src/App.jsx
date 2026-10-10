@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toaster } from "sonner";
-import { defaultToast } from "./lib/notify";
+import { createNotifier, defaultToast } from "./lib/notify";
 import { createRuntimeAuthClient } from "./lib/authClient";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
 import { appPath, parseAppRoute } from "./lib/appRoutes";
@@ -944,8 +944,8 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
-  const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
+  const notify = useMemo(() => createNotifier(toast), [toast]);
   const authClient = useMemo(() => createAuthClient(), [createAuthClient]);
   useDocumentTitle({ page: "Reset password" });
 
@@ -997,14 +997,12 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
 
       if (errors.password || errors.confirmPassword) {
         setFieldErrors(errors);
-        setFormError("");
         document.getElementById(errors.password ? "reset-new-password" : "reset-confirm-password")?.focus();
 
         return;
       }
 
       setFieldErrors({});
-      setFormError("");
       setBusy(true);
 
       try {
@@ -1023,7 +1021,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
         setSubmitAttempted(false);
         onResetComplete();
       } catch {
-        setFormError("Couldn't reset password. Request a new link.");
+        notify("auth.resetPassword", "failure");
       } finally {
         setBusy(false);
       }
@@ -1082,11 +1080,6 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
                     <li key={requirement}>{requirement}</li>
                   ))}
                 </ul>
-              ) : null}
-              {formError ? (
-                <p role="alert" className="auth-form-error">
-                  {formError}
-                </p>
               ) : null}
               <Button type="submit" className="auth-primary-action" pending={busy} pendingLabel="Setting password…">
                 Set new password

@@ -308,8 +308,9 @@ export function usePacketController({
             await ctx.requests.deletePacket(id);
             removed.push(id);
           } catch (error) {
+            // The confirmation or the bulk toast reports the failure; the list keeps loading normally.
             if (error.status === 404) removed.push(id);
-            else fail(ctx, error);
+            else if (error.status === 403) callbacks.current.onAccessDenied?.();
           }
 
           if (context.current !== ctx || !ctx.active) return removed;
@@ -335,7 +336,7 @@ export function usePacketController({
         apply(ctx, { busy: false });
       }
     },
-    [apply, fail, refresh],
+    [apply, refresh],
   );
 
   const remove = useCallback((id) => removeMany([id]), [removeMany]);

@@ -254,6 +254,7 @@ export function useTemplateController({
     revision: draftRevision,
     getRevision: () => draftRevisionRef.current,
     maxSourceFileBytes,
+    showActionToast,
     onApply: (payload) => {
       // The proposal engine preserves unrelated raw values; do not normalize/hydrate here.
       touchDraft();

@@ -104,7 +104,8 @@ describe("Template assistance", () => {
       return response;
     });
 
-    const { result } = renderHook(useTemplateController, { initialProps: propsFor(request) });
+    const props = propsFor(request);
+    const { result } = renderHook(useTemplateController, { initialProps: props });
     act(() => result.current.toolbar.onCreateTemplate({ empty: true }));
     const before = result.current.templatePage.templateFields;
     act(() => result.current.templatePage.onOpenAssistant());
@@ -116,7 +117,12 @@ describe("Template assistance", () => {
     expect(result.current.templatePage.templateFields).toEqual(before);
     malformed = true;
     await submit(result);
-    expect(result.current.templatePage.assistant.error).not.toBe("");
+    expect(props.showActionToast).toHaveBeenCalledWith(
+      "assistant.request",
+      "failure",
+      expect.objectContaining({ retry: expect.any(Function) }),
+    );
+    expect(result.current.templatePage.assistant.error).toBe("");
     expect(result.current.templatePage.templateFields).toEqual(before);
   });
 

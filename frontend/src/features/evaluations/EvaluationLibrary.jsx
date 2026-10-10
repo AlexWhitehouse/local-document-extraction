@@ -476,7 +476,7 @@ export function ManageLibrary({ evaluation, fields, onClose, notify }) {
       footer={
         <>
           {message && (
-            <p role="status" className="evaluation-notice">
+            <p role="alert" className="evaluation-notice">
               {message}
             </p>
           )}
