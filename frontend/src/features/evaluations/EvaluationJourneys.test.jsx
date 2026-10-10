@@ -261,7 +261,7 @@ it("loads the latest Template into the library editor and saves reviewed changes
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
   fireEvent.click(await screen.findByRole("button", { name: "Choose template version" }));
-  const picker = within(screen.getByRole("dialog", { name: "Choose template version" }));
+  const picker = within(await screen.findByRole("dialog", { name: "Choose template version" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
   expect(picker.getByRole("option", { name: "Current · v3" }).selected).toBe(true);
   fireEvent.click(picker.getByRole("button", { name: "Use template version" }));
@@ -299,14 +299,14 @@ it("chooses a historical library Template version and ignores a later load after
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
   fireEvent.click(await screen.findByRole("button", { name: "Choose template version" }));
-  let picker = within(screen.getByRole("dialog", { name: "Choose template version" }));
+  let picker = within(await screen.findByRole("dialog", { name: "Choose template version" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
   fireEvent.change(picker.getByRole("combobox", { name: "Version" }), { target: { value: "1" } });
   fireEvent.click(picker.getByRole("button", { name: "Use template version" }));
   await screen.findByTitle("Invoice · v1");
   expect(screen.queryByRole("button", { name: "Add expected Supplier" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Choose template version" }));
-  picker = within(screen.getByRole("dialog", { name: "Choose template version" }));
+  picker = within(await screen.findByRole("dialog", { name: "Choose template version" }));
   expect(picker.getByRole("combobox", { name: "Template", exact: true }).value).toBe("invoice");
   expect(picker.getByRole("option", { name: "Current · v3" }).selected).toBe(true);
   let finish;
@@ -337,7 +337,7 @@ it.each(["", "1"])("saves edits to the selected library Template version '%s', w
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
   fireEvent.click(await screen.findByRole("button", { name: "Choose template version" }));
-  const picker = within(screen.getByRole("dialog", { name: "Choose template version" }));
+  const picker = within(await screen.findByRole("dialog", { name: "Choose template version" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
   fireEvent.change(picker.getByRole("combobox", { name: "Version" }), { target: { value: version } });
   fireEvent.click(picker.getByRole("button", { name: "Use template version" }));
@@ -397,7 +397,7 @@ it("keeps the library draft after a Template load failure and allows retry", asy
   fireEvent.click(screen.getByRole("button", { name: "Manage library" }));
   fireEvent.click(await screen.findByRole("button", { name: "Edit Harbour invoice" }));
   fireEvent.click(await screen.findByRole("button", { name: "Choose template version" }));
-  const picker = within(screen.getByRole("dialog", { name: "Choose template version" }));
+  const picker = within(await screen.findByRole("dialog", { name: "Choose template version" }));
   fireEvent.change(picker.getByRole("combobox", { name: "Template", exact: true }), { target: { value: "invoice" } });
   fireEvent.click(picker.getByRole("button", { name: "Use template version" }));
   expect(await picker.findByRole("alert")).toHaveProperty("textContent", "This item no longer exists.");

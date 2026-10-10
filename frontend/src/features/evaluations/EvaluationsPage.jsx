@@ -83,7 +83,6 @@ export function EvaluationsPage({
     setTrial(null);
     setAssistantFor(null);
     setEditor(null);
-    setReplacement(null);
     setUploadOpen(false);
     setPreview(null);
     setAutoRun(null);
@@ -113,9 +112,12 @@ export function EvaluationsPage({
   }, [trial, state.candidates, evaluation]);
   const editingLibrary = !!state.libraryEditor;
   const batch = !editingLibrary && state.documents.length > 1;
+  // The version dialog belongs to the evaluation and library document it was opened from. Matching
+  // on render (not clearing in an effect) keeps a click that lands before the effect runs from
+  // being undone.
+  const replacementScope = `${state.id}:${state.libraryEditor ?? ""}`;
   useEffect(() => {
     setFilter("all");
-    setReplacement(null);
     setAssistantFor(null);
   }, [state.libraryEditor]);
 
@@ -627,7 +629,8 @@ export function EvaluationsPage({
       enabled && { label: "Ask assistant", onClick: () => openAssistant(candidate) },
       state.mode === "templates" && {
         label: "Choose another template version",
-        onClick: () => setReplacement({ candidateId: candidate.id, source: candidate.template.source }),
+        onClick: () =>
+          setReplacement({ scope: replacementScope, candidateId: candidate.id, source: candidate.template.source }),
       },
       { label: "Save as new template", onClick: () => openEditor(candidate, true) },
       {
@@ -850,7 +853,9 @@ export function EvaluationsPage({
                 </span>
                 <span className="evaluation-context-actions">
                   <Button variant="text"
-                    onClick={() => setReplacement({ documentKey: document.key, source: template.source })}
+                    onClick={() =>
+                      setReplacement({ scope: replacementScope, documentKey: document.key, source: template.source })
+                    }
                   >
                     Choose template version
                   </Button>
@@ -1014,7 +1019,7 @@ export function EvaluationsPage({
           )}
         </ModalDialog>
       )}
-      {replacement && (
+      {replacement?.scope === replacementScope && (
         <TemplateVersionDialog
           key={`${state.id}:${replacement.documentKey || replacement.candidateId}`}
           templates={templates}
