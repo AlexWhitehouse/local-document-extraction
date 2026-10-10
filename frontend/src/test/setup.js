@@ -1,6 +1,15 @@
 import { cleanup } from "@testing-library/react";
+import "sonner";
 import { afterEach, vi } from "vitest";
 import { dismissConfirmDialogs } from "../features/ui/confirm.jsx";
+
+// sonner injects its stylesheet once, on import. jsdom matches every rule on
+// each getComputedStyle call, and role queries call it for every element they
+// name, which made large pages several times slower to query. None of the
+// rules hide elements, so dropping the sheet does not change query results.
+for (const style of document.head.querySelectorAll("style")) {
+  if (style.textContent.includes("[data-sonner-toaster]")) style.remove();
+}
 
 function createMemoryStorage() {
   const values = new Map();
