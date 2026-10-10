@@ -178,7 +178,6 @@ export function AcceptedWorkspacePage({
   onRefreshApiKey,
   inviteEmail,
   onInviteEmailChange,
-  inviteError,
   isInvitingUser,
   inviteRole,
   onInviteRoleChange,
@@ -340,7 +339,6 @@ export function AcceptedWorkspacePage({
           <WorkspaceInviteForm
             disabled={!hasApiAccess || !canManageWorkspaceInvitations}
             email={inviteEmail}
-            error={inviteError}
             isInviting={isInvitingUser}
             role={inviteRole}
             onEmailChange={onInviteEmailChange}
@@ -487,7 +485,7 @@ function formatTimestamp(value) {
   return date.toLocaleString();
 }
 
-function WorkspaceInviteForm({ disabled, email, error, isInviting, role, onEmailChange, onRoleChange, onSubmit }) {
+function WorkspaceInviteForm({ disabled, email, isInviting, role, onEmailChange, onRoleChange, onSubmit }) {
   const emailInputId = useId();
   const [emailError, setEmailError] = useState("");
 
@@ -541,11 +539,6 @@ function WorkspaceInviteForm({ disabled, email, error, isInviting, role, onEmail
       <Button type="submit" variant="secondary" disabled={disabled} pending={isInviting} pendingLabel="Inviting…">
         Invite user
       </Button>
-      {error ? (
-        <p role="alert" className="form-error studio-invite-error">
-          {error}
-        </p>
-      ) : null}
     </form>
   );
 }

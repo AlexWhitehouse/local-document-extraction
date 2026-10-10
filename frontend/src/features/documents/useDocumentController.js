@@ -950,6 +950,7 @@ export function useDocumentController({
       packets: packetController.packets,
       selectedPacketId: packetController.selectedId,
       packetError: packetController.error,
+      onRetryPackets: () => packetController.refresh(),
       onSelectPacket: selectPacket,
       selectedPacketIds: checkedPackets.map((packet) => packet.packet_id),
       onTogglePacketSelection: togglePacketSelection,

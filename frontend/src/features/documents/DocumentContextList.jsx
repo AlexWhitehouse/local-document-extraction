@@ -24,6 +24,7 @@ export function DocumentContextList({
   packets = [],
   selectedPacketId = "",
   packetError = "",
+  onRetryPackets,
   onSelectPacket,
   onLoadMorePackets,
   hasMorePackets = false,
@@ -178,11 +179,7 @@ export function DocumentContextList({
           </div>
         </div>
       </div>
-      {packetError ? (
-        <p role="status" className="processing-error context-list-error">
-          {packetError}
-        </p>
-      ) : null}
+      {packetError ? <ErrorState variant="inline" message={packetError} onRetry={onRetryPackets} /> : null}
       <ScrollArea
         className="context-list"
         ref={listRef}

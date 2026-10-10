@@ -16,7 +16,6 @@ import { Meter } from "./EvaluationParts.jsx";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pluralize } from "../../lib/text.js";
 import { createNotifier, defaultToast } from "../../lib/notify";
-import { describeError } from "../../lib/describeError";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
 import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "../templates/templateFields.js";
 import { TemplateAssistant } from "../templates/TemplateAssistant.jsx";
@@ -208,7 +207,8 @@ export function EvaluationsPage({
     [api],
   );
 
-  const startEvaluation = async ({ mode, templateId: id, versions, models, runNow }) => {
+  const startEvaluation = async (options) => {
+    const { mode, templateId: id, versions, models, runNow } = options;
     const owner = lifetime.current;
     setLocalError("");
 
@@ -227,7 +227,8 @@ export function EvaluationsPage({
 
       if (runNow) setAutoRun(ids);
     } catch (error) {
-      if (owner === lifetime.current) setLocalError(describeError(error, "Couldn’t start the evaluation. Try again."));
+      if (owner === lifetime.current)
+        notify("evaluation.start", "failure", { error, retry: () => void startEvaluation(options) });
     }
   };
 
@@ -358,6 +359,7 @@ export function EvaluationsPage({
     getRevision: () => assistantRevisionRef.current,
     maxSourceFileBytes,
     onApply: setAssistantResult,
+    showActionToast: notify,
   });
 
   const openAssistantWith = assistant.openWith;

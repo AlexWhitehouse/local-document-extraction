@@ -3,7 +3,6 @@
 .studio-invite-field { position: relative; }
 .studio-invite-field .ui-field-error { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; }
 .studio-invite-form:has(.has-error) { padding-bottom: 34px; row-gap: 26px; }
-.studio-invite-error { grid-column: 1 / -1; margin: 0; }
 
 /* API key: the input, then the generate/rotate button on the same row. The copy icon sits inside the input. */
 .workspace-key-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }

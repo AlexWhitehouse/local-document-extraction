@@ -25,7 +25,6 @@ export function AuthScreen({
   isSendingResetLink,
   isAuthPending,
   fieldErrors = {},
-  formError,
   focusRequest,
   shouldShowPasswordRequirements,
   unmetPasswordRequirements,
@@ -53,12 +52,6 @@ export function AuthScreen({
   useEffect(() => {
     if (focusRequest) document.getElementById(FIELD_IDS[focusRequest.field])?.focus();
   }, [focusRequest]);
-
-  const formAlert = formError ? (
-    <p role="alert" className="auth-form-error">
-      {formError}
-    </p>
-  ) : null;
 
   return (
     <>
@@ -196,7 +189,6 @@ export function AuthScreen({
                       ))}
                     </ul>
                   ) : null}
-                  {formAlert}
                   {isSignIn ? (
                     <>
                       <Button type="submit" className="auth-primary-action" pending={isSigningIn} pendingLabel="Signing in…">
@@ -246,9 +238,7 @@ export function AuthScreen({
                     <div className="auth-divider" aria-hidden="true">
                       <span>or continue with</span>
                     </div>
-                  ) : (
-                    formAlert
-                  )}
+                  ) : null}
                   <Button variant="secondary" className="auth-provider-action" disabled={isAuthPending} onClick={onProviderSignIn}>
                     Sign in with Google
                   </Button>

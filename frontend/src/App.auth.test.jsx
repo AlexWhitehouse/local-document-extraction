@@ -1,7 +1,7 @@
 import { toast as realToast } from "sonner";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const authClientMock = {
@@ -103,7 +103,7 @@ describe("auth sign-in feedback", () => {
     expect(screen.getByLabelText("Email")).toBe(document.activeElement);
   });
 
-  it("shows a form-level alert when email sign-in fails", async () => {
+  it("shows a failure toast when email sign-in fails", async () => {
     const user = userEvent.setup();
     authClientMock.signInEmail.mockResolvedValue({
       error: { message: "No user exists for ada@example.com" },
@@ -115,10 +115,13 @@ describe("auth sign-in feedback", () => {
     await user.type(screen.getByLabelText("Password"), "wrong-password");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert").textContent).toBe(
-      "Sign in failed. Check your email and password and try again.",
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith(
+        "Sign in failed. Check your email and password and try again.",
+        expect.any(Object),
+      ),
     );
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
   });
 
@@ -134,14 +137,16 @@ describe("auth sign-in feedback", () => {
     await user.type(screen.getByLabelText("Password"), "Password1!");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "Verify your email before signing in. We sent you a new account verification link.",
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith(
+        "Verify your email before signing in. We sent you a new account verification link.",
+        expect.objectContaining({ duration: Infinity }),
+      ),
     );
     expect(authClientMock.refetchSession).not.toHaveBeenCalled();
   });
 
-  it("shows a form-level alert when Google sign-in cannot start", async () => {
+  it("shows a failure toast when Google sign-in cannot start", async () => {
     const user = userEvent.setup();
     authClientMock.signInSocial.mockResolvedValue({
       error: { message: "OAuth client_id is invalid" },
@@ -151,9 +156,13 @@ describe("auth sign-in feedback", () => {
 
     await user.click(screen.getByRole("button", { name: "Sign in with Google" }));
 
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect((await screen.findByRole("alert")).textContent).toBe("Couldn't start Google sign-in. Try again.");
-    expect(screen.getByRole("alert").textContent).not.toContain("OAuth");
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith(
+        "Couldn't start Google sign-in.",
+        expect.objectContaining({ action: expect.objectContaining({ label: "Try again" }) }),
+      ),
+    );
+    expect(toastMock.error.mock.calls[0][0]).not.toContain("OAuth");
   });
 
   it.each([
@@ -545,7 +554,7 @@ describe("auth sign-up password policy feedback", () => {
     ],
     ["the email is invalid", "Invalid email address", "Enter a valid email address and try again."],
     ["an unknown reason", "Database constraint failed near secret_table", "Couldn't create account. Try again."],
-  ])("shows one safe, actionable form alert when sign-up fails because %s", async (_reason, serverMessage, alertMessage) => {
+  ])("shows one safe, actionable failure toast when sign-up fails because %s", async (_reason, serverMessage, alertMessage) => {
     const user = userEvent.setup();
     authClientMock.signUpEmail.mockResolvedValue({ error: { message: serverMessage } });
 
@@ -554,10 +563,10 @@ describe("auth sign-up password policy feedback", () => {
     await fillSignUp(user);
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect((await screen.findByRole("alert")).textContent).toBe(alertMessage);
-    expect(screen.getByRole("alert").textContent).not.toContain("ada@example.com");
-    expect(screen.getByRole("alert").textContent).not.toContain("Database");
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith(alertMessage, expect.any(Object)));
+    expect(toastMock.error).toHaveBeenCalledTimes(1);
+    expect(toastMock.error.mock.calls[0][0]).not.toContain("ada@example.com");
+    expect(toastMock.error.mock.calls[0][0]).not.toContain("Database");
   });
 });
 
