@@ -155,6 +155,7 @@ test("the sign-in form shows field errors inline and a rejected password as a to
     await expect(failure).toContainText("Sign in failed. Check your email and password and try again.");
     await expect(page.locator("form").getByRole("alert")).toHaveCount(0);
     await expect(email).toHaveValue(ACCOUNT.email);
+
     for (const close of await page.getByRole("button", { name: "Close toast" }).all()) await close.click();
 
     await password.fill(ACCOUNT.password);
