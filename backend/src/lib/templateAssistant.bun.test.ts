@@ -86,25 +86,49 @@ describe("suggestion output contract", () => {
     reason: "Review its instructions",
   };
 
-  it("accepts an empty list without weakening the suggestion contract", () => {
+  it("accepts an empty list and rejects output without a usable suggestion", () => {
     expect(validateSuggestionOutput({ suggestions: [] })).toEqual([]);
     expect(validateSuggestionOutput({ suggestions: [suggestion] })).toEqual([suggestion]);
 
     for (const value of [
+      null,
+      [],
       {},
       { suggestions: null },
-      { suggestions: [], extra: true },
-      { suggestions: [suggestion, suggestion] },
       { suggestions: [{ ...suggestion, reason: "" }] },
       { suggestions: [{ ...suggestion, request: "x".repeat(SUGGESTION_LIMITS.requestCharacters + 1) }] },
-      {
-        suggestions: Array.from({ length: SUGGESTION_LIMITS.suggestions + 1 }, (_, index) => ({
-          ...suggestion,
-          label: `Review ${index}`,
-        })),
-      },
     ])
       expect(() => validateSuggestionOutput(value)).toThrow();
+  });
+
+  it("normalises imperfect model output instead of rejecting it", () => {
+    const label = ` ${"L".repeat(SUGGESTION_LIMITS.labelCharacters + 1)} `;
+    const reason = "x".repeat(SUGGESTION_LIMITS.reasonCharacters + 9);
+
+    const [first] = validateSuggestionOutput({
+      extra: true,
+      suggestions: [{ ...suggestion, label, reason, reason_placeholder: "" }],
+    });
+
+    expect(first.label).toHaveLength(SUGGESTION_LIMITS.labelCharacters);
+    expect(first.label.endsWith("…")).toBe(true);
+    expect(first.reason).toHaveLength(SUGGESTION_LIMITS.reasonCharacters);
+    expect(first.request).toBe(suggestion.request);
+
+    const extras = Array.from({ length: SUGGESTION_LIMITS.suggestions }, (_, index) => `Review ${index}`);
+
+    const kept = validateSuggestionOutput({
+      suggestions: [
+        suggestion,
+        { ...suggestion, request: "Duplicate label" },
+        { ...suggestion, label: "Too long", request: "x".repeat(SUGGESTION_LIMITS.requestCharacters + 1) },
+        { label: "Missing reason", request: "Request" },
+        "not an object",
+        ...extras.map((extra) => ({ ...suggestion, label: extra })),
+      ],
+    });
+
+    expect(kept.map((entry) => entry.label)).toEqual([suggestion.label, ...extras.slice(0, -1)]);
   });
 });
 
