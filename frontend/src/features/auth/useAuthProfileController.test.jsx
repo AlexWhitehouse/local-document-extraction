@@ -125,14 +125,14 @@ describe("auth form feedback", () => {
 
   const event = () => ({ preventDefault: vi.fn() });
 
-  it("shows field errors under empty sign-in fields without a toast or auth call", async () => {
+  it("marks empty sign-in fields and toasts the first without an auth call", async () => {
     const authClient = { signIn: { email: vi.fn() } };
     const { result, toast } = renderAuth(authClient);
 
     await act(async () => result.current.authScreen.onSubmit(event()));
 
     expect(authClient.signIn.email).not.toHaveBeenCalled();
-    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith("Enter your email address.", expect.objectContaining({ id: "auth-form" }));
     expect(result.current.authScreen.fieldErrors).toEqual({
       email: "Enter your email address.",
       password: "Enter your password.",
@@ -155,7 +155,7 @@ describe("auth form feedback", () => {
     expect(result.current.authScreen.email).toBe("ada@example.com");
   });
 
-  it("reports a sign-up mismatch under the confirm field without calling auth", async () => {
+  it("reports a sign-up mismatch on the confirm field without calling auth", async () => {
     const authClient = { signUp: { email: vi.fn() } };
     const { result, toast } = renderAuth(authClient, "signup");
 
@@ -166,7 +166,7 @@ describe("auth form feedback", () => {
     await act(async () => result.current.authScreen.onSubmit(event()));
 
     expect(authClient.signUp.email).not.toHaveBeenCalled();
-    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith("Passwords do not match.", expect.objectContaining({ id: "auth-form" }));
     expect(result.current.authScreen.fieldErrors).toEqual({ confirmPassword: "Passwords do not match." });
   });
 

@@ -1044,6 +1044,16 @@ export function useDocumentController({
         showActionToast,
       },
       hasDocuments: documents.length > 0 || packetController.packets.length > 0,
+      // Only an unfiltered, loaded list with nothing in it means the workspace has no documents.
+      isWorkspaceEmpty:
+        snapshot.listStatus === "ready" &&
+        !packetController.loading &&
+        documents.length === 0 &&
+        packetController.packets.length === 0 &&
+        !snapshot.debouncedSearch &&
+        !Object.values(snapshot.filters).some(Boolean),
+      canUploadDocuments: hasWorkspaceApiAccess && modelReady,
+      onUploadDocument: openUploadModal,
       selectedDocumentTemplateName,
       loadingDocumentDetailsId,
       loadOriginal,

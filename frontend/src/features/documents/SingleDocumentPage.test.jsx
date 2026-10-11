@@ -210,3 +210,30 @@ describe("Document status labels", () => {
     expect(screen.queryByText("Awaiting_template")).toBeNull();
   });
 });
+
+describe("Empty workspace", () => {
+  it("offers an upload in the page body when the workspace has no documents", () => {
+    const onUploadDocument = vi.fn();
+    render(<DocumentPage isWorkspaceEmpty canUploadDocuments onUploadDocument={onUploadDocument} />);
+
+    expect(screen.getByText("Upload your first document")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Upload documents" }));
+    expect(onUploadDocument).toHaveBeenCalledOnce();
+  });
+
+  it("points to the Workspace page when uploads need a Model gateway", () => {
+    const onOpenWorkspace = vi.fn();
+    render(<DocumentPage isWorkspaceEmpty canUploadDocuments={false} onOpenWorkspace={onOpenWorkspace} />);
+
+    expect(screen.getByText("Uploads need a Model gateway on the Workspace page.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Upload documents" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open workspace" }));
+    expect(onOpenWorkspace).toHaveBeenCalledOnce();
+  });
+
+  it("stays blank while the list has not confirmed the workspace is empty", () => {
+    const { container } = render(<DocumentPage canUploadDocuments />);
+
+    expect(container.textContent).toBe("");
+  });
+});

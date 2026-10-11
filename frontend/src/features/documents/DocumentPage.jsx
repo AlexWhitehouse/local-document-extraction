@@ -10,12 +10,23 @@ import { ProcessingCost } from "./ProcessingCost.jsx";
 import { Button } from "../ui/Button.jsx";
 import { Segmented, Tabs } from "../ui/Tabs.jsx";
 import { StatusDot } from "../ui/Status.jsx";
+import { StateNotice } from "../ui/States.jsx";
 import { AssistantIcon } from "../layout/Icons.jsx";
 import { improvableTemplate } from "./templateImprovement.js";
 
 const NARROW_SPLIT_WIDTH = 600;
 
-export function DocumentPage({ selectedDocument, selectedPacketId, packetPage, hasDocuments = false, ...detail }) {
+export function DocumentPage({
+  selectedDocument,
+  selectedPacketId,
+  packetPage,
+  hasDocuments = false,
+  isWorkspaceEmpty = false,
+  canUploadDocuments = false,
+  onUploadDocument,
+  onOpenWorkspace,
+  ...detail
+}) {
   if (selectedPacketId) {
     if (isSingleDocumentPacket(packetPage?.packet)) {
       return <SinglePacketDocument {...detail} packetPage={packetPage} />;
@@ -29,11 +40,48 @@ export function DocumentPage({ selectedDocument, selectedPacketId, packetPage, h
     );
   }
 
-  // An empty Workspace is explained by the list's own empty state, so the body stays blank.
-  if (!selectedDocument)
+  if (!selectedDocument) {
+    if (isWorkspaceEmpty) {
+      return (
+        <EmptyWorkspace
+          canUploadDocuments={canUploadDocuments}
+          onUploadDocument={onUploadDocument}
+          onOpenWorkspace={onOpenWorkspace}
+        />
+      );
+    }
+
     return hasDocuments ? <p className="studio-empty-state">Select or upload a document.</p> : null;
+  }
 
   return <DocumentDetail {...detail} selectedDocument={selectedDocument} />;
+}
+
+// Without a Model gateway uploads are off, so the notice points to the Workspace page instead.
+function EmptyWorkspace({ canUploadDocuments, onUploadDocument, onOpenWorkspace }) {
+  return (
+    <div className="documents-empty">
+      {canUploadDocuments ? (
+        <StateNotice
+          title="Upload your first document"
+          message="PDF, PNG, JPG or WEBP files."
+          action={<Button onClick={onUploadDocument}>Upload documents</Button>}
+        />
+      ) : (
+        <StateNotice
+          title="Set up a Model gateway"
+          message="Uploads need a Model gateway on the Workspace page."
+          action={
+            onOpenWorkspace ? (
+              <Button variant="secondary" onClick={onOpenWorkspace}>
+                Open workspace
+              </Button>
+            ) : null
+          }
+        />
+      )}
+    </div>
+  );
 }
 
 function SinglePacketDocument({ packetPage, ...detail }) {

@@ -142,9 +142,14 @@ test("the sign-in form shows field errors inline and a rejected password as a to
     const password = page.getByLabel("Password", { exact: true });
     await expect(email).toHaveAttribute("aria-invalid", "true");
     await expect(password).toHaveAttribute("aria-invalid", "true");
-    await expect(page.getByText("Enter your email address.")).toBeVisible();
-    await expect(page.getByText("Enter your password.")).toBeVisible();
-    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
+    // Auth form problems are one toast; the fields are outlined without inline text.
+    const validation = page.locator("[data-sonner-toast]");
+    await expect(validation).toHaveCount(1);
+    await expect(validation).toContainText("Enter your email address.");
+    await expect(page.locator("form").getByText("Enter your password.")).toHaveCount(0);
+
+    for (const close of await page.getByRole("button", { name: "Close toast" }).all()) await close.click();
+    await expect(validation).toHaveCount(0);
 
     await email.fill(ACCOUNT.email);
     await password.fill("Wrong-password1!");

@@ -23,9 +23,11 @@ test("a user manages local settings and recovers access through the frontend", a
     await page.getByRole("button", { name: "Forgot password?", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Reset password" })).toBeVisible();
     await page.getByRole("button", { name: "Send reset link" }).click();
-    await expect(page.getByRole("status")).toContainText(
-      `If an account exists for ${ACCOUNT.email}, we saved a reset link`,
-    );
+    await expect(
+      page.locator("[data-sonner-toast]", {
+        hasText: `If an account exists for ${ACCOUNT.email}, run \`document-extraction mail\` to open its reset link.`,
+      }),
+    ).toBeVisible();
 
     const resetMail = await harness.waitForPasswordResetMail(ACCOUNT.email);
     await page.goto(resetMail.actionUrl);

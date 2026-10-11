@@ -35,28 +35,20 @@ describe("DocumentContextList states", () => {
     expect(onRetryDocumentList).toHaveBeenCalledTimes(1);
   });
 
-  it("offers Upload documents in an empty Workspace and disables it when uploads are unavailable", () => {
-    const onUploadDocument = vi.fn();
-
-    const { rerender } = render(
-      <DocumentContextList {...baseProps} listStatus="ready" onUploadDocument={onUploadDocument} canUploadDocuments />,
-    );
+  it("hides search in an empty Workspace and leaves the upload to the page body", () => {
+    render(<DocumentContextList {...baseProps} listStatus="ready" />);
 
     expect(screen.getByText("No documents yet")).toBeTruthy();
-    expect(screen.queryByText("No documents uploaded yet.")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Upload documents" }));
-    expect(onUploadDocument).toHaveBeenCalledTimes(1);
-
-    rerender(
-      <DocumentContextList {...baseProps} listStatus="ready" onUploadDocument={onUploadDocument} canUploadDocuments={false} />,
-    );
-    expect(screen.getByRole("button", { name: "Upload documents" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Uploads appear here")).toBeTruthy();
+    expect(screen.queryByLabelText("Search documents")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Upload documents" })).toBeNull();
   });
 
   it("keeps the filter message without an upload action when a search finds nothing", () => {
     render(<DocumentContextList {...baseProps} listStatus="ready" debouncedSearch="invoice" />);
 
     expect(screen.getByText("No documents match these filters.")).toBeTruthy();
+    expect(screen.getByLabelText("Search documents")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Upload documents" })).toBeNull();
   });
 

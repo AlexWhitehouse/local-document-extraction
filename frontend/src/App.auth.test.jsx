@@ -68,6 +68,12 @@ beforeEach(() => {
   });
 });
 
+// Form problems are one toast that the next problem replaces; the field itself is only outlined.
+function expectFormToast(message) {
+  expect(toastMock.error).toHaveBeenLastCalledWith(message, expect.objectContaining({ id: "auth-form" }));
+  expect(screen.queryByText(message)).toBeNull();
+}
+
 async function fillSignUp(user, { name = "Ada Lovelace", password = "Password1!", confirmPassword = password } = {}) {
   await user.click(screen.getByRole("button", { name: "Sign up" }));
   await user.type(screen.getByLabelText("Name"), name);
@@ -89,17 +95,16 @@ describe("auth sign-in feedback", () => {
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
   });
 
-  it("shows field errors under empty sign-in fields without a toast", async () => {
+  it("outlines empty sign-in fields and toasts the first problem", async () => {
     const user = userEvent.setup();
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
 
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect(screen.getByText("Enter your email address.")).toBeTruthy();
-    expect(screen.getByText("Enter your password.")).toBeTruthy();
+    expectFormToast("Enter your email address.");
     expect(screen.getByLabelText("Email").getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByLabelText("Password").getAttribute("aria-invalid")).toBe("true");
     expect(screen.getByLabelText("Email")).toBe(document.activeElement);
   });
 
@@ -271,7 +276,7 @@ describe("auth sign-in feedback", () => {
     expect(screen.queryByLabelText("Password")).toBeNull();
   });
 
-  it("shows a field error and does not call auth when Account password reset request email is missing", async () => {
+  it("toasts a missing email and does not call auth when Account password reset request email is missing", async () => {
     const user = userEvent.setup();
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
@@ -279,9 +284,28 @@ describe("auth sign-in feedback", () => {
     await user.click(screen.getByRole("button", { name: "Forgot password?" }));
     await user.click(screen.getByRole("button", { name: "Send reset link" }));
 
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect(screen.getByText("Enter your email address.")).toBeTruthy();
+    expectFormToast("Enter your email address.");
     expect(authClientMock.requestPasswordReset).not.toHaveBeenCalled();
+  });
+
+  it("toasts that the reset link was sent and returns to sign in", async () => {
+    const user = userEvent.setup();
+    authClientMock.requestPasswordReset.mockResolvedValue({ error: null });
+
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
+
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.click(screen.getByRole("button", { name: "Forgot password?" }));
+    await user.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "If an account exists for ada@example.com, we sent it a reset link.",
+        expect.objectContaining({ duration: Infinity }),
+      ),
+    );
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("shows Account password reset recovery when the reset link has no token", async () => {
@@ -359,8 +383,8 @@ describe("auth sign-in feedback", () => {
     await user.click(screen.getByRole("button", { name: "Set new password" }));
 
     expect(authClientMock.resetPassword).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect(screen.getByText("Password doesn't meet all the requirements below.")).toBeTruthy();
+    expectFormToast("Password doesn't meet all the requirements below.");
+    expect(screen.getByLabelText("New password").getAttribute("aria-invalid")).toBe("true");
   });
 
   it("blocks Account password reset when confirmation does not match", async () => {
@@ -376,14 +400,31 @@ describe("auth sign-in feedback", () => {
     await user.type(confirmPasswordInput, "Password2!");
     await user.tab();
 
-    expect(screen.getByText("Passwords do not match.")).toBeTruthy();
+    expectFormToast("Passwords do not match.");
     expect(confirmPasswordInput.getAttribute("aria-invalid")).toBe("true");
-    expect(confirmPasswordInput.getAttribute("aria-describedby")).toBe("reset-confirm-password-error");
 
     await user.click(screen.getByRole("button", { name: "Set new password" }));
 
     expect(authClientMock.resetPassword).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("toasts a completed Account password reset", async () => {
+    const user = userEvent.setup();
+    authClientMock.resetPassword.mockResolvedValue({ error: null });
+    window.history.replaceState(null, "", "/reset-password?token=abc123");
+
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
+
+    await user.type(screen.getByLabelText("New password"), "Password1!");
+    await user.type(screen.getByLabelText("Confirm new password"), "Password1!");
+    await user.click(screen.getByRole("button", { name: "Set new password" }));
+
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "Password reset. Sign in with your new password.",
+        expect.any(Object),
+      ),
+    );
   });
 });
 
@@ -404,14 +445,19 @@ describe("auth sign-up password policy feedback", () => {
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect(screen.getByText("Confirm your password.")).toBeTruthy();
+    expectFormToast("Confirm your password.");
 
     await user.type(screen.getByLabelText("Confirm password"), "Password1!");
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
-    expect(screen.getByText("Check your email to verify your account")).toBeTruthy();
-    expect(toastMock.error).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "Account created. Open the verification link we sent to ada@example.com.",
+        expect.objectContaining({ duration: Infinity }),
+      ),
+    );
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeTruthy();
+    expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
   });
 
   it("shows password mismatch feedback until sign-up passwords match", async () => {
@@ -427,18 +473,15 @@ describe("auth sign-up password policy feedback", () => {
     await user.type(confirmPasswordInput, "Password1!");
     await user.tab();
 
-    expect(screen.getByText("Passwords do not match.")).toBeTruthy();
+    expectFormToast("Passwords do not match.");
     expect(confirmPasswordInput.getAttribute("aria-invalid")).toBe("true");
-    expect(confirmPasswordInput.getAttribute("aria-describedby")).toContain("-error");
 
     await user.type(passwordInput, "Password1!");
 
-    expect(screen.queryByText("Passwords do not match.")).toBeNull();
     expect(confirmPasswordInput.getAttribute("aria-invalid")).toBeNull();
-    expect(confirmPasswordInput.getAttribute("aria-describedby")).toBeNull();
   });
 
-  it("shows the mismatch under the confirm field when sign-up is submitted", async () => {
+  it("outlines the confirm field and toasts the mismatch when sign-up is submitted", async () => {
     const user = userEvent.setup();
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
@@ -447,8 +490,7 @@ describe("auth sign-up password policy feedback", () => {
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect(screen.getByText("Passwords do not match.")).toBeTruthy();
+    expectFormToast("Passwords do not match.");
     expect(screen.getByLabelText("Confirm password").getAttribute("aria-invalid")).toBe("true");
   });
 
@@ -460,13 +502,12 @@ describe("auth sign-up password policy feedback", () => {
     await fillSignUp(user, { confirmPassword: "Password2!" });
     await user.tab();
 
-    expect(screen.getByText("Passwords do not match.")).toBeTruthy();
+    expect(screen.getByLabelText("Confirm password").getAttribute("aria-invalid")).toBe("true");
 
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
     expect(screen.getByLabelText("Password").value).toBe("");
-    expect(screen.queryByText("Passwords do not match.")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Sign up" }));
 
@@ -474,7 +515,7 @@ describe("auth sign-up password policy feedback", () => {
     expect(screen.getByLabelText("Email").value).toBe("ada@example.com");
     expect(screen.getByLabelText("Password").value).toBe("");
     expect(screen.getByLabelText("Confirm password").value).toBe("");
-    expect(screen.queryByText("Passwords do not match.")).toBeNull();
+    expect(screen.getByLabelText("Confirm password").getAttribute("aria-invalid")).toBeNull();
     expect(screen.queryByText("At least 8 characters")).toBeNull();
   });
 
@@ -486,7 +527,7 @@ describe("auth sign-up password policy feedback", () => {
 
     await fillSignUp(user, { confirmPassword: "Password1!{Enter}" });
 
-    expect(screen.getByText("Check your email to verify your account")).toBeTruthy();
+    await waitFor(() => expect(authClientMock.signUpEmail).toHaveBeenCalledOnce());
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
@@ -516,7 +557,7 @@ describe("auth sign-up password policy feedback", () => {
     expect(screen.queryByText("One special character")).toBeNull();
   });
 
-  it("blocks sign-up with an unmet account password policy and shows an inline error", async () => {
+  it("blocks sign-up with an unmet account password policy and toasts the problem", async () => {
     const user = userEvent.setup();
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
@@ -525,11 +566,10 @@ describe("auth sign-up password policy feedback", () => {
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect(screen.getByText("Password doesn't meet all the requirements below.")).toBeTruthy();
+    expectFormToast("Password doesn't meet all the requirements below.");
   });
 
-  it("shows field errors for every missing sign-up field without a toast", async () => {
+  it("outlines every missing sign-up field and toasts the first", async () => {
     const user = userEvent.setup();
 
     render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
@@ -538,11 +578,13 @@ describe("auth sign-up password policy feedback", () => {
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(authClientMock.signUpEmail).not.toHaveBeenCalled();
-    expect(toastMock.error).not.toHaveBeenCalled();
-    expect(screen.getByText("Enter your name.")).toBeTruthy();
-    expect(screen.getByText("Enter your email address.")).toBeTruthy();
-    expect(screen.getByText("Enter a password.")).toBeTruthy();
-    expect(screen.getByText("Confirm your password.")).toBeTruthy();
+    expect(toastMock.error).toHaveBeenCalledOnce();
+    expectFormToast("Enter your name.");
+
+    for (const label of ["Name", "Email", "Password", "Confirm password"]) {
+      expect(screen.getByLabelText(label).getAttribute("aria-invalid")).toBe("true");
+    }
+
     expect(screen.getByLabelText("Name")).toBe(document.activeElement);
   });
 
@@ -616,8 +658,12 @@ describe("deployment auth configuration", () => {
     );
     await fillSignUp(user, { name: "Ada" });
     await user.click(screen.getByRole("button", { name: "Create account" }));
-    expect(screen.getByRole("heading", { name: "Verify your account" })).toBeTruthy();
-    expect(screen.getByText("document-extraction mail")).toBeTruthy();
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "Account created. Run `document-extraction mail` to open the verification link for ada@example.com.",
+        expect.objectContaining({ duration: Infinity }),
+      ),
+    );
   });
 
   it("enters the session immediately with the default configuration", async () => {
