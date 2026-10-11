@@ -17,15 +17,16 @@ The SDK serves the current per-request protocol and its stateless legacy fallbac
 1. Put the single Bun process behind an operator-managed HTTPS reverse proxy. Hosted clients cannot reach the installation's loopback address. There is no managed relay or hosted conversion.
 2. Set `BETTER_AUTH_URL` to the canonical public origin, such as `https://documents.example.com`.
 3. Set `MCP_ENABLED=true`. Leave `MCP_SENSITIVE_ACTIONS_ENABLED=false` until ordinary reads and submissions have been qualified.
-4. Set `MCP_ALLOWED_REDIRECT_URIS` to the exact comma-separated OAuth callback addresses supplied by the clients. There are no wildcard or port-range matches. At most 64 entries are accepted; HTTP callbacks are permitted only on loopback. An empty list disables dynamic registration.
-5. Forward `/mcp`, `/.well-known/*`, `/api/auth/*`, `/v1/*`, application assets and the existing live-update WebSocket. Preserve the public Host and bearer Authorization headers. Disable proxy caching for authenticated responses. Allow JSON and request-scoped SSE, uploads up to the installation limit, and requests lasting up to six minutes.
-6. Restart and use `https://documents.example.com/mcp` as the connection address.
+4. Forward `/mcp`, `/.well-known/*`, `/api/auth/*`, `/v1/*`, application assets and the existing live-update WebSocket. Preserve the public Host and bearer Authorization headers. Disable proxy caching for authenticated responses. Allow JSON and request-scoped SSE, uploads up to the installation limit, and requests lasting up to six minutes.
+5. Restart and use `https://documents.example.com/mcp` as the connection address. Clients register their callbacks automatically; no operator callback list is required.
+
+`MCP_ALLOWED_REDIRECT_URIS` has been removed. Existing values are ignored and can be deleted from deployment settings. Enabling MCP enables unauthenticated dynamic client registration; Workspace access still requires sign-in and explicit consent.
 
 Only explicitly configured trusted proxy IP headers affect auth rate limiting. The proxy must overwrite those headers. Forwarding headers cannot change the canonical resource, issuer or accepted Origin. HTTP on loopback is available for development; binding the process to a non-loopback interface does not make a loopback URL reachable from a hosted client.
 
 Discovery endpoints are `/.well-known/oauth-protected-resource/mcp` and `/.well-known/oauth-authorization-server/api/auth`. The issuer is the canonical origin plus `/api/auth`; authorization, token and registration endpoints are under `/api/auth/oauth2/`. Check the returned metadata rather than constructing OAuth endpoints in clients. Metadata must be JSON, never the SPA.
 
-Only authorization-code with PKCE and refresh are enabled. DCR requires an allowlisted callback and is capped at 1,000 clients per installation. Client-credentials grants and remote client metadata downloads (CIMD) are not supported. No arbitrary URLs are fetched for registration or file import. Client-supplied names and websites are **unverified**, including names that claim to be Claude or ChatGPT.
+Only authorization-code with PKCE and refresh are enabled. Dynamic client registration accepts one to eight HTTPS callbacks per client, with HTTP permitted only for `localhost`, `127.0.0.1` and `[::1]`. Clients using loopback callbacks must register with `application_type: "native"`; web clients use HTTPS on a non-loopback host. Callbacks cannot contain credentials, fragments, wildcards, whitespace or control characters. Authorization must use an exact callback registered to that client; changing a callback requires a new registration. Registration is rate-limited and capped at 1,000 clients per installation. Client-credentials grants and remote client metadata downloads (CIMD) are not supported. No arbitrary URLs are fetched for registration or file import. Client-supplied names and websites are **unverified**, including names that claim to be Claude or ChatGPT.
 
 ## Connect, approve and disconnect
 
@@ -99,7 +100,7 @@ Local automated evidence lives in `backend/src/mcp/authorization.bun.test.ts`, `
 ## Troubleshooting
 
 - **Connection request expired:** restart connection in the client; the signed login/consent request lasts ten minutes.
-- **Registration rejected:** compare the exact callback with `MCP_ALLOWED_REDIRECT_URIS`; no patterns are accepted. An installation at its registration cap requires operator review of unused client records.
+- **Registration rejected:** supply one to eight complete HTTPS callbacks (HTTP only on loopback), without credentials, fragments or wildcards. Authorization must use the exact callback supplied during registration. An installation at its registration cap requires operator review of unused client records.
 - **401:** supply a current MCP token for this resource and issuer. Workspace API keys and browser cookies do not authenticate `/mcp`.
 - **403 / insufficient scope:** reconnect with the capability and check current Workspace membership/role. New scopes do not override roles.
 - **Approval changed/expired:** read the latest target and request a new approval with a new operation key.

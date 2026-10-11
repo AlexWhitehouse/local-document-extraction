@@ -29,7 +29,7 @@ export async function startRuntimeHarness({
   timeoutMs?: number;
   requireEmailVerification?: boolean;
   sourceStorage?: "local";
-  mcp?: { redirectUris: string[]; sensitiveActions?: boolean };
+  mcp?: { sensitiveActions?: boolean };
 } = {}) {
   const rootDirectory = resolve(process.cwd());
 
@@ -45,7 +45,6 @@ export async function startRuntimeHarness({
     Object.assign(environment, {
       MCP_ENABLED: "true",
       MCP_SENSITIVE_ACTIONS_ENABLED: String(mcp.sensitiveActions === true),
-      MCP_ALLOWED_REDIRECT_URIS: mcp.redirectUris.join(","),
     });
   }
 

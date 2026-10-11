@@ -42,11 +42,10 @@ MCP is disabled by default. [Connected apps through MCP](mcp.md) describes publi
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `MCP_ENABLED` | `false` | Enable OAuth-backed MCP at exact `/mcp`. Connection listing/revocation stays available when disabled. |
+| `MCP_ENABLED` | `false` | Enable OAuth-backed MCP at exact `/mcp` and dynamic client registration with validated callbacks. Connection listing/revocation stays available when disabled. |
 | `MCP_SENSITIVE_ACTIONS_ENABLED` | `false` | Enable browser-approved delegated Workspace changes and deletion. |
-| `MCP_ALLOWED_REDIRECT_URIS` | empty | Exact comma-separated OAuth callbacks allowed for dynamic registration; maximum 64, HTTPS except loopback. Empty disables registration. |
 
-`BETTER_AUTH_URL` fixes both the public issuer and protected resource origin. Hosted clients need a reachable HTTPS installation. Claude Desktop and ChatGPT are the intended compatibility targets; users must qualify their specific client/deployment before enabling sensitive administration.
+`BETTER_AUTH_URL` fixes both the public issuer and protected resource origin. Hosted clients need a reachable HTTPS installation. Clients register their own HTTPS or loopback callbacks; no deployment allowlist is required. The former `MCP_ALLOWED_REDIRECT_URIS` setting is ignored and can be removed. Claude Desktop and ChatGPT are the intended compatibility targets; users must qualify their specific client/deployment before enabling sensitive administration.
 
 ## Google sign-in
 

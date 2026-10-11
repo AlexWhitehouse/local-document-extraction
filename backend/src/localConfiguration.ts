@@ -130,8 +130,7 @@ export function readLocalConfiguration({
     return value;
   };
 
-  const mcp = { enabled: boolean("MCP_ENABLED", false), sensitiveActions: boolean("MCP_SENSITIVE_ACTIONS_ENABLED", false),
-    allowedRedirectUris: list("MCP_ALLOWED_REDIRECT_URIS") };
+  const mcp = { enabled: boolean("MCP_ENABLED", false), sensitiveActions: boolean("MCP_SENSITIVE_ACTIONS_ENABLED", false) };
 
   const authBaseURL = text("BETTER_AUTH_URL") ? origin(text("BETTER_AUTH_URL")!, "BETTER_AUTH_URL") : undefined;
   validateMcpConfiguration(authBaseURL ?? "http://127.0.0.1", mcp);

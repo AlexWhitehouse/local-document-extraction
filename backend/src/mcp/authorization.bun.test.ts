@@ -32,7 +32,7 @@ async function fixture() {
 
   const auth = await createLocalAuth({ database, baseURL: origin,
     secret: randomBytes(32).toString("hex"), mailSink: { capture: async (message) => { messages.push(message); } },
-    mcp: { enabled: true, sensitiveActions: true, allowedRedirectUris: [callback] },
+    mcp: { enabled: true, sensitiveActions: true },
   });
 
   const control = createLocalWorkspaceControl(database);
@@ -67,7 +67,7 @@ async function fixture() {
   expect(registered.status).toBe(201);
   const client = z.object({ client_id: z.string() }).parse(await registered.json());
 
-  async function connect(scopes = "workspace:read documents:read offline_access") {
+  async function authorize(scopes: string) {
     const verifier = randomBytes(32).toString("base64url");
 
     const query = new URLSearchParams({ client_id: client.client_id, redirect_uri: callback, response_type: "code",
@@ -87,6 +87,12 @@ async function fixture() {
     const code = new URL(redirect.redirect_uri).searchParams.get("code");
     expect(code).not.toBeNull();
 
+    return { code, verifier };
+  }
+
+  async function connect(scopes = "workspace:read documents:read offline_access") {
+    const { code, verifier } = await authorize(scopes);
+
     const token = await request("/api/auth/oauth2/token", { grant_type: "authorization_code", client_id: client.client_id,
       code, code_verifier: verifier, redirect_uri: callback, resource: `${origin}/mcp` });
 
@@ -104,7 +110,7 @@ async function fixture() {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
   }
 
-  return { auth, control, database, messages, request, connect, mcp, cookie, origin, client, workspace, stateDirectory, userId: signedUp.user.id };
+  return { auth, control, database, messages, request, authorize, connect, mcp, cookie, origin, client, callback, workspace, stateDirectory, userId: signedUp.user.id };
 }
 
 test("real OAuth PKCE flow grants one workspace, rotates refresh, and revokes issued tokens immediately", async () => {
@@ -210,6 +216,7 @@ test("live bans, membership loss and the off switch reject already-issued tokens
   expect((await app.mcp(token.access_token)).status).toBe(403);
   app.auth.mcp!.configuration.enabled = false;
   expect((await app.mcp(token.access_token)).status).toBe(404);
+  expect((await app.request("/api/auth/oauth2/register", { redirect_uris: [app.callback] })).status).toBe(404);
   const connections = await app.request("/v1/mcp/connections", undefined, app.cookie);
   expect(connections.status).toBe(200);
   expect(z.object({ enabled: z.boolean() }).parse(await connections.json()).enabled).toBe(false);
@@ -247,10 +254,85 @@ test("exact-action approval executes once, rejects stale inputs, and never persi
   expect(audit).not.toContain(token.access_token);
 });
 
-test("client callbacks, forged tokens, unknown OAuth resources and hostile origins are rejected", async () => {
+test("clients register HTTPS and loopback callbacks without an operator allowlist", async () => {
   const app = await fixture();
-  const registration = await app.request("/api/auth/oauth2/register", { client_name: "Pretend trusted", redirect_uris: ["https://evil.example/callback"] });
-  expect(registration.status).toBe(400);
+
+  for (const callback of ["https://new-client.example/oauth/callback", "http://localhost:54321/callback", "http://127.0.0.1:54321/callback", "http://[::1]:54321/callback"]) {
+    const response = await fetch(`${app.origin}/api/auth/oauth2/register`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "New client", redirect_uris: [callback], token_endpoint_auth_method: "none",
+        application_type: callback.startsWith("http:") ? "native" : "web", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] }),
+    });
+
+    expect(response.status, await response.clone().text()).toBe(201);
+    expect(z.object({ redirect_uris: z.array(z.string()) }).parse(await response.json()).redirect_uris).toEqual([callback]);
+  }
+
+  const rateLimited = await app.request("/api/auth/oauth2/register", { redirect_uris: ["https://another-client.example/callback"] });
+  expect(rateLimited.status).toBe(429);
+});
+
+test("registration rejects unsafe callback URLs and invalid callback lists", async () => {
+  const app = await fixture();
+
+  const callbacks = [
+    "http://client.example/callback", "http://localhost.evil.example/callback", "https://client.example/callback#fragment",
+    "https://client.example/callback#", "https://user:password@client.example/callback", "https://*.example/callback",
+    "https://client.example/*", "javascript:alert(1)", "file:///callback", "/callback", "https:client.example/callback",
+    " https://client.example/callback", "https://client.example/call\nback", "https://client.example/call\u0001back", "https://client.example/call\\back",
+  ];
+
+  const invalidLists = [...callbacks.map((callback) => [callback]), [], Array(9).fill("https://client.example/callback"),
+    ["https://client.example/callback", "http://client.example/callback"]];
+
+  for (const redirectUris of invalidLists) {
+    const response = await app.request("/api/auth/oauth2/register", { redirect_uris: redirectUris });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_redirect_uri" });
+  }
+
+  expect(app.database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM oauthClient").get()!.count).toBe(1);
+});
+
+test("OAuth requires the client's exact registered callback and PKCE after open registration", async () => {
+  const app = await fixture();
+  const verifier = randomBytes(32).toString("base64url");
+
+  for (const redirectUri of ["https://other-client.example/callback", `${app.callback}/`, `${app.callback}?extra=1`]) {
+    const query = new URLSearchParams({ client_id: app.client.client_id, redirect_uri: redirectUri, response_type: "code",
+      scope: "workspace:read", state: "test-state", code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+      code_challenge_method: "S256", resource: `${app.origin}/mcp` });
+
+    const response = await app.request(`/api/auth/oauth2/authorize?${query}`, undefined, app.cookie);
+
+    expect(response.status).toBe(302);
+    const errorLocation = new URL(response.headers.get("location")!);
+    expect(errorLocation.origin).toBe(app.origin);
+    expect(errorLocation.searchParams.get("error")).toBe("invalid_redirect");
+  }
+
+  for (const invalidField of ["redirect_uri", "code_verifier"]) {
+    const authorization = await app.authorize("workspace:read");
+
+    const response = await app.request("/api/auth/oauth2/token", {
+      grant_type: "authorization_code", client_id: app.client.client_id, code: authorization.code,
+      code_verifier: authorization.verifier, redirect_uri: app.callback, resource: `${app.origin}/mcp`,
+      [invalidField]: invalidField === "redirect_uri" ? "https://other-client.example/callback" : verifier,
+    });
+
+    expect(response.status).toBe(invalidField === "redirect_uri" ? 400 : 401);
+    const error = await response.json();
+    expect(error).toMatchObject({ error: invalidField === "redirect_uri" ? "invalid_grant" : "invalid_request" });
+    expect(error).not.toHaveProperty("access_token");
+  }
+
+  const token = await app.connect();
+  expect((await app.mcp(token.access_token)).status).toBe(200);
+});
+
+test("forged tokens, unknown OAuth resources and hostile origins are rejected", async () => {
+  const app = await fixture();
   expect((await app.mcp("not-a-token")).status).toBe(401);
   const token = await app.connect();
   const parts = token.access_token.split(".");

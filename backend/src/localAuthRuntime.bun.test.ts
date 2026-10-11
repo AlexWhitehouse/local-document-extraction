@@ -12,7 +12,7 @@ test("migration waits for OAuth initialization and can immediately close and reo
   try {
     for (let run = 0; run < 2; run++) {
       const migration = Bun.spawn([process.execPath, "--no-env-file", join(import.meta.dir, "migrate.ts")], {
-        env: { DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory, MCP_ENABLED: "true", MCP_ALLOWED_REDIRECT_URIS: "https://client.example/callback" },
+        env: { DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory, MCP_ENABLED: "true" },
         stdout: "pipe", stderr: "pipe",
       });
 

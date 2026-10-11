@@ -604,6 +604,7 @@ The **Go document processor** executes Document processing stages through a priv
 
 - OAuth tokens authenticate only exact `/mcp` and protected MCP Source delivery; they never become browser sessions or Workspace API keys. Login, consent, uploads, approvals and connection management retain cookie-origin checks.
 - MCP is opt-in and sensitive actions have a separate installation switch. Authority is rechecked after awaits and at mutation commit. Disabling MCP retains connection revocation.
+- Enabling MCP allows bounded dynamic client registration without an operator callback allowlist. Callbacks require HTTPS or loopback HTTP; authorization matches a client's registered callback exactly and requires PKCE and explicit Workspace consent.
 - Documents already admitted may finish after grant revocation; further submissions and reads stop. Uploads use shared admission and validation, and references cannot cross grants or Workspaces.
 - Mutation receipts commit with their owning database. A product receipt repairs missing control completion/audit after a crash without executing twice. Unknown external outcomes are not retried automatically.
 - Durable security activity is separate from privacy-filtered product analytics. It contains actor/action identifiers and outcomes, never credentials or customer content. Operator-only access and 90-day retention apply.

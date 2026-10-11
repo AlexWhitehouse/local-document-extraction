@@ -107,7 +107,7 @@ export async function createLocalAuth({
 
   if (socialProviders) providerConfiguration.socialProviders = socialProviders;
 
-  const configuration = mcpConfiguration ?? { enabled: false, sensitiveActions: false, allowedRedirectUris: [] };
+  const configuration = mcpConfiguration ?? { enabled: false, sensitiveActions: false };
   const mcpPolicy = createMcpProviderPolicy({ database, secret, baseURL, configuration, requireEmailVerification });
 
   const auth = betterAuth({

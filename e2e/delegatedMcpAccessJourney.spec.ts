@@ -40,7 +40,7 @@ test("an MCP client connects through verification, gets one approval and is disc
   try {
     harness = await startRuntimeHarness({
       requireEmailVerification: true,
-      mcp: { redirectUris: [CALLBACK], sensitiveActions: true },
+      mcp: { sensitiveActions: true },
     });
 
     const { origin } = harness;
@@ -140,7 +140,7 @@ test("an MCP client gets a document uploaded in the app, submits it and reads th
   let harness: RuntimeHarness | undefined;
 
   try {
-    harness = await startRuntimeHarness({ mcp: { redirectUris: [CALLBACK] } });
+    harness = await startRuntimeHarness({ mcp: {} });
 
     const { origin } = harness;
     await submitSignUp(page, harness, UPLOADER);

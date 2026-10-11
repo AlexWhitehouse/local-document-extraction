@@ -9,7 +9,7 @@ import { HttpError } from "../lib/http";
 import { createMcpGrantStore, actorFor, type DelegatedActor, type McpGrantStore } from "./grants";
 import { MCP_SCOPES, type McpScope } from "./scopes";
 
-import { validateMcpConfiguration, type McpConfiguration } from "./configuration";
+import { isSecureMcpUrl, validateMcpConfiguration, type McpConfiguration } from "./configuration";
 
 export type { McpConfiguration } from "./configuration";
 
@@ -29,7 +29,7 @@ const clientSchema = z.object({ client_id: z.string(), client_name: z.string().n
 
 const tokenClaimsSchema = z.object({ sub: z.string(), client_id: z.string(), grant_id: z.string(), scope: z.string() });
 
-const registrationSchema = z.object({ redirect_uris: z.array(z.string()).min(1).max(8) });
+const registrationSchema = z.object({ redirect_uris: z.array(z.string().refine(isSecureMcpUrl)).min(1).max(8) });
 
 type PublicOAuthClient = z.infer<typeof clientSchema>;
 
@@ -55,8 +55,8 @@ export function createMcpProviderPolicy(input: { database: Database; secret: str
     refreshTokenReuseInterval: 0,
     // The provider also uses this lifetime for signed login/consent queries.
     codeExpiresIn: 600,
-    allowDynamicClientRegistration: configuration.allowedRedirectUris.length > 0,
-    allowUnauthenticatedClientRegistration: configuration.allowedRedirectUris.length > 0,
+    allowDynamicClientRegistration: configuration.enabled,
+    allowUnauthenticatedClientRegistration: configuration.enabled,
     clientPrivileges: () => false,
     resourcePrivileges: () => false,
     validateRedirectUri: (uri, registered) => registered.includes(uri),
@@ -139,7 +139,7 @@ export function createMcpProviderPolicy(input: { database: Database; secret: str
         const body = registrationSchema.safeParse(await request.clone().json().catch(() => null));
         const count = database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM oauthClient").get()?.count ?? 0;
 
-        if (!body.success || !body.data.redirect_uris.every((uri) => configuration.allowedRedirectUris.includes(uri)) || count >= 1000) {
+        if (!body.success || count >= 1000) {
           return Response.json({ error: "invalid_redirect_uri", error_description: "Client registration is not allowed for this callback." }, { status: 400 });
         }
       }

@@ -33,6 +33,13 @@ test("a clean local install has usable private defaults and a secret-free public
   expect(config.sourceStorage).toEqual({ provider: "none", originalRetentionEnabled: false });
 });
 
+test("MCP needs no callback allowlist and still requires HTTPS outside loopback", () => {
+  expect(read().auth.mcp).toEqual({ enabled: false, sensitiveActions: false });
+  expect(read({ MCP_ENABLED: "true", BETTER_AUTH_URL: "https://documents.example.com" }).auth.mcp).toEqual({ enabled: true, sensitiveActions: false });
+  expect(read({ MCP_ENABLED: "true", BETTER_AUTH_URL: "http://127.0.0.1:8787" }).auth.mcp.enabled).toBe(true);
+  expect(() => read({ MCP_ENABLED: "true", BETTER_AUTH_URL: "http://documents.example.com" })).toThrow("MCP_ENABLED requires an HTTPS BETTER_AUTH_URL");
+});
+
 test("selecting local Source storage retains originals by default and can be turned off for new uploads", () => {
   expect(read({ SOURCE_STORAGE_PROVIDER: "local" }).sourceStorage).toEqual({
     provider: "local",
