@@ -982,26 +982,36 @@ export type RequestSuggestion = { label: string; request: string; reason: string
 
 export const SUGGESTION_OUTPUT_CONTRACT = `Return exactly a JSON object {"suggestions":[{"label":string,"request":string,"reason":string}]} with 0 to ${SUGGESTION_LIMITS.suggestions} suggestions. Return an empty array when no grounded suggestions are available. No additional properties anywhere. label: a short, specific request the user could make about THIS draft (at most ${SUGGESTION_LIMITS.labelCharacters} characters). request: the full request text that will be sent if chosen (at most ${SUGGESTION_LIMITS.requestCharacters} characters). reason: why it is relevant, citing the draft field, column, problem or evidence it is based on (at most ${SUGGESTION_LIMITS.reasonCharacters} characters).`;
 
-/** Suggested requests only prefill the user's request box; they never change the draft. */
+const clipText = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+
+/**
+ * Suggested requests only prefill the user's request box; they never change the draft, so model output is
+ * normalised rather than rejected: unknown properties are ignored, long labels and reasons are shortened, and
+ * unusable or duplicate suggestions are dropped. Requests are never shortened because they are sent verbatim.
+ */
 export function validateSuggestionOutput(value: JsonValue | undefined): RequestSuggestion[] {
-  const record = object(value, "suggestion output", ["suggestions"]);
-
-  if (!isJsonArray(record.suggestions) || record.suggestions.length > SUGGESTION_LIMITS.suggestions)
-    fail(`Return between 0 and ${SUGGESTION_LIMITS.suggestions} suggestions`);
+  if (!isRecord(value) || !isJsonArray(value.suggestions)) fail("Return a JSON object with a suggestions array");
   const seen = new Set<string>();
+  const suggestions: RequestSuggestion[] = [];
 
-  return record.suggestions.map((item: JsonValue | undefined) => {
-    const suggestion = object(item, "suggestion", ["label", "request", "reason"]);
+  for (const item of value.suggestions) {
+    if (!isRecord(item) || !isString(item.label) || !isString(item.request) || !isString(item.reason)) continue;
+    const label = clipText(item.label.trim(), SUGGESTION_LIMITS.labelCharacters);
+    const request = item.request.trim();
+    const reason = clipText(item.reason.trim(), SUGGESTION_LIMITS.reasonCharacters);
 
-    textValue(suggestion.label, "suggestion label", SUGGESTION_LIMITS.labelCharacters);
-    textValue(suggestion.request, "suggestion request", SUGGESTION_LIMITS.requestCharacters);
-    textValue(suggestion.reason, "suggestion reason", SUGGESTION_LIMITS.reasonCharacters);
+    if (!label || !request || !reason || request.length > SUGGESTION_LIMITS.requestCharacters || seen.has(label))
+      continue;
+    seen.add(label);
+    suggestions.push({ label, request, reason });
+  }
 
-    if (seen.has(suggestion.label.trim())) fail("Suggestion labels must be unique");
-    seen.add(suggestion.label.trim());
+  if (value.suggestions.length && !suggestions.length)
+    fail(
+      `Each suggestion needs non-empty label, request and reason text, with requests of at most ${SUGGESTION_LIMITS.requestCharacters} characters`,
+    );
 
-    return { label: suggestion.label.trim(), request: suggestion.request.trim(), reason: suggestion.reason.trim() };
-  });
+  return suggestions.slice(0, SUGGESTION_LIMITS.suggestions);
 }
 
 function draftRecord(value: JsonValue | undefined): DraftRecord {

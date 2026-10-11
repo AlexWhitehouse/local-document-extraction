@@ -705,7 +705,7 @@ test("one set of suggestion rules mixes possible issues with additions and uses 
 
 test("suggestions reject malformed requests and unsupported output, and report a missing model configuration", async () => {
   const f = fixture();
-  const gateway = f.mockGateway(responder({ suggestions: [{ ...suggestionOutput.suggestions[0], extra: true }] }));
+  const gateway = f.mockGateway(responder({ suggestions: [{ ...suggestionOutput.suggestions[0], reason: "" }] }));
 
   for (const payload of [
     { instructions: "x" },
