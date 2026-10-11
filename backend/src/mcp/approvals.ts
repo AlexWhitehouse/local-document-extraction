@@ -381,11 +381,18 @@ export async function handleMcpApproval(request: Request, session: LocalSession,
     return Response.json(response);
   };
 
-  if (request.method === "GET") return represent();
+  assertMcpBrowserSession(session);
+
+  if (request.method === "GET") {
+    assertAction(context, action);
+
+    return represent();
+  }
 
   if (request.method !== "POST") throw new HttpError(405, "method_not_allowed", "Use GET or POST.");
-  assertMcpBrowserSession(session);
   const body = z.object({ decision: z.enum(["approve", "deny"]), secret: z.string().max(8192).optional() }).strict().parse(await (await boundLocalApiBody(request, 16384)).json());
+  assertMcpBrowserSession(session);
+  assertAction(context, action);
 
   if (operation.status === "executing" || operation.status === "failed") {
     assertAction(context, action);

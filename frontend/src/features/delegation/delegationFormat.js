@@ -22,6 +22,28 @@ export function clientHost(uri) {
   }
 }
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+// Where Studio sends the authorization result. The server reads it from the signed request,
+// so unlike the app's name and website it is the address that actually receives access.
+export function callbackDestination(uri) {
+  if (!isString(uri) || !uri) return null;
+
+  try {
+    const url = new URL(uri);
+
+    if (url.username || url.password) return null;
+
+    return {
+      host: url.host || url.protocol.slice(0, -1),
+      url: url.href,
+      local: LOOPBACK_HOSTS.has(url.hostname),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function clientName(client) {
   return (isString(client?.name) && client.name.trim()) || "This app";
 }
@@ -48,22 +70,39 @@ export function scopeDescriptors(scopes) {
 
 const SECRET_NAME = /secret|password|token|api[_-]?key|credential/i;
 
-// Approval parameters arrive redacted. Anything named like a secret stays hidden regardless.
+// Yes/no switches whose names look like secrets. Only a boolean value is shown.
+const SECRET_NAMED_FLAGS = new Set(["replace_api_key"]);
+
+function isHiddenParameter(name, value) {
+  return SECRET_NAME.test(name) && !(SECRET_NAMED_FLAGS.has(name) && isBoolean(value));
+}
+
+// Approval parameters arrive redacted. Anything named like a secret stays hidden regardless,
+// including inside nested values.
 export function parameterRows(parameters) {
   if (!isPlainObject(parameters)) return [];
 
   return Object.entries(parameters).map(([name, value]) => ({
     name,
-    value: SECRET_NAME.test(name) ? "Hidden" : displayValue(value),
+    value: isHiddenParameter(name, value) ? "Hidden" : displayValue(value),
   }));
+}
+
+// The Model gateway address a configuration change sends documents and the API key to.
+export function approvalGatewayUrl(parameters) {
+  const url = isPlainObject(parameters) && isPlainObject(parameters.configuration) ? parameters.configuration.gateway_url : null;
+
+  return isString(url) ? url : "";
 }
 
 function displayValue(value) {
   if (value === null || value === undefined || value === "") return "—";
 
-  if (isString(value) || isNumber(value) || isBoolean(value)) return String(value);
+  if (isBoolean(value)) return value ? "Yes" : "No";
 
-  return JSON.stringify(value);
+  if (isString(value) || isNumber(value)) return String(value);
+
+  return JSON.stringify(value, (key, nested) => (key && isHiddenParameter(key, nested) ? "Hidden" : nested));
 }
 
 function isPlainObject(value) {

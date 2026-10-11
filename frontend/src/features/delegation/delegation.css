@@ -48,6 +48,12 @@
   overflow-wrap: anywhere;
 }
 
+.delegated-callback code {
+  flex-basis: 100%;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
 .delegated-targets {
   margin: 0;
   padding-left: 18px;

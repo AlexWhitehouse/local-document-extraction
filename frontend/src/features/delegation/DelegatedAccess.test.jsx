@@ -19,6 +19,7 @@ const CONSENT = {
     { id: "offline_access", label: "Stay connected", description: "Keep access after you sign out.", requires_approval: false },
   ],
   requested_scopes: ["workspace:read", "documents:read", "offline_access"],
+  redirect_uri: "https://claude.ai/api/mcp/auth_callback",
   expires_at: "2099-01-01T00:00:00.000Z",
 };
 
@@ -300,7 +301,7 @@ describe("MCP connect: consent", () => {
     expect(await screen.findByRole("heading", { name: "Connect Claude" })).toBeTruthy();
   });
 
-  it("blocks granting from an impersonated session but still allows denial", async () => {
+  it("blocks both decisions from an impersonated session", async () => {
     sessionStore.value = session("user_1", "session_1", { impersonatedBy: "admin_1" });
     routes["GET /v1/mcp/consent"] = () => respond(CONSENT);
     const user = userEvent.setup();
@@ -309,8 +310,80 @@ describe("MCP connect: consent", () => {
     await user.selectOptions(await screen.findByLabelText("Workspace"), "ws_a");
 
     expect(screen.getByText("You're impersonating this user")).toBeTruthy();
+    expect(screen.getByText("Only the account owner can allow or deny this request.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow access" }).disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Deny" }).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Deny" }).disabled).toBe(true);
+    expect(requestsTo("POST", "/v1/mcp/consent")).toHaveLength(0);
+  });
+
+  it("shows where access goes and marks the app's own name and website as unchecked", async () => {
+    routes["GET /v1/mcp/consent"] = () =>
+      respond({ ...CONSENT, client: { ...CONSENT.client, provenance: "dynamic" }, redirect_uri: "https://evil.example/cb?x=1" });
+    renderAt(`/mcp/connect?${SIGNED_QUERY}`);
+
+    const callback = (await screen.findByText("Sends access to")).nextElementSibling;
+    expect(within(callback).getByText("evil.example").tagName).toBe("STRONG");
+    expect(within(callback).getByText("https://evil.example/cb?x=1")).toBeTruthy();
+    expect(callback.querySelector("a")).toBeNull();
+    expect(screen.getByText(/Only allow access if you expect it to go to evil.example/)).toBeTruthy();
+
+    const website = screen.getByText("Website").nextElementSibling;
+    expect(within(website).getByText("claude.ai")).toBeTruthy();
+    expect(within(website).getByText("Stated by the app, not checked")).toBeTruthy();
+    expect(screen.getByText("Unverified app")).toBeTruthy();
+  });
+
+  it("names an app on this computer by its loopback address", async () => {
+    routes["GET /v1/mcp/consent"] = () => respond({ ...CONSENT, redirect_uri: "http://127.0.0.1:33418/callback" });
+    renderAt(`/mcp/connect?${SIGNED_QUERY}`);
+
+    const callback = (await screen.findByText("Sends access to")).nextElementSibling;
+    expect(within(callback).getByText("127.0.0.1:33418")).toBeTruthy();
+    expect(within(callback).getByText("An app on this computer")).toBeTruthy();
+  });
+
+  it.each([undefined, "", "not a url", "https://user:pass@claude.ai/cb"])(
+    "refuses to allow access when the destination %s can't be shown",
+    async (redirect) => {
+      routes["GET /v1/mcp/consent"] = () => respond({ ...CONSENT, redirect_uri: redirect });
+      const user = userEvent.setup();
+      renderAt(`/mcp/connect?${SIGNED_QUERY}`);
+
+      await user.selectOptions(await screen.findByLabelText("Workspace"), "ws_a");
+
+      expect(screen.getByText("Sends access to").nextElementSibling.textContent).toBe("Unknown");
+      expect(screen.getByText(/Studio can't show where access would go/)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Allow access" }).disabled).toBe(true);
+      expect(screen.getByRole("button", { name: "Deny" }).disabled).toBe(false);
+    },
+  );
+
+  it("says how long access lasts and updates it when the app stays connected", async () => {
+    routes["GET /v1/mcp/consent"] = () => respond(CONSENT);
+    const user = userEvent.setup();
+    renderAt(`/mcp/connect?${SIGNED_QUERY}`);
+
+    const duration = await screen.findByText(/Access lasts up to five minutes/);
+    expect(duration.textContent).toBe("Access lasts up to five minutes. It ends sooner if you sign out of Studio or your session ends.");
+
+    await user.click(screen.getByRole("checkbox", { name: /Stay connected/ }));
+    expect(duration.textContent).toBe("Claude can stay connected for up to 30 days, even after you sign out of Studio.");
+
+    await user.click(screen.getByRole("checkbox", { name: /Stay connected/ }));
+    expect(duration.textContent).toMatch(/^Access lasts up to five minutes/);
+  });
+
+  it("gives the five-minute limit when the app doesn't ask to stay connected", async () => {
+    routes["GET /v1/mcp/consent"] = () =>
+      respond({
+        ...CONSENT,
+        scopes: CONSENT.scopes.filter((scope) => scope.id !== "offline_access"),
+        requested_scopes: ["workspace:read", "documents:read"],
+      });
+    renderAt(`/mcp/connect?${SIGNED_QUERY}`);
+
+    expect(await screen.findByText(/Access lasts up to five minutes/)).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /Stay connected/ })).toBeNull();
   });
 
   it("drops a decision that finishes after the account changed", async () => {
@@ -569,13 +642,47 @@ describe("Approval requests", () => {
     expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Couldn't approve the action."), expect.anything());
   });
 
-  it("blocks approval from an impersonated session", async () => {
+  it("blocks both decisions from an impersonated session", async () => {
     sessionStore.value = session("user_1", "session_1", { impersonatedBy: "admin_1" });
     routes["GET /v1/mcp/approvals/ap_1"] = () => respond(APPROVAL);
     renderAt("/mcp/approvals/ap_1");
 
     expect((await screen.findByRole("button", { name: "Approve" })).disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Deny" }).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Deny" }).disabled).toBe(true);
+    expect(screen.getByText("Only the account owner can approve or deny this request.")).toBeTruthy();
+  });
+
+  it("explains an approval the server won't show while impersonating", async () => {
+    sessionStore.value = session("user_1", "session_1", { impersonatedBy: "admin_1" });
+    routes["GET /v1/mcp/approvals/ap_1"] = () => failure("mcp_impersonation_not_allowed", 403);
+    renderAt("/mcp/approvals/ap_1");
+
+    expect(await screen.findByText("You're impersonating this user")).toBeTruthy();
+    expect(screen.getByText(/Stop impersonating to see this request/)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Request unavailable" })).toBeNull();
+    expect(screen.queryByText(/Server message/)).toBeNull();
+  });
+
+  it("shows a Model gateway change with its address and whether the API key is replaced", async () => {
+    routes["GET /v1/mcp/approvals/ap_1"] = () =>
+      respond({
+        ...APPROVAL,
+        action: "gateway.save",
+        title: "Change Model gateway",
+        parameters: {
+          action: "gateway.save",
+          expected_revision: 3,
+          configuration: { gateway_url: "https://gateway.example/v1", model_name: "m", credential: "leaked" },
+          replace_api_key: false,
+        },
+      });
+    renderAt("/mcp/approvals/ap_1");
+
+    expect(await screen.findByRole("heading", { name: "Change Model gateway" })).toBeTruthy();
+    expect(screen.getByText("Gateway address").nextElementSibling.textContent).toBe("https://gateway.example/v1");
+    expect(screen.getByText("replace_api_key").nextElementSibling.textContent).toBe("No");
+    expect(screen.queryByText(/leaked/)).toBeNull();
+    expect(screen.queryByText("Hidden")).toBeNull();
   });
 
   it("explains a request that belongs to someone else or no longer exists", async () => {
@@ -678,6 +785,29 @@ describe("Upload links", () => {
     expect(await screen.findByRole("heading", { name: "Upload link expired" })).toBeTruthy();
     expect(screen.getByText("This upload link has expired. Ask the app for a new one.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("keeps an impersonated session from uploading", async () => {
+    sessionStore.value = session("user_1", "session_1", { impersonatedBy: "admin_1" });
+    routes["GET /v1/mcp/uploads/up_1"] = () => respond(UPLOAD);
+    const user = userEvent.setup();
+    renderAt("/mcp/uploads/up_1");
+
+    expect(await screen.findByText("Only the account owner can upload documents for Claude.")).toBeTruthy();
+    expect(fileInput().disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Upload" }).disabled).toBe(true);
+
+    await user.upload(fileInput(), new File(["%PDF"], "invoice.pdf", { type: "application/pdf" }));
+    expect(requestsTo("POST", "/v1/mcp/uploads/up_1")).toHaveLength(0);
+  });
+
+  it("explains a link the server won't show while impersonating", async () => {
+    sessionStore.value = session("user_1", "session_1", { impersonatedBy: "admin_1" });
+    routes["GET /v1/mcp/uploads/up_1"] = () => failure("mcp_impersonation_not_allowed", 403);
+    renderAt("/mcp/uploads/up_1");
+
+    expect(await screen.findByText(/Stop impersonating to use this link/)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Upload link unavailable" })).toBeNull();
   });
 
   it("explains a link for a disconnected app", async () => {

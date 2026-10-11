@@ -89,6 +89,10 @@ export function createMcpUploadStore(database: Database, stateDirectory: string)
       return database.query("UPDATE mcp_uploads SET status='consumed',operation_id=? WHERE id=? AND status='uploaded' AND expires_at>? ")
         .run(operationId, id, new Date().toISOString()).changes === 1;
     },
+    restore(id: string, operationId: string): void {
+      database.query("UPDATE mcp_uploads SET status='uploaded',operation_id=NULL WHERE id=? AND status='consumed' AND operation_id=?").run(id, operationId);
+    },
+    consumedBy(id: string, operationId: string): boolean { return get(id)?.operation_id === operationId; },
   };
 }
 
@@ -197,26 +201,30 @@ export function registerMcpUploadTools(server: McpServer, context: McpToolContex
       if (args.pages) form.set("pages", JSON.stringify(args.pages));
       const request = new Request(context.url("/v1/extract"), { method: "POST", body: form, signal: context.signal });
 
-      const response = await context.runtime.admission.run(request, async () => {
-        context.assert("documents:submit");
-
-        if (!context.operations.claim(operation.id) || !uploads.consume(upload.id, operation.id)) throw new HttpError(409, "mcp_operation_pending", "This submission is already being processed.");
-
-        return handleLocalDocumentSubmission({ product: delegatedProduct(context, "documents:submit"), request,
-          maxSourceFileBytes: context.runtime.maxSourceFileBytes, scheduleQueuedJob: context.runtime.scheduleQueuedJob,
-          liveUpdateHub: context.runtime.liveUpdateHub, submissionId: operation.id });
-      });
+      let claimed = false;
 
       try {
+        const response = await context.runtime.admission.run(request, async () => {
+          context.assert("documents:submit");
+
+          if (!context.operations.claim(operation.id)) throw new HttpError(409, "mcp_operation_pending", "This submission is already being processed.");
+          claimed = true;
+
+          if (!uploads.consume(upload.id, operation.id)) throw new HttpError(409, "mcp_upload_used", "This upload request has already been used.");
+
+          return handleLocalDocumentSubmission({ product: delegatedProduct(context, "documents:submit"), request,
+            maxSourceFileBytes: context.runtime.maxSourceFileBytes, scheduleQueuedJob: context.runtime.scheduleQueuedJob,
+            liveUpdateHub: context.runtime.liveUpdateHub, submissionId: operation.id });
+        });
+
         const output = await approvalResponse(response);
         context.operations.complete(operation.id, output);
+        await rm(uploads.path(upload), { force: true });
 
         return { ...output, request_id: operation.id, poll_after_seconds: 2 };
       } catch (error) {
-        context.operations.fail(operation.id, error instanceof HttpError ? error.code : "mcp_submission_failed");
+        if (claimed) await settleRejectedSubmission(context, uploads, upload, operation.id, error instanceof HttpError ? error.code : "mcp_submission_failed");
         throw error;
-      } finally {
-        if (uploads.get(upload.id)?.status === "consumed") await rm(uploads.path(upload), { force: true });
       }
     }, true);
 
@@ -279,6 +287,30 @@ export async function handleMcpSource(request: Request, context: McpToolContext)
   catch (error) { await response.body?.cancel(); throw error; }
 
   return response;
+}
+
+/** The submission ID is the Document or packet ID, and the handler has returned, so the
+ * product store now says whether admission committed. Only a definite "no" releases the
+ * upload and key for retry; an unreadable store keeps the outcome unknown and burns both. */
+async function settleRejectedSubmission(context: McpToolContext, uploads: McpUploadStore, upload: Upload, operationId: string, errorCode: string) {
+  let committed = true;
+
+  try {
+    committed = Boolean(await context.withStore("documents:submit", (store) => findMcpSubmissionResult(store, operationId)));
+  } catch { /* Unknown outcome; recovery on retry reads the product store again. */ }
+
+  if (!committed) {
+    context.operations.transaction(() => {
+      uploads.restore(upload.id, operationId);
+      context.operations.release(operationId);
+    });
+
+    return;
+  }
+
+  context.operations.fail(operationId, errorCode);
+
+  if (uploads.consumedBy(upload.id, operationId)) await rm(uploads.path(upload), { force: true });
 }
 
 function delegatedProduct(context: McpToolContext, scope: "documents:submit" | "templates:write" | "sources:read") {

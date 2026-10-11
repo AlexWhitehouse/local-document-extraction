@@ -20,7 +20,7 @@ export type McpAuthorization = {
   resource: string;
   grants: McpGrantStore;
   database: Database;
-  consentInfo(oauthQuery: string): Promise<{ client: McpClient; requestedScopes: McpScope[]; expiresAt: string }>;
+  consentInfo(oauthQuery: string): Promise<{ client: McpClient; redirectUri: string; requestedScopes: McpScope[]; expiresAt: string }>;
   consent(input: { request: Request; oauthQuery: string; accept: boolean; grantId?: string; scopes?: McpScope[] }): Promise<string>;
   protect(request: Request, handler: (request: Request, actor: DelegatedActor) => Promise<Response>): Promise<Response>;
 };
@@ -95,10 +95,15 @@ export function createMcpProviderPolicy(input: { database: Database; secret: str
 
       const query = new URLSearchParams(oauthQuery);
       const clientId = query.get("client_id");
+      const redirectUri = query.get("redirect_uri");
       const resources = query.getAll("resource");
 
       if (!clientId || resources.length !== 1 || resources[0] !== resource) {
         throw new HttpError(400, "mcp_invalid_resource", "The app must request this installation's MCP address.");
+      }
+
+      if (!redirectUri || !isSecureMcpUrl(redirectUri)) {
+        throw new HttpError(400, "mcp_authorization_invalid", "The app must provide a valid callback address.");
       }
 
       const client = clientSchema.parse(await publicClient(clientId));
@@ -108,6 +113,7 @@ export function createMcpProviderPolicy(input: { database: Database; secret: str
 
       return {
         client: { id: client.client_id, name: client.client_name ?? "Connected app", uri: client.client_uri ?? null, provenance: "dynamic" as const },
+        redirectUri,
         requestedScopes: scopes,
         expiresAt: new Date(Number(query.get("exp")) * 1000).toISOString(),
       };

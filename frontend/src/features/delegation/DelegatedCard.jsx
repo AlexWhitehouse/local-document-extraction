@@ -1,5 +1,6 @@
 import React from "react";
 import { Button } from "../ui/Button.jsx";
+import { Callout } from "../ui/Callout.jsx";
 import { ErrorState } from "../ui/States.jsx";
 import "./delegation.css";
 
@@ -43,4 +44,13 @@ export function DelegatedSignedInAs({ account, disabled, onSignOut }) {
 // A load failure keeps the card frame and offers a retry.
 export function DelegatedLoadFailure({ error, fallback, onRetry }) {
   return <ErrorState variant="panel" error={error} fallback={fallback} onRetry={onRetry} />;
+}
+
+// Impersonated sessions can look but never change delegated access on the user's behalf.
+export function ImpersonationNotice({ children }) {
+  return (
+    <Callout tone="warning" title="You're impersonating this user">
+      {children}
+    </Callout>
+  );
 }

@@ -6,8 +6,8 @@ import { CheckboxField, Field, Select } from "../ui/Field.jsx";
 import { Badge } from "../ui/Status.jsx";
 import { LoadingState } from "../ui/States.jsx";
 import { useAsyncAction } from "../ui/useAsyncAction";
-import { DelegatedCard, DelegatedLoadFailure, DelegatedSignedInAs } from "./DelegatedCard.jsx";
-import { clientHost, clientName, provenanceLabel, scopeDescriptors } from "./delegationFormat.js";
+import { DelegatedCard, DelegatedLoadFailure, DelegatedSignedInAs, ImpersonationNotice } from "./DelegatedCard.jsx";
+import { callbackDestination, clientHost, clientName, provenanceLabel, scopeDescriptors } from "./delegationFormat.js";
 import { consentRedirectTarget } from "./delegationRequests.js";
 import { useDelegatedResource } from "./useDelegatedResource.js";
 
@@ -100,6 +100,7 @@ function ConsentForm({
   const name = clientName(consent.client);
   const host = clientHost(consent.client?.uri);
   const provenance = provenanceLabel(consent.client?.provenance);
+  const callback = callbackDestination(consent.redirect_uri);
   const workspaces = Array.isArray(consent.workspaces) ? consent.workspaces : [];
   const descriptors = scopeDescriptors(consent.scopes);
   const requested = Array.isArray(consent.requested_scopes) ? consent.requested_scopes : [];
@@ -111,6 +112,7 @@ function ConsentForm({
   const [redirecting, setRedirecting] = useState(false);
   const workspaceRef = useRef(null);
   const capabilitiesId = useId();
+  const staysConnected = offered.some((scope) => scope.id === OFFLINE_SCOPE) && selected.has(OFFLINE_SCOPE);
 
   const [isAllowing, runAllow] = useAsyncAction(() => decide(true));
   const [isDenying, runDeny] = useAsyncAction(() => decide(false));
@@ -173,19 +175,46 @@ function ConsentForm({
     <DelegatedCard eyebrow="Connect app" title={`Connect ${name}`} description={`${name} wants to act for you in Studio.`}>
       <dl className="delegated-facts">
         <div>
-          <dt>App</dt>
+          <dt>Sends access to</dt>
+          <dd className="delegated-callback">
+            {callback ? (
+              <>
+                <strong>{callback.host}</strong>
+                {callback.local ? <span className="muted">An app on this computer</span> : null}
+                <code>{callback.url}</code>
+              </>
+            ) : (
+              <span>Unknown</span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>App name</dt>
           <dd>
             <span>{name}</span>
-            {host ? <span className="muted">{host}</span> : null}
             <Badge tone={provenance.tone}>{provenance.label}</Badge>
           </dd>
         </div>
+        {host ? (
+          <div>
+            <dt>Website</dt>
+            <dd>
+              <span>{host}</span>
+              <span className="muted">Stated by the app, not checked</span>
+            </dd>
+          </div>
+        ) : null}
       </dl>
+      {callback ? (
+        <p className="muted">
+          The app chose its own name and website. Only allow access if you expect it to go to {callback.host}.
+        </p>
+      ) : (
+        <Callout tone="warning">Studio can&apos;t show where access would go, so you can&apos;t allow it. Go back to your app and connect again.</Callout>
+      )}
       <DelegatedSignedInAs account={account} disabled={busy} onSignOut={onSignOut} />
       {isImpersonating ? (
-        <Callout tone="warning" title="You're impersonating this user">
-          You can deny this request, but only the account owner can connect apps.
-        </Callout>
+        <ImpersonationNotice>Only the account owner can allow or deny this request.</ImpersonationNotice>
       ) : null}
 
       <form
@@ -251,6 +280,11 @@ function ConsentForm({
             ))}
           </fieldset>
         ) : null}
+        <p className="muted" role="status">
+          {staysConnected
+            ? `${name} can stay connected for up to 30 days, even after you sign out of Studio.`
+            : "Access lasts up to five minutes. It ends sooner if you sign out of Studio or your session ends."}
+        </p>
         {unrecognisedCount > 0 ? (
           <p className="muted">
             {name} also asked for access Studio doesn&apos;t offer. It won&apos;t be granted.
@@ -258,14 +292,20 @@ function ConsentForm({
         ) : null}
 
         <div className="actions delegated-actions">
-          <Button variant="secondary" pending={isDenying} pendingLabel="Denying…" disabled={busy} onClick={() => void runDeny()}>
+          <Button
+            variant="secondary"
+            pending={isDenying}
+            pendingLabel="Denying…"
+            disabled={busy || isImpersonating}
+            onClick={() => void runDeny()}
+          >
             Deny
           </Button>
           <Button
             type="submit"
             pending={isAllowing}
             pendingLabel="Connecting…"
-            disabled={busy || isImpersonating || !workspaces.length}
+            disabled={busy || isImpersonating || !workspaces.length || !callback}
           >
             Allow access
           </Button>

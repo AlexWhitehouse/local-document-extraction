@@ -237,7 +237,7 @@ async function harness({
   const libraryFiles = async () =>
     (await readdir(join(stateDirectory, "source-files"), { recursive: true }).catch(() => new Array<string>()))
       .map(String)
-      .filter((name) => name.includes("evaluation-documents/"));
+      .filter((name) => name.includes("evaluation-documents/")).sort();
 
   const uploads = () => readdir(join(stateDirectory, "temporary", "evaluation-documents"));
 

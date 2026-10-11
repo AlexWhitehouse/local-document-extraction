@@ -70,11 +70,11 @@ export function createMcpGrantStore(database: Database, requireEmailVerification
   }
 
   function assertEligibleUser(userId: string): void {
-    const user = database.query<{ banned: number | null; banExpires: number | null; emailVerified: number }, [string]>(
+    const user = database.query<{ banned: number | null; banExpires: string | null; emailVerified: number }, [string]>(
       "SELECT banned, banExpires, emailVerified FROM user WHERE id = ?",
     ).get(userId);
 
-    if (!user || (requireEmailVerification && !user.emailVerified) || (user.banned && (!user.banExpires || user.banExpires > Date.now()))) {
+    if (!user || (requireEmailVerification && !user.emailVerified) || (user.banned && (!user.banExpires || user.banExpires > new Date().toISOString()))) {
       throw new HttpError(403, "mcp_account_unavailable", "This account cannot use connected apps.");
     }
   }
@@ -93,7 +93,7 @@ export function createMcpGrantStore(database: Database, requireEmailVerification
 
     if (!grant.scopes.includes("offline_access") && !database.query(
       "SELECT 1 FROM session WHERE id = ? AND userId = ? AND expiresAt > ?",
-    ).get(grant.session_id, grant.user_id, Date.now())) {
+    ).get(grant.session_id, grant.user_id, new Date().toISOString())) {
       throw new HttpError(403, "mcp_connection_revoked", "The authorizing browser session ended. Connect the app again.");
     }
 

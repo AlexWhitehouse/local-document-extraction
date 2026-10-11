@@ -123,6 +123,10 @@ export function createMcpOperationStore(database: Database) {
       return database.query("UPDATE mcp_operations SET status = 'executing' WHERE id = ? AND status = 'pending' AND expires_at > ?")
         .run(id, new Date().toISOString()).changes === 1;
     },
+    /** Returns a claimed operation to pending when its product store holds no committed result. */
+    release(id: string): void {
+      database.query("UPDATE mcp_operations SET status = 'pending' WHERE id = ? AND status = 'executing'").run(id);
+    },
     deny(id: string): void {
       database.query("UPDATE mcp_operations SET status = 'denied' WHERE id = ? AND status = 'pending'").run(id);
     },

@@ -1,5 +1,19 @@
+import type { Database } from "bun:sqlite";
 import type { McpAuthorization } from "./authorization";
 import type { McpUploadStore } from "./uploads";
+
+/** Removes up to 200 dynamically registered clients older than a day that nothing references.
+ * A client with any grant row (even revoked), token or consent is kept. Better Auth stores
+ * dates as ISO text, so cutoffs are bound as ISO strings. */
+export function pruneUnusedMcpClients(database: Database, now = Date.now()): void {
+  database.query(`DELETE FROM oauthClient WHERE id IN (SELECT c.id FROM oauthClient c
+    WHERE c.createdAt < ?
+      AND NOT EXISTS (SELECT 1 FROM mcp_grants g WHERE g.client_id = c.clientId)
+      AND NOT EXISTS (SELECT 1 FROM oauthAccessToken t WHERE t.clientId = c.clientId)
+      AND NOT EXISTS (SELECT 1 FROM oauthRefreshToken t WHERE t.clientId = c.clientId)
+      AND NOT EXISTS (SELECT 1 FROM oauthConsent t WHERE t.clientId = c.clientId)
+    ORDER BY c.createdAt LIMIT 200)`).run(new Date(now - 86400_000).toISOString());
+}
 
 /** Bounded, request-triggered cleanup; no background timer outlives runtime drain. */
 export function createMcpMaintenance(authorization: McpAuthorization, uploads: McpUploadStore) {
@@ -24,10 +38,10 @@ export function createMcpMaintenance(authorization: McpAuthorization, uploads: M
         database.query("DELETE FROM mcp_security_activity WHERE created_at < ?").run(cutoff);
         database.query("DELETE FROM mcp_operations WHERE created_at < ? OR grant_id NOT IN (SELECT id FROM mcp_grants)").run(cutoff);
         database.query("DELETE FROM mcp_grants WHERE expires_at < ?").run(cutoff);
-        // Tokens/codes are provider-owned. Expired rows cannot authorize access;
-        // these tables use millisecond timestamps under the SQLite adapter.
-        database.query('DELETE FROM oauthAccessToken WHERE expiresAt < ?').run(Date.now());
-        database.query('DELETE FROM oauthRefreshToken WHERE expiresAt < ?').run(Date.now());
+        // Tokens are provider-owned and stored as ISO text; expired rows cannot authorize access.
+        database.query("DELETE FROM oauthAccessToken WHERE expiresAt < ?").run(now);
+        database.query("DELETE FROM oauthRefreshToken WHERE expiresAt < ?").run(now);
+        pruneUnusedMcpClients(database);
       })();
     })();
 

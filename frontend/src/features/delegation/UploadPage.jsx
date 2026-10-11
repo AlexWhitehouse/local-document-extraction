@@ -7,7 +7,7 @@ import { Dropzone } from "../ui/Dropzone.jsx";
 import { Badge } from "../ui/Status.jsx";
 import { LoadingState } from "../ui/States.jsx";
 import { useAsyncAction } from "../ui/useAsyncAction";
-import { DelegatedCard, DelegatedLoadFailure } from "./DelegatedCard.jsx";
+import { DelegatedCard, DelegatedLoadFailure, ImpersonationNotice } from "./DelegatedCard.jsx";
 import { clientName, formatDateTime } from "./delegationFormat.js";
 import { useDelegatedResource } from "./useDelegatedResource.js";
 
@@ -16,7 +16,7 @@ const UNAVAILABLE_CODES = new Set(["mcp_upload_not_found", "mcp_connection_revok
 const CLOSED_CODES = new Set(["mcp_upload_expired", "mcp_upload_used", ...UNAVAILABLE_CODES]);
 
 // Stages one document for an MCP client. The app submits it for processing afterwards.
-export function UploadPage({ requests, uploadId, toast }) {
+export function UploadPage({ requests, uploadId, isImpersonating, toast }) {
   const upload = useDelegatedResource((signal) => requests.getUpload(uploadId, signal));
 
   if (upload.status === "loading") {
@@ -33,6 +33,14 @@ export function UploadPage({ requests, uploadId, toast }) {
       return (
         <DelegatedCard eyebrow="Upload for an app" title="Upload link expired" status={<Badge tone="neutral">Expired</Badge>}>
           <Callout tone="warning">This upload link has expired. Ask the app for a new one.</Callout>
+        </DelegatedCard>
+      );
+    }
+
+    if (upload.error?.code === "mcp_impersonation_not_allowed") {
+      return (
+        <DelegatedCard eyebrow="Upload for an app" title="Upload a document">
+          <ImpersonationNotice>Stop impersonating to use this link. Only the account owner can upload documents.</ImpersonationNotice>
         </DelegatedCard>
       );
     }
@@ -56,6 +64,7 @@ export function UploadPage({ requests, uploadId, toast }) {
     <UploadForm
       upload={upload.data}
       requests={requests}
+      isImpersonating={isImpersonating}
       toast={toast}
       isCurrent={upload.isCurrent}
       onUploaded={(result) => upload.replace({ ...upload.data, status: result?.status || "uploaded" })}
@@ -64,7 +73,7 @@ export function UploadPage({ requests, uploadId, toast }) {
   );
 }
 
-function UploadForm({ upload, requests, toast, isCurrent, onUploaded, onReload }) {
+function UploadForm({ upload, requests, isImpersonating, toast, isCurrent, onUploaded, onReload }) {
   const notify = useMemo(() => createNotifier(toast), [toast]);
   const name = clientName(upload.client);
   const workspace = upload.workspace?.name || "a workspace";
@@ -88,6 +97,8 @@ function UploadForm({ upload, requests, toast, isCurrent, onUploaded, onReload }
   }
 
   async function submit() {
+    if (isImpersonating) return;
+
     if (!file) {
       setFileError("Choose a file to upload.");
 
@@ -135,6 +146,9 @@ function UploadForm({ upload, requests, toast, isCurrent, onUploaded, onReload }
 
   return (
     <DelegatedCard {...header}>
+      {isImpersonating ? (
+        <ImpersonationNotice>Only the account owner can upload documents for {name}.</ImpersonationNotice>
+      ) : null}
       <form
         className="delegated-form"
         noValidate
@@ -149,7 +163,7 @@ function UploadForm({ upload, requests, toast, isCurrent, onUploaded, onReload }
             prompt={file ? file.name : "Drop a file or click to browse"}
             hint={`PDF, PNG, JPG or WEBP, up to ${formatUploadLimit(maxBytes)}`}
             multiple={false}
-            disabled={isUploading}
+            disabled={isUploading || isImpersonating}
             onFiles={choose}
           />
           {fileError ? (
@@ -160,7 +174,7 @@ function UploadForm({ upload, requests, toast, isCurrent, onUploaded, onReload }
         </div>
         <p className="muted">Link expires {formatDateTime(upload.expires_at)}.</p>
         <div className="actions delegated-actions">
-          <Button type="submit" pending={isUploading} pendingLabel="Uploading…">
+          <Button type="submit" pending={isUploading} pendingLabel="Uploading…" disabled={isImpersonating}>
             Upload
           </Button>
         </div>

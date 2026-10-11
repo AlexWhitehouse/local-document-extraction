@@ -216,7 +216,7 @@ export async function createLocalAuth({
           WHERE s.id = ? AND s.userId = ? AND s.expiresAt > ?
           AND (u.banned IS NOT 1 OR (u.banExpires IS NOT NULL AND u.banExpires <= ?))`,
               )
-              .get(session.session.id, session.user.id, Date.now(), Date.now()),
+              .get(session.session.id, session.user.id, new Date().toISOString(), new Date().toISOString()),
           ),
       };
 

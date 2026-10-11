@@ -74,7 +74,7 @@ export function createMcpManagement(input: {
         const loginRequired = (query.get("prompt") ?? "").split(" ").includes("login") &&
           (!session.createdAt || session.createdAt < Number(query.get("ba_iat")));
 
-        return Response.json({ client: info.client, requested_scopes: info.requestedScopes,
+        return Response.json({ client: info.client, redirect_uri: info.redirectUri, requested_scopes: info.requestedScopes,
           scopes: MCP_SCOPE_DESCRIPTIONS.filter((scope) => info.requestedScopes.includes(scope.id)),
           expires_at: info.expiresAt, login_required: loginRequired,
           workspaces: workspaceControl.listAcceptedWorkspaces({ userId: session.id }).map(({ id, name, role }) => ({ id, name, role })),

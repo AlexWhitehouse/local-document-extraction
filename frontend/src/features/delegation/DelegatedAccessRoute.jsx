@@ -128,5 +128,13 @@ export function DelegatedAccessRoute({
     );
   }
 
-  return <UploadPage key={sessionKey} requests={requests} uploadId={route.uploadId} toast={toast} />;
+  return (
+    <UploadPage
+      key={sessionKey}
+      requests={requests}
+      uploadId={route.uploadId}
+      isImpersonating={isImpersonating}
+      toast={toast}
+    />
+  );
 }

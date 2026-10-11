@@ -61,13 +61,13 @@ async function fixture() {
   const signedUp = z.object({ user: z.object({ id: z.string() }) }).parse(await signup.json());
   const workspace = control.listAcceptedWorkspaces({ userId: signedUp.user.id })[0]!;
 
-  const registered = await request("/api/auth/oauth2/register", { client_name: "Test client", redirect_uris: [callback],
+  const registered = await request("/api/auth/oauth2/register", { client_name: "Test client", client_uri: "https://declared.example", redirect_uris: [callback],
     token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] });
 
   expect(registered.status).toBe(201);
   const client = z.object({ client_id: z.string() }).parse(await registered.json());
 
-  async function authorize(scopes: string) {
+  async function authorize(scopes: string, acceptedScopes = scopes) {
     const verifier = randomBytes(32).toString("base64url");
 
     const query = new URLSearchParams({ client_id: client.client_id, redirect_uri: callback, response_type: "code",
@@ -81,24 +81,24 @@ async function fixture() {
     const oauthQuery = consentLocation.search.slice(1);
     const info = await request(`/v1/mcp/consent?oauth_query=${encodeURIComponent(oauthQuery)}`, undefined, cookie);
     expect(info.status, await info.clone().text()).toBe(200);
-    const accepted = await request("/v1/mcp/consent", { oauth_query: oauthQuery, accept: true, workspace_id: workspace.id, scopes: scopes.split(" ") }, cookie);
+    const accepted = await request("/v1/mcp/consent", { oauth_query: oauthQuery, accept: true, workspace_id: workspace.id, scopes: acceptedScopes.split(" ") }, cookie);
     expect(accepted.status).toBe(200);
     const redirect = z.object({ redirect_uri: z.string() }).parse(await accepted.json());
     const code = new URL(redirect.redirect_uri).searchParams.get("code");
     expect(code).not.toBeNull();
 
-    return { code, verifier };
+    return { code, verifier, oauthQuery, info: await info.json() };
   }
 
-  async function connect(scopes = "workspace:read documents:read offline_access") {
-    const { code, verifier } = await authorize(scopes);
+  async function connect(scopes = "workspace:read documents:read offline_access", acceptedScopes = scopes) {
+    const { code, verifier } = await authorize(scopes, acceptedScopes);
 
     const token = await request("/api/auth/oauth2/token", { grant_type: "authorization_code", client_id: client.client_id,
       code, code_verifier: verifier, redirect_uri: callback, resource: `${origin}/mcp` });
 
     expect(token.status).toBe(200);
 
-    return z.object({ access_token: z.string(), refresh_token: z.string().optional() }).parse(await token.json());
+    return z.object({ access_token: z.string(), refresh_token: z.string().optional(), expires_in: z.number(), scope: z.string() }).parse(await token.json());
   }
 
   async function mcp(token?: string, name = "workspace_context", args: JsonObject = {}) {
@@ -205,6 +205,84 @@ test("logout ends session-bound grants while explicitly offline grants survive",
   expect(refreshed.status).toBe(200);
 });
 
+test("declining offline access issues only a five-minute token without widening consent", async () => {
+  const app = await fixture();
+  const token = await app.connect("workspace:read offline_access", "workspace:read");
+  expect(token.refresh_token).toBeUndefined();
+  expect(token.expires_in).toBeLessThanOrEqual(300);
+  expect(token.expires_in).toBeGreaterThan(0);
+  expect(token.scope).toBe("workspace:read");
+  expect(app.auth.mcp!.grants.list(app.userId)[0]!.scopes).toEqual(["workspace:read"]);
+});
+
+test("expired persisted browser sessions stop session-bound tokens and captured browser authority", async () => {
+  const app = await fixture();
+  const online = await app.connect("workspace:read");
+  const offline = await app.connect();
+  const session = await app.auth.getSession(new Request(app.origin, { headers: { cookie: app.cookie } }));
+  expect(session?.isActive?.()).toBe(true);
+  expect((await app.mcp(online.access_token)).status).toBe(200);
+  expect(app.database.query<{ storage: string }, []>("SELECT typeof(expiresAt) AS storage FROM session LIMIT 1").get()!.storage).toBe("text");
+  app.database.query("UPDATE session SET expiresAt = ? WHERE userId = ?").run(new Date(Date.now() - 1000).toISOString(), app.userId);
+  expect(session?.isActive?.()).toBe(false);
+  expect((await app.mcp(online.access_token)).status).toBe(403);
+  expect((await app.mcp(offline.access_token)).status).toBe(200);
+});
+
+test("timed bans block offline tokens, refresh and captured browser authority until the ban expires", async () => {
+  const app = await fixture();
+  const token = await app.connect();
+  const session = await app.auth.getSession(new Request(app.origin, { headers: { cookie: app.cookie } }));
+  expect(session?.isActive?.()).toBe(true);
+  app.database.query("UPDATE user SET banned = 1, banExpires = ? WHERE id = ?").run(new Date(Date.now() + 60_000).toISOString(), app.userId);
+  expect(session?.isActive?.()).toBe(false);
+  expect((await app.mcp(token.access_token)).status).toBe(403);
+
+  const refresh = await app.request("/api/auth/oauth2/token", { grant_type: "refresh_token", client_id: app.client.client_id,
+    refresh_token: token.refresh_token!, resource: `${app.origin}/mcp` });
+
+  expect(refresh.ok).toBe(false);
+  app.database.query("UPDATE user SET banExpires = ? WHERE id = ?").run(new Date(Date.now() - 1000).toISOString(), app.userId);
+  expect(session?.isActive?.()).toBe(true);
+  expect((await app.mcp(token.access_token)).status).toBe(200);
+});
+
+test("consent exposes the signed callback separately from unverified client website metadata", async () => {
+  const app = await fixture();
+  const authorization = await app.authorize("workspace:read");
+  expect(authorization.info).toMatchObject({ redirect_uri: app.callback, client: { uri: "https://declared.example" } });
+  const tampered = new URLSearchParams(authorization.oauthQuery);
+  tampered.set("redirect_uri", "https://forged.example/callback");
+  const response = await app.request(`/v1/mcp/consent?oauth_query=${encodeURIComponent(tampered.toString())}`, undefined, app.cookie);
+  expect(response.status).toBe(400);
+  expect(await response.text()).toContain("mcp_authorization_expired");
+});
+
+test("impersonated sessions cannot deny consent, approve or deny actions, or upload files", async () => {
+  const app = await fixture();
+  const token = await app.connect("workspace:read workspace:api-key documents:submit");
+
+  const proposal = await output(await app.mcp(token.access_token, "request_action_approval", {
+    operation_id: "impersonated-action", request: { action: "workspace.rotate_api_key" },
+  }));
+
+  const upload = await output(await app.mcp(token.access_token, "request_document_upload"));
+  const authorization = await app.authorize("workspace:read");
+  app.database.query("UPDATE session SET impersonatedBy = ? WHERE userId = ?").run("admin-reviewer", app.userId);
+
+  for (const decision of ["approve", "deny"]) {
+    const response = await app.request(`/v1/mcp/approvals/${z.string().parse(proposal.request_id)}`, { decision }, app.cookie);
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain("mcp_impersonation_not_allowed");
+  }
+
+  const deniedConsent = await app.request("/v1/mcp/consent", { oauth_query: authorization.oauthQuery, accept: false }, app.cookie);
+  expect(deniedConsent.status).toBe(403);
+  const uploadResponse = await app.request(`/v1/mcp/uploads/${z.string().parse(upload.source_ref)}`, {}, app.cookie);
+  expect(uploadResponse.status).toBe(403);
+  expect(await uploadResponse.text()).toContain("mcp_impersonation_not_allowed");
+});
+
 test("live bans, membership loss and the off switch reject already-issued tokens", async () => {
   const app = await fixture();
   const token = await app.connect();
@@ -252,6 +330,52 @@ test("exact-action approval executes once, rejects stale inputs, and never persi
   const audit = JSON.stringify(app.database.query("SELECT * FROM mcp_security_activity").all());
   expect(audit).not.toContain(secret);
   expect(audit).not.toContain(token.access_token);
+});
+
+test("approval details and repeated decisions require current grant, scope and workspace authority", async () => {
+  const app = await fixture();
+  const token = await app.connect("workspace:read workspace:settings");
+
+  const approval = await output(await app.mcp(token.access_token, "request_action_approval", {
+    operation_id: "approval-read-authority", request: { action: "workspace.rename", name: "Confidential project" },
+  }));
+
+  const path = `/v1/mcp/approvals/${approval.request_id}`;
+  expect((await app.request(path, undefined, app.cookie)).status).toBe(200);
+  expect((await app.request(path, { decision: "approve" }, app.cookie)).status).toBe(200);
+  const grant = app.auth.mcp!.grants.list(app.userId)[0]!;
+
+  async function assertDenied() {
+    for (const body of [undefined, { decision: "approve" }]) {
+      const response = await app.request(path, body, app.cookie);
+
+      expect(response.status).toBe(403);
+      expect(await response.text()).not.toContain("Confidential project");
+    }
+  }
+
+  app.database.query("UPDATE workspace_memberships SET role = 'member' WHERE workspace_id = ? AND user_id = ?").run(app.workspace.id, app.userId);
+  await assertDenied();
+  app.database.query("UPDATE workspace_memberships SET role = 'owner' WHERE workspace_id = ? AND user_id = ?").run(app.workspace.id, app.userId);
+  app.database.query("UPDATE mcp_grants SET scopes_json = ? WHERE id = ?").run(JSON.stringify(["workspace:read"]), grant.id);
+  await assertDenied();
+  app.database.query("UPDATE mcp_grants SET scopes_json = ? WHERE id = ?").run(JSON.stringify(grant.scopes), grant.id);
+  app.auth.mcp!.grants.revoke(grant.id, app.userId);
+  await assertDenied();
+});
+
+test("pending approval details are unavailable after workspace membership ends", async () => {
+  const app = await fixture();
+  const token = await app.connect("workspace:read workspace:settings");
+
+  const approval = await output(await app.mcp(token.access_token, "request_action_approval", {
+    operation_id: "approval-removed-member", request: { action: "workspace.rename", name: "Confidential project" },
+  }));
+
+  app.database.query("DELETE FROM workspace_memberships WHERE workspace_id = ? AND user_id = ?").run(app.workspace.id, app.userId);
+  const response = await app.request(`/v1/mcp/approvals/${approval.request_id}`, undefined, app.cookie);
+  expect(response.status).toBe(403);
+  expect(await response.text()).not.toContain("Confidential project");
 });
 
 test("clients register HTTPS and loopback callbacks without an operator allowlist", async () => {

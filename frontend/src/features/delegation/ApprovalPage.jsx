@@ -9,8 +9,8 @@ import { Field, TextInput } from "../ui/Field.jsx";
 import { Badge } from "../ui/Status.jsx";
 import { LoadingState } from "../ui/States.jsx";
 import { useAsyncAction } from "../ui/useAsyncAction";
-import { DelegatedCard, DelegatedLoadFailure } from "./DelegatedCard.jsx";
-import { clientName, formatDateTime, parameterRows } from "./delegationFormat.js";
+import { DelegatedCard, DelegatedLoadFailure, ImpersonationNotice } from "./DelegatedCard.jsx";
+import { approvalGatewayUrl, clientName, formatDateTime, parameterRows } from "./delegationFormat.js";
 import { useDelegatedResource } from "./useDelegatedResource.js";
 
 const STATUS = {
@@ -57,6 +57,14 @@ export function ApprovalPage({ requests, approvalId, isImpersonating, toast }) {
   }
 
   if (approval.status === "error") {
+    if (approval.error?.code === "mcp_impersonation_not_allowed") {
+      return (
+        <DelegatedCard eyebrow="Approval request" title="Approval request">
+          <ImpersonationNotice>Stop impersonating to see this request. Only the account owner can decide it.</ImpersonationNotice>
+        </DelegatedCard>
+      );
+    }
+
     const unavailable = UNAVAILABLE_CODES.has(approval.error?.code) || [403, 404].includes(approval.error?.status);
 
     return (
@@ -92,6 +100,7 @@ function ApprovalDetails({ approval, requests, isImpersonating, toast, isCurrent
   const status = STATUS[approval.status] || STATUS.failed;
   const targets = Array.isArray(approval.targets) ? approval.targets : [];
   const parameters = parameterRows(approval.parameters);
+  const gatewayUrl = approvalGatewayUrl(approval.parameters);
   const secret = approval.requires_secret;
   const [secretValue, setSecretValue] = useState("");
   const [secretError, setSecretError] = useState("");
@@ -157,6 +166,14 @@ function ApprovalDetails({ approval, requests, isImpersonating, toast, isCurrent
             </dd>
           </div>
         ) : null}
+        {gatewayUrl ? (
+          <div>
+            <dt>Gateway address</dt>
+            <dd>
+              <code>{gatewayUrl}</code>
+            </dd>
+          </div>
+        ) : null}
         {parameters.map((row) => (
           <div key={row.name}>
             <dt>{row.name}</dt>
@@ -181,9 +198,7 @@ function ApprovalDetails({ approval, requests, isImpersonating, toast, isCurrent
           }}
         >
           {isImpersonating ? (
-            <Callout tone="warning" title="You're impersonating this user">
-              You can deny this request, but only the account owner can approve it.
-            </Callout>
+            <ImpersonationNotice>Only the account owner can approve or deny this request.</ImpersonationNotice>
           ) : null}
           {secret ? (
             <Field label={secret.label || "Secret"} hint="Studio keeps it. The app never sees it." error={secretError}>
@@ -201,7 +216,13 @@ function ApprovalDetails({ approval, requests, isImpersonating, toast, isCurrent
             </Field>
           ) : null}
           <div className="actions delegated-actions">
-            <Button variant="secondary" pending={isDenying} pendingLabel="Denying…" disabled={busy} onClick={() => void runDeny()}>
+            <Button
+              variant="secondary"
+              pending={isDenying}
+              pendingLabel="Denying…"
+              disabled={busy || isImpersonating}
+              onClick={() => void runDeny()}
+            >
               Deny
             </Button>
             <Button type="submit" pending={isApproving} pendingLabel="Approving…" disabled={busy || isImpersonating}>

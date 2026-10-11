@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { consentRedirectTarget, continuationPath, oauthQueryFromSearch } from "./delegationRequests.js";
-import { parameterRows } from "./delegationFormat.js";
+import { approvalGatewayUrl, callbackDestination, parameterRows } from "./delegationFormat.js";
 
 const ORIGIN = "https://studio.example";
 
@@ -52,4 +52,37 @@ describe("approval parameters", () => {
     ]);
     expect(parameterRows(["a"])).toEqual([]);
   });
+
+  it("shows the replace-key switch but still hides a secret value under that name or nested in a value", () => {
+    expect(
+      parameterRows({
+        replace_api_key: true,
+        configuration: { gateway_url: "https://g.example/v1", credential: "sk", nested: { api_key: "k", ok: false } },
+      }),
+    ).toEqual([
+      { name: "replace_api_key", value: "Yes" },
+      { name: "configuration", value: '{"gateway_url":"https://g.example/v1","credential":"Hidden","nested":{"api_key":"Hidden","ok":false}}' },
+    ]);
+    expect(parameterRows({ replace_api_key: "sk-live" })).toEqual([{ name: "replace_api_key", value: "Hidden" }]);
+  });
+
+  it("reads the gateway address only from a configuration", () => {
+    expect(approvalGatewayUrl({ configuration: { gateway_url: "https://g.example/v1" } })).toBe("https://g.example/v1");
+    expect(approvalGatewayUrl({ gateway_url: "https://top.example" })).toBe("");
+    expect(approvalGatewayUrl({ configuration: { gateway_url: 3 } })).toBe("");
+    expect(approvalGatewayUrl(null)).toBe("");
+  });
+});
+
+describe("consent callback destination", () => {
+  it.each([
+    ["https://claude.ai/api/mcp/auth_callback", { host: "claude.ai", url: "https://claude.ai/api/mcp/auth_callback", local: false }],
+    ["http://localhost:6274/cb", { host: "localhost:6274", url: "http://localhost:6274/cb", local: true }],
+    ["http://[::1]:9000/cb", { host: "[::1]:9000", url: "http://[::1]:9000/cb", local: true }],
+    ["com.example.desktop:/oauth/callback", { host: "com.example.desktop", url: "com.example.desktop:/oauth/callback", local: false }],
+  ])("describes %s", (value, expected) => expect(callbackDestination(value)).toEqual(expected));
+
+  it.each([undefined, null, "", "not a url", 42, "https://user:pass@claude.ai/cb"])("has no destination for %s", (value) =>
+    expect(callbackDestination(value)).toBeNull(),
+  );
 });
