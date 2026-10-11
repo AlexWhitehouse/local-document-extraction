@@ -57,7 +57,7 @@ test("an MCP client connects through verification, gets one approval and is disc
     await page.getByLabel("Password", { exact: true }).fill(ACCOUNT.password);
     await page.getByLabel("Confirm password").fill(ACCOUNT.password);
     await page.getByRole("button", { name: "Create account" }).click();
-    await expect(page.getByRole("status")).toContainText("We saved a verification link");
+    await expect(page.locator("[data-sonner-toast]", { hasText: "to open the verification link" })).toBeVisible();
 
     const verification = await harness.waitForVerificationMail(ACCOUNT.email);
     expect(new URL(verification.actionUrl).searchParams.get("callbackURL")).toContain("/mcp/connect?");

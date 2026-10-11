@@ -26,7 +26,7 @@ export async function submitSignUp(page: Page, harness: RuntimeHarness, account:
 
 export async function signUpAndVerify(page: Page, harness: RuntimeHarness, account: BrowserAccount): Promise<void> {
   await submitSignUp(page, harness, account);
-  await expect(page.getByRole("status")).toContainText("We saved a verification link");
+  await expect(page.locator("[data-sonner-toast]", { hasText: "to open the verification link" })).toBeVisible();
 
   const verificationMail = await harness.waitForVerificationMail(account.email);
   await page.goto(verificationMail.actionUrl);
