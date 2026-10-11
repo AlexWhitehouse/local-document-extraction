@@ -12,11 +12,9 @@ import { Field, Select, TextInput } from "../ui/Field.jsx";
 import { Popover } from "../ui/Popover.jsx";
 import { LoadMore } from "../ui/Pager.jsx";
 import { describeError } from "../../lib/describeError";
-import { FilterIcon, PacketIcon } from "../layout/Icons.jsx";
+import { DocumentIcon, FilterIcon, PacketIcon } from "../layout/Icons.jsx";
 
 const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
-
-const MODEL_SETUP_MESSAGE = "Set up a Model gateway on the Workspace page to upload";
 
 export function DocumentContextList({
   workspaceId,
@@ -44,8 +42,6 @@ export function DocumentContextList({
   listError = null,
   loadMoreError = null,
   onRetryDocumentList,
-  canUploadDocuments = false,
-  onUploadDocument,
   isDeletingDocuments = false,
   isExportingDocuments = false,
   onSearchChange,
@@ -88,6 +84,9 @@ export function DocumentContextList({
     : "Select all available documents";
 
   const isSelectionLocked = isDeletingDocuments || isExportingDocuments;
+  const isFiltered = Boolean(search || debouncedSearch || hasActiveFilters);
+  // An empty workspace has nothing to search or select; the page body offers the upload.
+  const isWorkspaceEmpty = !items.length && listStatus === "ready" && !isFiltered;
 
   const rowMotion = useRowMotion(
     items,
@@ -147,38 +146,40 @@ export function DocumentContextList({
 
   return (
     <>
-      <div className="context-search-field">
-        <div className="context-search-row">
-          <label className="context-select-all-control" title={selectAllLabel}>
-            <input
-              ref={(checkbox) => {
-                if (checkbox) {
-                  checkbox.indeterminate = areSomeAvailableDocumentsSelected;
-                }
-              }}
-              type="checkbox"
-              aria-label={selectAllLabel}
-              checked={areAllAvailableDocumentsSelected}
-              disabled={!items.length || isSelectionLocked}
-              onChange={(event) => {
-                onToggleAllDocumentSelections(availableDocumentIds, event.target.checked);
+      {isWorkspaceEmpty ? null : (
+        <div className="context-search-field">
+          <div className="context-search-row">
+            <label className="context-select-all-control" title={selectAllLabel}>
+              <input
+                ref={(checkbox) => {
+                  if (checkbox) {
+                    checkbox.indeterminate = areSomeAvailableDocumentsSelected;
+                  }
+                }}
+                type="checkbox"
+                aria-label={selectAllLabel}
+                checked={areAllAvailableDocumentsSelected}
+                disabled={!items.length || isSelectionLocked}
+                onChange={(event) => {
+                  onToggleAllDocumentSelections(availableDocumentIds, event.target.checked);
 
-                for (const id of availablePacketIds) onTogglePacketSelection(id, event.target.checked);
-              }}
-            />
-          </label>
-          <div className="context-search-shell">
-            <Field label="Search documents" labelHidden>
-              <TextInput
-                value={search}
-                onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="e.g. invoice.pdf"
+                  for (const id of availablePacketIds) onTogglePacketSelection(id, event.target.checked);
+                }}
               />
-            </Field>
-            <AdvancedJobFilters filters={filters} availableModels={availableModels} onFiltersChange={onFiltersChange} />
+            </label>
+            <div className="context-search-shell">
+              <Field label="Search documents" labelHidden>
+                <TextInput
+                  value={search}
+                  onChange={(event) => onSearchChange(event.target.value)}
+                  placeholder="e.g. invoice.pdf"
+                />
+              </Field>
+              <AdvancedJobFilters filters={filters} availableModels={availableModels} onFiltersChange={onFiltersChange} />
+            </div>
           </div>
         </div>
-      </div>
+      )}
       {packetError ? <ErrorState variant="inline" message={packetError} onRetry={onRetryPackets} /> : null}
       <ScrollArea
         className="context-list"
@@ -278,25 +279,10 @@ export function DocumentContextList({
           <ErrorState variant="inline" error={listError} onRetry={onRetryDocumentList} />
         ) : null}
         {!items.length && listStatus === "loading" ? <Skeleton rows={4} height={44} /> : null}
-        {!items.length && listStatus === "ready" && (debouncedSearch || hasActiveFilters) ? (
-          <p className="muted">No documents match these filters.</p>
+        {!items.length && listStatus === "ready" && isFiltered ? (
+          <EmptyState variant="inline" message="No documents match these filters." />
         ) : null}
-        {!items.length && listStatus === "ready" && !(debouncedSearch || hasActiveFilters) ? (
-          <EmptyState
-            variant="inline"
-            message="No documents yet"
-            action={
-              <Button
-                variant="secondary"
-                disabled={!canUploadDocuments}
-                title={canUploadDocuments ? undefined : MODEL_SETUP_MESSAGE}
-                onClick={onUploadDocument}
-              >
-                Upload documents
-              </Button>
-            }
-          />
-        ) : null}
+        {isWorkspaceEmpty ? <EmptyDocumentList /> : null}
         {hasMoreDocuments || hasMorePackets || loadMoreError ? (
           <LoadMore
             label="Load more documents"
@@ -311,6 +297,32 @@ export function DocumentContextList({
         ) : null}
       </ScrollArea>
     </>
+  );
+}
+
+// Shaped like the list it stands in for: one row that explains, then faded rows where documents will land.
+function EmptyDocumentList() {
+  return (
+    <div className="context-list-empty">
+      <div className="context-item-card context-item-document context-empty-row">
+        <span className="context-empty-icon" aria-hidden="true">
+          <DocumentIcon size={14} />
+        </span>
+        <div className="context-item-main">
+          <strong>No documents yet</strong>
+          <span>Uploads appear here</span>
+        </div>
+      </div>
+      {[0, 1, 2].map((row) => (
+        <div key={row} className="context-item-card context-item-document context-ghost-row" aria-hidden="true">
+          <span className="context-ghost-check" />
+          <div className="context-item-main">
+            <span className="context-ghost-line" />
+            <span className="context-ghost-line is-short" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

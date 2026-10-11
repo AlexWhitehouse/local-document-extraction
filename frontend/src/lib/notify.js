@@ -8,8 +8,11 @@ export const TOAST_DURATION = { success: 4000, error: 8000 };
 export const defaultToast = sonnerToast;
 
 // `link` is a follow-up such as opening related settings: { label, onClick }.
-function toastSettings(severity, { undo, retry, link, persistent } = {}) {
+// A shared `id` replaces the previous toast with that id instead of stacking another.
+function toastSettings(severity, { undo, retry, link, persistent, id } = {}) {
   const settings = { duration: persistent ? Infinity : TOAST_DURATION[severity] };
+
+  if (id) settings.id = id;
 
   if (undo) settings.action = { label: "Undo", onClick: undo };
   else if (retry) settings.action = { label: "Try again", onClick: retry };

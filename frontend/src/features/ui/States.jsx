@@ -104,6 +104,20 @@ export function ErrorState({ error, message, fallback = "This couldn't be loaded
   );
 }
 
+// A bordered notice centred in its region, with a tone stripe and an optional action beside it.
+// Used where a region has nothing to show: an original that can't open, or an empty workspace.
+export function StateNotice({ tone = "neutral", title, message, action, className }) {
+  return (
+    <div className={["ui-state-notice", `ui-tone-${tone}`, className].filter(Boolean).join(" ")} role="status">
+      <div>
+        <strong>{title}</strong>
+        {message ? <p>{message}</p> : null}
+      </div>
+      {action ? <div className="ui-state-notice-action">{action}</div> : null}
+    </div>
+  );
+}
+
 // The loading / error / empty / ready switch every list repeats.
 export function ListStatus({
   status,

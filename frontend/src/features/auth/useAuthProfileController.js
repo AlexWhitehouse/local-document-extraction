@@ -7,6 +7,9 @@ const PROFILE_SAVE_ERROR = "Couldn't save profile. Try again.";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Validation toasts share one id, so a newer problem replaces the last instead of stacking.
+const AUTH_FORM_TOAST_ID = "auth-form";
+
 export const ACCOUNT_PASSWORD_REQUIREMENTS = [
   { label: "At least 8 characters", test: (password) => password.length >= 8 },
   { label: "One uppercase letter", test: (password) => /[A-Z]/.test(password) },
@@ -46,10 +49,6 @@ export function useAuthProfileController({
   const notify = useMemo(() => createNotifier(toast), [toast]);
   // A delegated access page asks sign-in, verification and Google to return to it.
   const callback = continuationURL ? { callbackURL: new URL(continuationURL, window.location.origin).href } : {};
-
-  const [accountVerificationPromptEmail, setAccountVerificationPromptEmail] = useState("");
-
-  const [accountPasswordResetRequestedEmail, setAccountPasswordResetRequestedEmail] = useState("");
 
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -109,10 +108,17 @@ export function useAuthProfileController({
     };
   }, [isProfileMenuOpen]);
 
-  // Field errors sit under their inputs; the first invalid field takes focus.
+  // Invalid fields are outlined and the first one takes focus; its message is a toast.
   function rejectSubmit(errors) {
+    const [field, message] = Object.entries(errors)[0];
+
     setFieldErrors(errors);
-    setFocusRequest({ field: Object.keys(errors)[0] });
+    setFocusRequest({ field });
+    notifyFieldError(message);
+  }
+
+  function notifyFieldError(message) {
+    notify("auth.form", "failure", { message, id: AUTH_FORM_TOAST_ID });
   }
 
   function clearSubmitErrors() {
@@ -196,7 +202,12 @@ export function useAuthProfileController({
       setSignUpSubmitAttempted(false);
 
       if (authOptions.requireEmailVerification) {
-        setAccountVerificationPromptEmail(signedUpEmail);
+        // The verification link is must-act, so the toast stays until dismissed.
+        notify("auth.signUp", "success", {
+          message: getVerificationSentMessage(signedUpEmail, authOptions.mailDelivery),
+          persistent: true,
+        });
+        switchAuthMode("signin");
       } else {
         await refetchSession();
       }
@@ -247,7 +258,11 @@ export function useAuthProfileController({
         throw new Error(result.error.message || "Account password reset request failed");
       }
 
-      setAccountPasswordResetRequestedEmail(requestedEmail);
+      notify("auth.requestPasswordReset", "success", {
+        message: getResetLinkSentMessage(requestedEmail, authOptions.mailDelivery),
+        persistent: true,
+      });
+      switchAuthMode("signin");
     } catch {
       notify("auth.requestPasswordReset", "failure", { retry: () => void runRequestAccountPasswordReset() });
     }
@@ -280,8 +295,6 @@ export function useAuthProfileController({
     setAuthConfirmPassword("");
     setAuthPasswordTouched(false);
     setSignUpSubmitAttempted(false);
-    setAccountVerificationPromptEmail("");
-    setAccountPasswordResetRequestedEmail("");
     clearSubmitErrors();
   }
 
@@ -299,6 +312,8 @@ export function useAuthProfileController({
           : "";
 
     setFieldErrors((previous) => withFieldError(previous, field, error));
+
+    if (error) notifyFieldError(error);
   }
 
   function updateField(field, setValue, value) {
@@ -370,14 +385,9 @@ export function useAuthProfileController({
       focusRequest,
       shouldShowPasswordRequirements: shouldShowAccountPasswordRequirements,
       unmetPasswordRequirements: unmetAccountPasswordRequirements,
-      accountVerificationPromptEmail,
-      accountPasswordResetRequestedEmail,
       onSubmit: submitAuthForm,
       onNameChange: (value) => updateField("name", setAuthName, value),
-      onEmailChange: (nextEmail) => {
-        updateField("email", setAuthEmail, nextEmail);
-        setAccountVerificationPromptEmail("");
-      },
+      onEmailChange: (nextEmail) => updateField("email", setAuthEmail, nextEmail),
       onPasswordChange: (value) => {
         updateField("password", setAuthPassword, value);
 
@@ -450,6 +460,18 @@ function getConfirmPasswordError(password, confirmPassword) {
   if (!confirmPassword.trim()) return "Confirm your password.";
 
   return password !== confirmPassword ? "Passwords do not match." : "";
+}
+
+function getVerificationSentMessage(email, mailDelivery) {
+  return mailDelivery === "local"
+    ? `Account created. Run \`document-extraction mail\` to open the verification link for ${email}.`
+    : `Account created. Open the verification link we sent to ${email}.`;
+}
+
+function getResetLinkSentMessage(email, mailDelivery) {
+  return mailDelivery === "local"
+    ? `If an account exists for ${email}, run \`document-extraction mail\` to open its reset link.`
+    : `If an account exists for ${email}, we sent it a reset link.`;
 }
 
 function getSignInErrorMessage(message, mailDelivery) {

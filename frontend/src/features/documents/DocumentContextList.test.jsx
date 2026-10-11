@@ -465,7 +465,7 @@ describe("DocumentContextList", () => {
 
     const sharedProps = {
       search: "",
-      documents: [],
+      documents: [{ job_id: "a", source_name: "a.pdf", status: "completed" }],
       selectedDocumentId: "",
       selectedDocumentIds: [],
       debouncedSearch: "",
@@ -527,7 +527,7 @@ describe("DocumentContextList", () => {
     const { container } = render(
       <DocumentContextList
         search=""
-        documents={[]}
+        documents={[{ job_id: "a", source_name: "a.pdf", status: "completed" }]}
         selectedDocumentId=""
         debouncedSearch=""
         filters={{ dateFrom: "", dateTo: "", model: "" }}

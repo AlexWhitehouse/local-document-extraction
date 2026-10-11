@@ -938,6 +938,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               onViewingLayoutChange={setDocumentViewingLayout}
               sourceStorageConfigured={sourceStorageConfigured}
               onImproveTemplate={hasApiAccess ? improveTemplate : undefined}
+              onOpenWorkspace={() => setActivePage("workspace")}
             />
           </>
         ) : null}
@@ -1033,6 +1034,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
       if (errors.password || errors.confirmPassword) {
         setFieldErrors(errors);
         document.getElementById(errors.password ? "reset-new-password" : "reset-confirm-password")?.focus();
+        notify("auth.form", "failure", { message: errors.password || errors.confirmPassword, id: "auth-form" });
 
         return;
       }
@@ -1054,6 +1056,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
         setConfirmNewPassword("");
         setPasswordTouched(false);
         setSubmitAttempted(false);
+        notify("auth.resetPassword", "success");
         onResetComplete();
       } catch {
         notify("auth.resetPassword", "failure");
@@ -1073,7 +1076,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
             <form className="panel auth-panel" onSubmit={submitNewPassword}>
               <h2>Set new password</h2>
               <div className="row auth-form-grid">
-                <Field label="New password" error={fieldErrors.password} className="auth-field">
+                <Field label="New password" invalid={Boolean(fieldErrors.password)} className="auth-field">
                   <TextInput
                     id="reset-new-password"
                     type="password"
@@ -1091,7 +1094,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
                     }}
                   />
                 </Field>
-                <Field label="Confirm new password" error={fieldErrors.confirmPassword} className="auth-field">
+                <Field label="Confirm new password" invalid={Boolean(fieldErrors.confirmPassword)} className="auth-field">
                   <TextInput
                     id="reset-confirm-password"
                     type="password"
@@ -1104,6 +1107,7 @@ function AccountPasswordResetRoute({ resetState, onResetComplete, authOptions, c
                     onBlur={() => {
                       if (confirmNewPassword && hasPasswordMismatch) {
                         setFieldErrors((previous) => ({ ...previous, confirmPassword: "Passwords do not match." }));
+                        notify("auth.form", "failure", { message: "Passwords do not match.", id: "auth-form" });
                       }
                     }}
                   />

@@ -2,22 +2,24 @@ import React, { cloneElement, forwardRef, isValidElement, useId } from "react";
 import "./Field.css";
 
 // Label, hint and error around one control. Wires id, aria-describedby and
-// aria-invalid onto the child so every form reports the same way.
-export function Field({ label, hint, error, labelHidden = false, className, children }) {
+// aria-invalid onto the child so every form reports the same way. `invalid`
+// marks the control without error text, for forms that report errors by toast.
+export function Field({ label, hint, error, invalid = false, labelHidden = false, className, children }) {
   const generated = useId();
   const control = isValidElement(children) ? children : null;
   const id = control?.props.id || generated;
   const hintId = hint ? `${id}-hint` : undefined;
   const errorId = error ? `${id}-error` : undefined;
   const describedBy = [control?.props["aria-describedby"], hintId, errorId].filter(Boolean).join(" ") || undefined;
+  const isInvalid = Boolean(error) || invalid;
 
   return (
-    <div className={["ui-field", error && "has-error", className].filter(Boolean).join(" ")}>
+    <div className={["ui-field", isInvalid && "has-error", className].filter(Boolean).join(" ")}>
       <label htmlFor={id} className={labelHidden ? "sr-only" : "ui-field-label"}>
         {label}
       </label>
       {control
-        ? cloneElement(control, { id, "aria-describedby": describedBy, "aria-invalid": error ? true : undefined })
+        ? cloneElement(control, { id, "aria-describedby": describedBy, "aria-invalid": isInvalid ? true : undefined })
         : children}
       {hint ? (
         <p id={hintId} className="ui-field-hint">

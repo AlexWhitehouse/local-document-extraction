@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Button } from "../ui/Button.jsx";
+import { StateNotice } from "../ui/States.jsx";
 import { useDocumentOriginal } from "./documentViewing";
 
 // Only these types reach the viewer. A PDF iframe must never receive another type, because an
@@ -12,14 +13,16 @@ const PDF_VIEW_FRAGMENT = "#pagemode=none&navpanes=0&view=FitH";
 
 const AVAILABILITY_COPY = {
   unavailable: [
+    "warning",
     "Original unavailable",
     "The original file can't be opened right now. Your results aren't affected.",
   ],
   missing: [
+    "danger",
     "Original file not found",
     "The original file is no longer available. Your results aren't affected.",
   ],
-  not_retained: ["Original not retained", "Only the results are available for this document."],
+  not_retained: ["neutral", "Original not retained", "Only the results are available for this document."],
 };
 
 export function SourceFilePreview({ document: job, loadOriginal }) {
@@ -94,19 +97,20 @@ function ImagePreview({ url, name }) {
 }
 
 function AvailabilityNotice({ status, onRetry }) {
-  const [title, message] = AVAILABILITY_COPY[status] ?? AVAILABILITY_COPY.unavailable;
+  const [tone, title, message] = AVAILABILITY_COPY[status] ?? AVAILABILITY_COPY.unavailable;
 
   return (
-    <div className={`source-availability ${status}`} role="status">
-      <div>
-        <strong>{title}</strong>
-        <p>{message}</p>
-      </div>
-      {status === "unavailable" && onRetry ? (
-        <Button variant="secondary" onClick={onRetry}>
-          Try again
-        </Button>
-      ) : null}
-    </div>
+    <StateNotice
+      tone={tone}
+      title={title}
+      message={message}
+      action={
+        status === "unavailable" && onRetry ? (
+          <Button variant="secondary" onClick={onRetry}>
+            Try again
+          </Button>
+        ) : null
+      }
+    />
   );
 }

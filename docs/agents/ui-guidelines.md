@@ -9,6 +9,7 @@ These rules keep the SPA consistent. Issue #64 introduced them. When a change co
 | Situation | Channel | Rules |
 | --- | --- | --- |
 | Field validation (required, format, mismatch, range) | Inline under the field | Set `aria-invalid` and `aria-describedby`. On submit, focus the first invalid field. Validate on submit and on blur. Never a toast. |
+| Field validation on the sign-in, sign-up and reset password screens | Toast, with the field outlined | The one exception to inline validation: these screens show no inline text except the password requirements list. Use `Field`'s `invalid` prop to outline the field without text. Focus the first invalid field and toast its message. Each new problem replaces the last toast (shared id `auth-form`). Sent-link confirmations are persistent success toasts. |
 | Form-level submit failure | Failure toast | Keep the user's input. Text comes from `describeError`. |
 | Completed user action | Action toast through `lib/notify.js` | Name the target. Show it as soon as the mutation succeeds and refresh in the background. Don't also show the outcome inline. |
 | Result of a check the user ran (for example a connection test) | Toast | Never inline text beside the button. The button may flash a brief state, such as a success tick, then return to its label. |
@@ -44,6 +45,7 @@ Use these before writing new markup. Most live in `frontend/src/features/ui/`.
 | File picking | `Dropzone`, with `features/documents/sourceFileValidation.js` |
 | Paging | `Pager`, `LoadMore` |
 | Load states | `EmptyState`, `LoadingState`, `Spinner`, `Skeleton`, `ErrorState`, `ListStatus` from `States.jsx` |
+| A region with nothing to show (an unavailable original, an empty workspace) | `StateNotice` from `States.jsx` (`tone`, `title`, `message`, `action`) |
 | Pending actions | `useAsyncAction`. There is no app-wide busy flag. |
 | Toasts | `createNotifier(toast)` from `lib/notify.js`, the only module that imports `sonner`. Messages live in `lib/toastNotifications.js`, one per action. |
 | Errors | `describeError` from `lib/describeError.js`. Never render `error.message`, response bodies, HTML or stack traces. |
