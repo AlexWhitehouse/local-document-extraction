@@ -1,3 +1,4 @@
+import { commitDelegatedProductMutation } from "./localActor";
 import { isJsonObject, isJsonArray, isNumber, parseJson, isString } from "../../shared/json";
 import {
   withAuthorizedProductStore,
@@ -53,7 +54,7 @@ export async function handleDocumentProcessingRequest({
   return withAuthorizedProductStore(
     product,
     request,
-    async ({ store, workspace, signal: workspaceSignal }) => {
+    async ({ store, workspace, signal: workspaceSignal, assertAuthorized }) => {
       const signal = AbortSignal.any([workspaceSignal, request.signal]);
 
       try {
@@ -61,6 +62,7 @@ export async function handleDocumentProcessingRequest({
           const jobId = decodeURIComponent(templateMatch[1]!);
 
           const body = parseJson(await request.text());
+          assertAuthorized();
 
           if (!isJsonObject(body) || !isString(body.template_id) || !body.template_id.trim())
             throw new HttpError(400, "invalid_template_id", "Choose a valid template");
@@ -231,6 +233,7 @@ export async function handleDocumentProcessingRequest({
           );
 
           signal.throwIfAborted();
+          assertAuthorized();
 
           const accepted = store.acceptDocumentPacketPlan({
             packetId,
@@ -270,7 +273,15 @@ export async function handleDocumentProcessingRequest({
               started.push(jobId);
             }
 
-            const deleted = store.deleteDocumentPacket({ packetId });
+            assertAuthorized();
+
+            const deleted = commitDelegatedProductMutation(product.delegation, store, () => {
+              const removed = store.deleteDocumentPacket({ packetId });
+
+              if (!removed) throw new HttpError(404, "not_found", "Packet not found.");
+
+              return removed;
+            });
 
             if (!deleted) throw new HttpError(404, "not_found", "Packet not found");
 

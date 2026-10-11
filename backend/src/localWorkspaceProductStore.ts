@@ -1,4 +1,5 @@
 import { parseJson, type JsonValue } from "../../shared/json";
+import { createMcpProductReceipts } from "./mcp/operations";
 import {
   hasFilesystemErrorCode,
   assertRealStateDirectorySync,
@@ -211,6 +212,7 @@ export type LocalEvaluationDocumentDeletionIntent = {
 type EvaluationDocumentAuthor = { userId: string; name: string };
 
 export type LocalWorkspaceProductStore = DocumentProcessingStore &
+  ReturnType<typeof createMcpProductReceipts> &
   ReturnType<typeof createModelCostStore> &
   ReturnType<typeof createWorkspaceCostStore> &
   ReturnType<typeof createWorkspaceDocumentProcessingSettingsStore> & {
@@ -772,6 +774,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
       .get(operationId);
 
   const store: LocalWorkspaceProductStore = {
+    ...createMcpProductReceipts(database),
     batch: (operation) => database.transaction(operation).immediate(),
     ...processing,
     ...modelCosts,

@@ -86,10 +86,12 @@ const server = Bun.serve<{ workspaceId: string }>({
       return Response.json(publicLocalConfiguration(configuration), { headers: { "cache-control": "no-store" } });
     }
 
-    if (request.method === "POST" && SUBMISSION_PATHS.includes(pathname)) {
-      // Model-backed generation and evaluation can outlast Bun's idle timeout.
-      if (LONG_RUNNING_SUBMISSION_PATHS.includes(pathname)) bunServer.timeout(request, 0);
+    // Model-backed requests and browser uploads can outlast Bun's idle timeout.
+    if (request.method === "POST" && (pathname === "/mcp" || /^\/v1\/mcp\/(uploads|approvals)\//.test(pathname) || LONG_RUNNING_SUBMISSION_PATHS.includes(pathname))) {
+      bunServer.timeout(request, 0);
+    }
 
+    if (request.method === "POST" && SUBMISSION_PATHS.includes(pathname)) {
       return localSubmissionAdmission.run(request, () => runtimeFetch(request));
     }
 
@@ -397,6 +399,7 @@ const localEvaluations = createLocalEvaluations({
 });
 
 const application = createLocalApplication({
+  submissionAdmission: localSubmissionAdmission,
   evaluationDocuments: localEvaluationDocuments,
   evaluations: localEvaluations,
   modelGatewayRequestTimeoutMs: String(configuration.modelGatewayRequestTimeoutMs),

@@ -55,6 +55,16 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           ws: true,
         },
+        // MCP protocol endpoint and OAuth discovery. Only the exact /mcp path is the
+        // protocol; /mcp/connect, /mcp/approvals/* and /mcp/uploads/* are SPA pages.
+        "^/mcp(?:[?#].*)?$": {
+          target: origin.origin,
+          changeOrigin: true,
+        },
+        "/.well-known": {
+          target: origin.origin,
+          changeOrigin: true,
+        },
       },
     },
   };

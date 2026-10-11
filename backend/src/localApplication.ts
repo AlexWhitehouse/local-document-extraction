@@ -18,7 +18,11 @@ import {
   PdfSourceFileLimitError,
   countPdfSourceFilePages,
 } from "./lib/sourceFilePageCount";
-import { parseJsonBody, validateExtractRequest, validateTemplatePayload } from "./lib/validation";
+import { parseJsonBody, validateExtractRequest } from "./lib/validation";
+import { commitDelegatedProductMutation, authorizeWorkspaceActor, type WorkspaceActor, type DelegatedProductAccess } from "./localActor";
+import { createMcpApplication } from "./mcp/server";
+import { createLocalSubmissionAdmission } from "./localSubmissionAdmission";
+import { createWorkspaceTemplate, updateWorkspaceTemplate } from "./workspaceTemplateOperations";
 import { normalizeTemplateTagName } from "../../shared/templateTags";
 import { buildJobExportInWorker } from "./localJobExportWorker";
 import { assertKnownDocumentRequestBodyLength } from "./localDocumentBodyLimit";
@@ -71,6 +75,7 @@ let activeJobExports = 0;
 
 /** Everything a Workspace product route needs; present only when the app has local state and control. */
 export type ProductServices = {
+  delegation?: DelegatedProductAccess;
   auth: LocalAuth;
   access: LocalWorkspaceProductDataAccess;
   operations: LocalWorkspaceProductOperations;
@@ -124,6 +129,7 @@ export function createLocalApplication({
   workspaceControl,
   workspaceDeletion,
   workspaceProductOperations,
+  submissionAdmission,
 }: {
   evaluations?: { handle(request: Request): Promise<Response> };
   /** The session-only Evaluation library; it applies its own origin, body and no-store rules. */
@@ -148,6 +154,7 @@ export function createLocalApplication({
   workspaceControl?: LocalWorkspaceControl;
   workspaceDeletion?: LocalWorkspaceDeletion;
   workspaceProductOperations?: LocalWorkspaceProductOperations;
+  submissionAdmission?: Pick<ReturnType<typeof createLocalSubmissionAdmission>, "run">;
 } = {}): FetchApplication {
   const localJobPageSize = Number.isSafeInteger(jobPageSize) && jobPageSize > 0 ? jobPageSize : DEFAULT_JOB_PAGE_SIZE;
   const jobCursorSecret = randomBytes(32);
@@ -187,9 +194,20 @@ export function createLocalApplication({
     }
   }
 
+  const mcpApplication = product && auth?.mcp ? createMcpApplication({ product, authorization: auth.mcp, runtime: {
+    maxSourceFileBytes, modelGatewayRequestTimeoutMs, scheduleQueuedJob, liveUpdateHub, onWorkspaceModelConfigurationChanged,
+    workspaceDeletion: localWorkspaceDeletion, admission: submissionAdmission ?? createLocalSubmissionAdmission(),
+  } }) : null;
+
   return async (request) => {
     const url = new URL(request.url);
     const { pathname } = url;
+
+    if (pathname === "/mcp" || pathname.startsWith("/v1/mcp/")) {
+      return mcpApplication ? mcpApplication(request) : errorResponse(404, "mcp_disabled", "Connected apps are turned off for this installation.");
+    }
+
+    if (pathname.startsWith("/.well-known/")) return auth ? auth.handler(request) : routeNotFound();
 
     if (
       evaluationDocuments &&
@@ -469,6 +487,7 @@ export async function withAuthorizedProductStore(
     store: LocalWorkspaceProductStoreHandle;
     signal: AbortSignal;
     workspace: AuthorizedWorkspace;
+    assertAuthorized(): void;
   }) => Response | Promise<Response>,
   { sessionOnly = false }: { sessionOnly?: boolean } = {},
 ): Promise<Response> {
@@ -482,14 +501,23 @@ export async function withAuthorizedProductStore(
   const authorization = await authorizeLocalProductRequest(product, request);
 
   if ("response" in authorization) return authorization.response;
-  const { workspace } = authorization;
+  const { workspace, actor } = authorization;
 
   return product.access
-    .run({ workspaceId: workspace.id, mode: "create" }, (context) => work({ ...context, workspace }))
+    .run({ workspaceId: workspace.id, mode: "create" }, (context) => {
+      const assertAuthorized = () => {
+        authorizeWorkspaceActor({ actor, workspaceId: workspace.id, workspaceControl: product.workspaceControl, delegation: product.delegation });
+        product.delegation?.assertCurrent?.(context.store);
+      };
+
+      assertAuthorized();
+
+      return work({ ...context, workspace, assertAuthorized });
+    })
     .catch(workspaceProductDataAccessErrorResponse);
 }
 
-function handleTemplateGeneration({
+export function handleTemplateGeneration({
   product,
   request,
   maxSourceFileBytes,
@@ -567,7 +595,7 @@ function handleTemplateGeneration({
   });
 }
 
-function handleTemplateRequest({
+export function handleTemplateRequest({
   product,
   productAnalytics,
   request,
@@ -578,7 +606,7 @@ function handleTemplateRequest({
   request: Request;
   templateId: string;
 }): Promise<Response> {
-  return withAuthorizedProductStore(product, request, async ({ store, workspace }) => {
+  return withAuthorizedProductStore(product, request, async ({ store, workspace, assertAuthorized }) => {
     try {
       ensureStarterTemplate(product.workspaceControl, store, workspace.id);
 
@@ -591,16 +619,10 @@ function handleTemplateRequest({
       }
 
       if (templateId && request.method === "PATCH") {
-        const patch = validateTemplatePayload(parseJsonBody(await request.text()), true);
+        const patch = parseJsonBody(await request.text());
+        assertAuthorized();
 
-        const updated = store.updateTemplate({
-          templateId,
-          name: patch.name,
-          description: patch.description,
-          fields: patch.fields,
-          tags: patch.tags,
-          updatedAt: nowIso(),
-        });
+        const updated = updateWorkspaceTemplate(store, templateId, patch);
 
         if (!updated) throw templateNotFound();
         recordLocalProductAnalytics(productAnalytics, {
@@ -626,16 +648,10 @@ function handleTemplateRequest({
       }
 
       if (!templateId && request.method === "POST") {
-        const payload = validateTemplatePayload(parseJsonBody(await request.text()));
+        const payload = parseJsonBody(await request.text());
+        assertAuthorized();
 
-        const created = store.createTemplate({
-          templateId: newId("tpl"),
-          name: payload.name!,
-          description: payload.description || null,
-          fields: payload.fields || [],
-          tags: payload.tags,
-          createdAt: nowIso(),
-        });
+        const created = createWorkspaceTemplate(store, payload);
 
         recordLocalProductAnalytics(productAnalytics, {
           type: "template_created",
@@ -643,7 +659,7 @@ function handleTemplateRequest({
           templateId: created.template_id,
           templateVersion: created.version,
           status: created.status,
-          fieldCount: payload.fields?.length ?? 0,
+          fieldCount: store.getTemplate(created.template_id)?.fields.length ?? 0,
         });
 
         return Response.json(created, { status: 201 });
@@ -704,13 +720,14 @@ function handleTemplateTagRequest({
   });
 }
 
-function handleLocalDocumentSubmission({
+export function handleLocalDocumentSubmission({
   product,
   maxSourceFileBytes,
   liveUpdateHub,
   productAnalytics,
   request,
   scheduleQueuedJob,
+  submissionId,
 }: {
   product: ProductServices;
   maxSourceFileBytes: number;
@@ -718,16 +735,21 @@ function handleLocalDocumentSubmission({
   productAnalytics?: LocalProductAnalytics;
   request: Request;
   scheduleQueuedJob: (job: LocalQueuedExtractionJob) => void | Promise<void>;
+  submissionId?: string;
 }): Promise<Response> {
   const { sourceFileStore, sourceStorage, stateDirectory, workspaceControl } = product;
 
   return withAuthorizedProductStore(
     product,
     request,
-    async ({ store: productStore, signal: workspaceSignal, workspace }) => {
+    async ({ store: productStore, signal: workspaceSignal, workspace, assertAuthorized }) => {
       const workspaceId = workspace.id;
 
-      const accept = <T>(operation: () => T) => commitProductWrite(productStore, workspaceSignal, operation);
+      const accept = <T>(operation: () => T) => commitProductWrite(productStore, workspaceSignal, () => {
+        assertAuthorized();
+
+        return operation();
+      });
 
       // Captured once, when the server begins accepting the upload; later setting changes apply to later uploads.
       const sourceRetained = retainsNewOriginals(sourceStorage, workspace);
@@ -814,7 +836,7 @@ function handleLocalDocumentSubmission({
             ? (productStore.getTemplate(template.template_id)?.fields.length ?? 0)
             : 0;
 
-          const jobId = newId(isPacket ? "pkt" : "job");
+          const jobId = submissionId ?? newId(isPacket ? "pkt" : "job");
           const submittedAt = nowIso();
 
           const sourceFileKey = temporaryPath
@@ -1039,7 +1061,7 @@ function handleLocalDocumentSubmission({
   );
 }
 
-function handleLocalJobRead({
+export function handleLocalJobRead({
   product,
   jobId,
   jobCursorSecret,
@@ -1054,7 +1076,7 @@ function handleLocalJobRead({
 }): Promise<Response> {
   const { operations, sourceFileStore } = product;
 
-  return withAuthorizedProductStore(product, request, async ({ store: productStore, workspace }) => {
+  return withAuthorizedProductStore(product, request, async ({ store: productStore, workspace, assertAuthorized }) => {
     const workspaceId = workspace.id;
     let documentDeletionStarted = false;
 
@@ -1062,7 +1084,16 @@ function handleLocalJobRead({
       if (request.method === "DELETE") {
         await operations.beginDocumentDeletion({ workspaceId, jobId });
         documentDeletionStarted = true;
-        const deleted = productStore.deleteExtractionJob({ jobId });
+        assertAuthorized();
+
+        const deleted = commitDelegatedProductMutation(product.delegation, productStore, () => {
+          const removed = productStore.deleteExtractionJob({ jobId });
+
+          if (!removed && product.delegation?.receipt) throw new HttpError(404, "not_found", "Document not found.");
+
+          return removed;
+        });
+
         // A remote original is handed to durable object cleanup before the deletion intent clears;
         // without object cleanup configured, the intent stays for the sweep to retry.
         const releasedRemote = !deleted?.retained_object_key || Boolean(product.sourceObjects);
@@ -1840,9 +1871,17 @@ function decodeJobCursor({
 }
 
 async function authorizeLocalProductRequest(
-  { auth, workspaceControl }: ProductServices,
+  product: ProductServices,
   request: Request,
-): Promise<{ workspace: AuthorizedWorkspace } | { response: Response }> {
+): Promise<{ workspace: AuthorizedWorkspace; actor: WorkspaceActor } | { response: Response }> {
+  const { auth, workspaceControl, delegation } = product;
+
+  if (delegation) {
+    const workspace = delegation.grants.authorize(delegation.actor, workspaceControl, delegation.scope);
+
+    return { workspace, actor: delegation.actor };
+  }
+
   const apiKey = bearerApiKey(request);
   const session = apiKey ? null : await auth.getSession(request);
   const workspaceId = request.headers.get("x-workspace-id")?.trim() || "";
@@ -1853,7 +1892,9 @@ async function authorizeLocalProductRequest(
       ? workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId: session.id })
       : null;
 
-  if (workspace) return { workspace };
+  if (workspace && apiKey) return { workspace, actor: { kind: "api-key", apiKey } };
+
+  if (workspace && session) return { workspace, actor: { kind: "browser", session } };
 
   return { response: apiKey || session ? forbidden() : unauthorized() };
 }
@@ -1963,7 +2004,14 @@ function workspaceErrorResponse(cause: unknown): Response {
 }
 
 function workspaceProductDataAccessErrorResponse(cause: unknown): Response {
+  if (cause instanceof HttpError) return errorResponse(cause.status, cause.code, cause.message);
+
   if (!(cause instanceof LocalWorkspaceProductDataAccessError)) throw cause;
+
+  if (cause.code === "unexpected" && cause.cause instanceof HttpError) {
+    return errorResponse(cause.cause.status, cause.cause.code, cause.cause.message);
+  }
+
   const retryable = { "cache-control": "no-store", "retry-after": "1" };
 
   switch (cause.code) {

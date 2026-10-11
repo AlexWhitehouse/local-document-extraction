@@ -35,6 +35,20 @@ const CODE_MESSAGES = {
   capacity_exhausted: "Studio is busy. Try again in a moment.",
   request_body_too_large: "This is too large to upload.",
   session_required: "Your session has ended. Sign in again.",
+  mcp_disabled: "Connected apps are turned off for this installation.",
+  mcp_authorization_expired: "This connection request has expired. Connect again from your app.",
+  mcp_authorization_invalid: "This connection request isn't valid. Connect again from your app.",
+  mcp_impersonation_not_allowed: "You can't connect apps or approve actions while impersonating.",
+  mcp_connection_not_found: "This app is already disconnected.",
+  mcp_connection_revoked: "This app was disconnected.",
+  mcp_approval_not_found: "This approval request doesn't exist.",
+  mcp_approval_stale: "The workspace changed since this was requested. Ask the app to try again.",
+  mcp_approval_expired: "This approval request has expired. Ask the app to try again.",
+  mcp_upload_not_found: "This upload link doesn't exist.",
+  mcp_upload_expired: "This upload link has expired. Ask the app for a new one.",
+  mcp_upload_used: "A document was already uploaded with this link.",
+  mcp_workspace_unavailable: "You no longer have access to this workspace.",
+  mcp_scope_invalid: "Choose access the app asked for.",
 };
 
 const STATUS_MESSAGES = {

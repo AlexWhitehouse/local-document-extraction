@@ -8,6 +8,7 @@ import "./Dropzone.css";
 // caller can place its own buttons, as the evaluation drop zone does.
 export function Dropzone({
   label,
+  prompt,
   hint,
   multiple = true,
   disabled = false,
@@ -76,7 +77,9 @@ export function Dropzone({
           <span className="ui-dropzone-icon" aria-hidden="true">
             <UploadIcon size={18} />
           </span>
-          <strong>{multiple ? "Drop files or click to browse" : "Drop a sample document or click to browse"}</strong>
+          <strong>
+            {prompt || (multiple ? "Drop files or click to browse" : "Drop a sample document or click to browse")}
+          </strong>
           {hint ? <span className="ui-dropzone-hint">{hint}</span> : null}
           {children}
         </button>

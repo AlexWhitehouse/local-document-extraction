@@ -31,6 +31,7 @@ export function useAuthProfileController({
   onClearSessionWorkspaceData,
   onSessionChanging,
   confirmSignOut,
+  continuationURL = "",
 }) {
   const [authMode, setAuthMode] = useState(initialAuthMode);
   const [isStartingGoogleSignIn, setIsStartingGoogleSignIn] = useState(false);
@@ -43,6 +44,8 @@ export function useAuthProfileController({
   const [fieldErrors, setFieldErrors] = useState({});
   const [focusRequest, setFocusRequest] = useState(null);
   const notify = useMemo(() => createNotifier(toast), [toast]);
+  // A delegated access page asks sign-in, verification and Google to return to it.
+  const callback = continuationURL ? { callbackURL: new URL(continuationURL, window.location.origin).href } : {};
 
   const [accountVerificationPromptEmail, setAccountVerificationPromptEmail] = useState("");
 
@@ -139,6 +142,7 @@ export function useAuthProfileController({
       const result = await authClient.signIn.email({
         email: authEmail.trim(),
         password: authPassword,
+        ...callback,
       });
 
       if (result.error) {
@@ -178,6 +182,7 @@ export function useAuthProfileController({
         name: authName.trim(),
         email: authEmail.trim(),
         password: authPassword,
+        ...callback,
       });
 
       if (result.error) {
@@ -206,7 +211,9 @@ export function useAuthProfileController({
     try {
       const result = await authClient.signIn.social({
         provider: "google",
-        callbackURL: window.location.pathname === "/reset-password" ? window.location.origin : window.location.href,
+        callbackURL:
+          callback.callbackURL ||
+          (window.location.pathname === "/reset-password" ? window.location.origin : window.location.href),
       });
 
       if (result?.error) {

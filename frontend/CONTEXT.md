@@ -156,6 +156,22 @@ _Avoid_: fallback workspace, offline workspace
 The UI surface for generating and showing a workspace-scoped credential intended for external API clients.
 _Avoid_: frontend auth mode, session replacement
 
+**Delegated actor**:
+An MCP client acting for one signed-in user through a **Grant**. The browser never acts as one: it only shows consent, approvals, uploads and **Connected apps** to the user who owns the Grant.
+_Avoid_: bot user, API user, impersonation
+
+**Connected app**:
+An MCP client the user has connected, shown once per active **Grant** with its identity and provenance, Workspace, granted access, connection time and last use.
+_Avoid_: integration, OAuth client, API key
+
+**Grant**:
+The user's consent for one **Connected app** to use one accepted Workspace with a chosen subset of the access it requested. Disconnecting revokes it.
+_Avoid_: token, session, permission set
+
+**Delegated access page**:
+A page an MCP client links to: `/mcp/connect` (sign-in and consent), `/mcp/approvals/{id}` (approve one sensitive action) and `/mcp/uploads/{id}` (stage one document). It is account-level and keeps sign-in's focused frame without the sidebar.
+_Avoid_: OAuth screen, popup, Workspace page
+
 **Getting started tour**:
 An optional guided procedure that creates real Workspaces, configures Template fields and object-array columns, sets model configuration, and uploads Documents.
 _Avoid_: demo mode, sample data sandbox
@@ -181,6 +197,16 @@ _Avoid_: demo mode, sample data sandbox
 - Renaming the current **Workspace** updates the selected **Workspace** display and **Stored workspace preference** without clearing workspace-scoped data.
 - Startup workspace resolution chooses an accepted **Workspace context** when one exists; it does not auto-select an **Invited workspace entry**.
 - URLs determine **Active page** and persisted Document/Template selection. `/workspaces/{workspaceId}` opens the Workspace page. Its `/documents/{jobId}`, `/templates/{templateId}`, `/packets/{packetId}`, and `/evaluations` paths select product views. `/admin` is account-level. `/invitations/{invitationId}` opens a pending invitation. List URLs omit resource IDs; `/templates/new` opens a temporary draft.
+- **Delegated access pages** and `/connected-apps` are account-level. They never resolve, select or redirect into a Workspace, and they don't change **Stored workspace preference**. A **Delegated access page** doesn't load the Workspace list at all.
+- Signing in, signing up, verifying an email address or using Google on a **Delegated access page** returns to that same page. The connect page carries the signed authorization request through the Better Auth client so the server resumes it; the return path comes from the route, never from a query parameter such as `returnTo`.
+- The connect page sends its signed query to the backend unchanged. Only the backend's consent response chooses where the browser goes next: the app's registered redirect (HTTPS, loopback HTTP or a reverse-domain app scheme) or back to `/mcp/connect`. Anything else shows "Request not valid".
+- Consent starts with no Workspace selected. `workspace:read` is always granted; other requested access starts checked except staying connected after sign-out, which the user opts into. Denying sends the app an error and grants nothing. Expired or invalid requests are a dead end that sends the user back to their app.
+- Impersonated sessions can deny consent and approvals but can't grant or approve.
+- **Delegated access pages** and **Connected apps** are keyed by session: a session change discards loaded requests, and a decision, disconnect or upload that finishes afterwards is ignored.
+- Disconnecting a **Connected app** asks first, revokes only that **Grant** and keeps the browser session and other apps. The confirmation says documents it already submitted keep processing.
+- An approval shows the app, Workspace, backend-written action summary, exact targets and redacted parameters. A secret the action needs is typed on the approval page, and a rotated Workspace API key is shown there once; the app only learns the outcome.
+- An upload link accepts one document with the usual file type and size checks. Uploading stages it; the app submits it for processing.
+- The profile settings modal links to **Connected apps**.
 - Explicit URLs take priority over **Stored workspace preference** after authentication and backend access loading. `/` selects the remembered accessible Workspace or first accepted Workspace, then uses its canonical URL. Inaccessible explicit links show recovery without substituting a Workspace or resource. Missing resources keep their URL until the user selects recovery.
 - Browser Back/Forward restores Workspace, page, and resource selection. Packet child tabs use `/workspaces/{workspaceId}/packets/{packetId}/documents/{jobId}` to preserve packet context. Native links permit address copying and separate tabs. Search, filters, sort, and bulk selection remain local. Template links open the current saved version; historical version URLs are unsupported. `/reset-password` retains its token procedure.
 - Navigation within one Workspace preserves temporary Evaluations in memory. Leaving a dirty Template editor (another section, another Template, another Workspace, sign out, Back/Forward), switching Workspace with a temporary Evaluation, or leaving a dirty Evaluation dialog asks "Discard changes?" first. Discard resets the Template editor to its saved state; Keep editing stays put. Canceling Back/Forward restores the original history entry. Saving, and the app's own follow-up navigation after a save, never ask. Refreshing or leaving the app warns about unsaved Template/Evaluation state without saving it.

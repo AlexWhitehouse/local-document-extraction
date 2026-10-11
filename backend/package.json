@@ -36,8 +36,12 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@better-auth/mcp": "1.7.7",
+    "@better-auth/oauth-provider": "1.7.7",
+    "@modelcontextprotocol/server": "2.3.1",
     "better-auth": "^1.7.7",
     "busboy": "1.6.0",
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "zod": "4.6.5"
   }
 }

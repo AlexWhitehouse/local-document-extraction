@@ -23,9 +23,13 @@
       "name": "imageextraction",
       "version": "0.1.0",
       "dependencies": {
+        "@better-auth/mcp": "1.7.7",
+        "@better-auth/oauth-provider": "1.7.7",
+        "@modelcontextprotocol/server": "2.3.1",
         "better-auth": "^1.7.7",
         "busboy": "1.6.0",
         "exceljs": "^4.4.0",
+        "zod": "4.6.5",
       },
       "devDependencies": {
         "@napi-rs/canvas": "^1.0.10",
@@ -40,6 +44,7 @@
       "name": "imageextraction-frontend",
       "version": "0.0.1",
       "dependencies": {
+        "@better-auth/oauth-provider": "1.7.7",
         "better-auth": "^1.7.7",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
@@ -105,9 +110,13 @@
 
     "@better-auth/kysely-adapter": ["@better-auth/kysely-adapter@1.7.7", "", { "peerDependencies": { "@better-auth/core": "^1.7.7", "@better-auth/utils": "0.4.2", "kysely": "^0.28.17 || ^0.29.0" }, "optionalPeers": ["kysely"] }, "sha512-9FONOCgOcrQI9wJ5v1oDGIg9sT7pa9RjZZQ4fsCTudo8R87SrIGNUvUxDFTJhZvUblvFfGaIBR9Vb8LA+8bqLQ=="],
 
+    "@better-auth/mcp": ["@better-auth/mcp@1.7.7", "", { "dependencies": { "@better-auth/oauth-provider": "^1.7.7", "jose": "^6.1.3" }, "peerDependencies": { "@better-auth/core": "^1.7.7", "better-auth": "^1.7.7", "better-call": "1.4.0" } }, "sha512-BZm8gHfPef7qXuEY61rBpVkBIuUOJ+dx2ese/JpHUnbw2/SteZ/UvHTIot5twE+C+dtEhqQYL2CEVkuPCBJeQg=="],
+
     "@better-auth/memory-adapter": ["@better-auth/memory-adapter@1.7.7", "", { "peerDependencies": { "@better-auth/core": "^1.7.7", "@better-auth/utils": "0.4.2" } }, "sha512-FqKFEe+b5tXXV0gRbyirca+qXgMpLOeJ8Wk19yykb/scQKy0WJ4k22WzEV3TTPctQV9DZhwCXPlDtQhnlOv5Gg=="],
 
     "@better-auth/mongo-adapter": ["@better-auth/mongo-adapter@1.7.7", "", { "peerDependencies": { "@better-auth/core": "^1.7.7", "@better-auth/utils": "0.4.2", "mongodb": "^6.0.0 || ^7.0.0" }, "optionalPeers": ["mongodb"] }, "sha512-ZnVDuRrXqbf0oHphrEN27oTImNH5NTO26dtWatq5cXyYAsH7goof9QIoTOmxTbBxUQahKBw9T6+9h6n+RtOE+g=="],
+
+    "@better-auth/oauth-provider": ["@better-auth/oauth-provider@1.7.7", "", { "dependencies": { "jose": "^6.2.3", "zod": "^4.5.4" }, "peerDependencies": { "@better-auth/core": "^1.7.7", "@better-auth/utils": "0.4.2", "@better-fetch/fetch": "1.3.2", "better-auth": "^1.7.7", "better-call": "1.4.0" } }, "sha512-dc4C/ZF+8qc88ebcU8kaFp8yladCtfTkuUt2zBSmYw25YCNC5BoUP9rpAkIx4nemlZ11gLtSnkEPc0sA7MwVmw=="],
 
     "@better-auth/prisma-adapter": ["@better-auth/prisma-adapter@1.7.7", "", { "peerDependencies": { "@better-auth/core": "^1.7.7", "@better-auth/utils": "0.4.2", "@prisma/client": "^5.0.0 || ^6.0.0 || ^7.0.0", "prisma": "^5.0.0 || ^6.0.0 || ^7.0.0" }, "optionalPeers": ["@prisma/client", "prisma"] }, "sha512-4YcnrcVdvWiAZw0sZl63tWUClPXg5r3QsLn7C2sG7kKEBY06zOng0ibecyxRBixKq1zE1ceHuEUqez5Rhi+nQA=="],
 
@@ -180,6 +189,10 @@
     "@keyv/bigmap": ["@keyv/bigmap@1.3.1", "", { "dependencies": { "hashery": "^1.4.0", "hookified": "^1.15.0" }, "peerDependencies": { "keyv": "^5.6.0" } }, "sha512-WbzE9sdmQtKy8vrNPa9BRnwZh5UF4s1KTmSK0KUVLo3eff5BlQNNWDnFOouNpKfPKDnms9xynJjsMYjMaT/aFQ=="],
 
     "@keyv/serialize": ["@keyv/serialize@1.1.1", "", {}, "sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA=="],
+
+    "@modelcontextprotocol/core": ["@modelcontextprotocol/core@2.3.1", "", { "dependencies": { "zod": "^4.2.0" } }, "sha512-laVmIhPGpWi7rG9q+0UigblRN0Hws/Yjlb6qLFtVqryXVLkc4h+yN8z731POD2LnAGQlFe7/tXhUm7Bi0YB91g=="],
+
+    "@modelcontextprotocol/server": ["@modelcontextprotocol/server@2.3.1", "", { "dependencies": { "@modelcontextprotocol/core": "2.3.1", "zod": "^4.2.0" } }, "sha512-e59MfWuSssj6DoQ96JCTqdW1AXT5/XtnTl0WWd6MU1Ka434fFUGGosCLJbGNySDhHGvxQWoRWK137FXYFkYNWw=="],
 
     "@napi-rs/canvas": ["@napi-rs/canvas@1.0.10", "", { "optionalDependencies": { "@napi-rs/canvas-android-arm64": "1.0.10", "@napi-rs/canvas-darwin-arm64": "1.0.10", "@napi-rs/canvas-darwin-x64": "1.0.10", "@napi-rs/canvas-linux-arm-gnueabihf": "1.0.10", "@napi-rs/canvas-linux-arm64-gnu": "1.0.10", "@napi-rs/canvas-linux-arm64-musl": "1.0.10", "@napi-rs/canvas-linux-riscv64-gnu": "1.0.10", "@napi-rs/canvas-linux-x64-gnu": "1.0.10", "@napi-rs/canvas-linux-x64-musl": "1.0.10", "@napi-rs/canvas-win32-arm64-msvc": "1.0.10", "@napi-rs/canvas-win32-x64-msvc": "1.0.10" } }, "sha512-V+qptzsGnPMFxEbhwc6eDNMe5eDrfiBIp8qGpuRjAVIX4Kn2zxvwQ1Xco6Fwe+3tYIe3iLW8LM9D+SvjyJhqbQ=="],
 

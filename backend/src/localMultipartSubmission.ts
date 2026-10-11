@@ -18,9 +18,10 @@ import { validateExtractSubmissionMetadata, validateSourceFileMetadata } from ".
 /** Name, operation id and an Expected answer set of at most 1 MiB, within the Evaluation request overhead. */
 export const LOCAL_EVALUATION_DOCUMENT_METADATA_BYTES = 1024 * 1024 + 4096;
 
-type Purpose = "extraction" | "template-generation" | "template-assistance" | "evaluation" | "evaluation-document";
+type Purpose = "extraction" | "template-generation" | "template-assistance" | "evaluation" | "evaluation-document" | "mcp-upload";
 
 const TEMPORARY_DIRECTORIES: Record<Purpose, string> = {
+  "mcp-upload": "mcp-uploads",
   extraction: "submissions",
   "template-generation": "submissions",
   "template-assistance": "submissions",
@@ -29,6 +30,7 @@ const TEMPORARY_DIRECTORIES: Record<Purpose, string> = {
 };
 
 const ALLOWED_FIELDS: Record<Purpose, string[]> = {
+  "mcp-upload": [],
   extraction: ["fields", "options", "template_id", "template_tags", "pages"],
   "template-generation": ["instructions"],
   "template-assistance": ["payload"],
@@ -135,7 +137,7 @@ export async function parseLocalMultipartSubmission({
   }
 
   parser.on("file", (name, stream, info) => {
-    if (name !== "document" || state.document || documentWrite) {
+    if (name !== (purpose === "mcp-upload" ? "file" : "document") || state.document || documentWrite) {
       fail(new HttpError(400, "invalid_document", "Exactly one document file is required"));
       stream.resume();
 
@@ -253,6 +255,14 @@ export async function parseLocalMultipartSubmission({
 
     if (!parsedDocument || !documentWrite) {
       throw new HttpError(400, "invalid_document", "document is required");
+    }
+
+    if (purpose === "mcp-upload") {
+      validateSourceFileMetadata(parsedDocument.mimeType, parsedDocument.size, maxSourceFileBytes);
+
+      if (!parsedDocument.size) throw new HttpError(400, "invalid_document", "The file is empty");
+
+      return { templateId: null, source: { ...parsedDocument, temporaryPath } };
     }
 
     if (purpose === "evaluation") {

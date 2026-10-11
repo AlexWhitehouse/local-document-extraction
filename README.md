@@ -71,6 +71,7 @@ These paths assume the default install location. If you chose a different one, u
 | --- | --- |
 | Update, back up, uninstall, or fix a problem | [Setup and maintenance](docs/setup.md) |
 | Turn on Google sign-in or email, change ports or upload limits | [Configuration](docs/configuration.md) |
+| Connect an MCP client with consent and in-app approvals | [Connected apps through MCP](docs/mcp.md) |
 | Keep original documents locally or in S3, and view them beside results | [Keep original documents](docs/configuration.md#keep-original-documents) |
 | Compare models or templates | [Evaluations](docs/evaluations.md) |
 | Explain Template problems and review focused edits | [Template assistant](docs/template-assistant.md) |

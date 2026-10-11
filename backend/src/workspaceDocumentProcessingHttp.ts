@@ -1,5 +1,6 @@
 import { HttpError, toHttpError } from "./lib/http";
 import type { LocalAuth } from "./localAuth";
+import { authorizeWorkspaceUser, type DelegatedProductAccess } from "./localActor";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import {
   LocalWorkspaceProductDataAccessError,
@@ -14,6 +15,7 @@ const noStore = { "cache-control": "no-store" };
 
 /** Session settings endpoint; the product admission path separately reads a policy snapshot. */
 export async function handleWorkspaceDocumentProcessingSettings(input: {
+  delegation?: DelegatedProductAccess;
   request: Request;
   workspaceId: string;
   auth: LocalAuth;
@@ -23,12 +25,7 @@ export async function handleWorkspaceDocumentProcessingSettings(input: {
   const { request, workspaceId } = input;
 
   try {
-    const session = await input.auth.getSession(request);
-
-    if (!session) throw new HttpError(401, "unauthorized", "Authentication required");
-    const workspace = input.workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId: session.id });
-
-    if (!workspace) throw new HttpError(403, "forbidden", "You do not have access to this workspace");
+    const { workspace, assertAuthorized } = await authorizeWorkspaceUser(input);
 
     if (request.method !== "GET" && workspace.role !== "owner" && workspace.role !== "admin") {
       throw new HttpError(
@@ -59,6 +56,8 @@ export async function handleWorkspaceDocumentProcessingSettings(input: {
         : null;
 
     return await input.access.run({ workspaceId, mode: settings ? "create" : "existing" }, ({ store }) => {
+      assertAuthorized();
+
       const result = settings
         ? store!.putDocumentProcessingSettings(settings)
         : (store?.getDocumentProcessingSettings() ?? DEFAULT_DOCUMENT_PROCESSING_SETTINGS);
