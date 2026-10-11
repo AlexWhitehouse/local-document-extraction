@@ -2,6 +2,7 @@ import { dirname, resolve } from "node:path";
 import { homedir, tmpdir, totalmem, cpus } from "node:os";
 import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
+import { validateMcpConfiguration } from "./mcp/configuration";
 import { localDocumentRequestBodyLimit } from "./localDocumentBodyLimit";
 
 type Environment = Record<string, string | undefined>;
@@ -129,6 +130,12 @@ export function readLocalConfiguration({
     return value;
   };
 
+  const mcp = { enabled: boolean("MCP_ENABLED", false), sensitiveActions: boolean("MCP_SENSITIVE_ACTIONS_ENABLED", false),
+    allowedRedirectUris: list("MCP_ALLOWED_REDIRECT_URIS") };
+
+  const authBaseURL = text("BETTER_AUTH_URL") ? origin(text("BETTER_AUTH_URL")!, "BETTER_AUTH_URL") : undefined;
+  validateMcpConfiguration(authBaseURL ?? "http://127.0.0.1", mcp);
+
   const port = integer("PORT", 8787, 0, 65535);
   const host = text("HOST") ?? "127.0.0.1";
 
@@ -241,7 +248,8 @@ export function readLocalConfiguration({
     analyticsEnabled: boolean("LOCAL_ANALYTICS_ENABLED", true),
     sourceStorage,
     auth: {
-      baseURL: text("BETTER_AUTH_URL") ? origin(text("BETTER_AUTH_URL")!, "BETTER_AUTH_URL") : undefined,
+      mcp,
+      baseURL: authBaseURL,
       adminEmails: list("DOCUMENT_EXTRACTION_ADMIN_EMAILS").map((email) =>
         emailAddress(email, "DOCUMENT_EXTRACTION_ADMIN_EMAILS").toLowerCase(),
       ),

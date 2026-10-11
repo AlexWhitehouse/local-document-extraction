@@ -6,6 +6,28 @@ import { join } from "node:path";
 
 import { createLocalAuthRuntime } from "./localAuthRuntime";
 
+test("migration waits for OAuth initialization and can immediately close and reopen state", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-mcp-migration-"));
+
+  try {
+    for (let run = 0; run < 2; run++) {
+      const migration = Bun.spawn([process.execPath, "--no-env-file", join(import.meta.dir, "migrate.ts")], {
+        env: { DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory, MCP_ENABLED: "true", MCP_ALLOWED_REDIRECT_URIS: "https://client.example/callback" },
+        stdout: "pipe", stderr: "pipe",
+      });
+
+      const [code, stdout, stderr] = await Promise.all([
+        migration.exited, new Response(migration.stdout).text(), new Response(migration.stderr).text(),
+      ]);
+
+      expect(code, stderr).toBe(0);
+      expect(stdout).toContain("Local state is initialized");
+    }
+  } finally {
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
 test("the local auth runtime persists auth data and captured mail under the local state directory", async () => {
   const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-local-auth-"));
 

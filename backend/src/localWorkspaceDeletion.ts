@@ -7,7 +7,7 @@ import type { LocalWorkspaceProductStoreRegistry } from "./localWorkspaceProduct
 import { nowIso } from "./lib/ids";
 
 export type LocalWorkspaceDeletion = {
-  deleteWorkspace(input: { workspaceId: string; userId: string }): Promise<void>;
+  deleteWorkspace(input: { workspaceId: string; userId: string; assertAuthorized?: () => void; commit?: (work: () => void) => void }): Promise<void>;
   reconcileInterruptedDeletions(): Promise<void>;
 };
 
@@ -58,8 +58,11 @@ export function createLocalWorkspaceDeletion({
       let accessRevoked = false;
 
       try {
+        input.assertAuthorized?.();
+
         // Re-checks ownership: membership may have changed while in-flight work drained.
-        workspaceControl.deleteWorkspace(input);
+        if (input.commit) input.commit(() => workspaceControl.deleteWorkspace(input));
+        else workspaceControl.deleteWorkspace(input);
         accessRevoked = true;
         announceAccessRevoked(workspaceId);
         await eraseRevokedWorkspace(workspaceId);

@@ -1,0 +1,175 @@
+/* Delegated access pages reuse the sign-in card, a little wider for consent and approval details. */
+.auth-card.delegated-card {
+  width: min(600px, 100%);
+}
+
+.delegated-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.delegated-title h1 {
+  margin: 4px 0 0;
+  font: 500 var(--font-size-7)/1.2 var(--font-body);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.delegated-facts {
+  display: grid;
+  margin: 0;
+  border-top: 1px solid var(--rule);
+  font-size: var(--font-size-4);
+}
+
+.delegated-facts > div {
+  display: grid;
+  grid-template-columns: minmax(96px, 30%) 1fr;
+  gap: 14px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.delegated-facts dt {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.delegated-facts dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+  color: var(--text-0);
+  overflow-wrap: anywhere;
+}
+
+.delegated-targets {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.delegated-consequence {
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--font-size-4);
+}
+
+.delegated-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  margin: 0;
+  font-size: var(--font-size-4);
+}
+
+.delegated-form {
+  display: grid;
+  gap: 14px;
+}
+
+.delegated-capabilities {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.delegated-capabilities legend {
+  margin-bottom: 4px;
+  padding: 0;
+  color: var(--text-1);
+  font-size: var(--font-size-4);
+  font-weight: 500;
+}
+
+.delegated-capabilities .ui-checkbox-field-label {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.delegated-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.delegated-key {
+  display: grid;
+  gap: 8px;
+}
+
+.delegated-footer {
+  display: flex;
+  gap: 16px;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+  font-size: var(--font-size-3);
+}
+
+.delegated-footer a {
+  color: var(--text-2);
+}
+
+.delegated-footer a:hover {
+  color: var(--text-1);
+}
+
+/* Connected apps page */
+.connected-apps {
+  display: grid;
+  gap: 28px;
+  padding-top: 20px;
+  margin-bottom: 20px;
+}
+
+.connected-apps > * {
+  min-width: 0;
+}
+
+/* Wide tables scroll inside the page rather than widening it. */
+.connected-apps-table {
+  overflow-x: auto;
+}
+
+.connected-apps-address {
+  max-width: 560px;
+}
+
+.connected-app-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.connected-app-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connected-app-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Connected apps has no context list, so the page takes its column. */
+@media (min-width: 1121px) {
+  .app-frame:has(.studio-main-connected-apps) {
+    grid-template-columns: var(--nav-width) minmax(0, 1fr);
+  }
+}

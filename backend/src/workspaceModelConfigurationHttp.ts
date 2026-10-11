@@ -1,6 +1,7 @@
 import { parseJson, type JsonValue } from "../../shared/json";
 import { HttpError, toHttpError } from "./lib/http";
 import type { LocalAuth } from "./localAuth";
+import { commitDelegatedProductMutation, authorizeWorkspaceUser, type DelegatedProductAccess } from "./localActor";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
 import {
@@ -26,6 +27,7 @@ const failedCondition = () =>
 const missingCondition = () => new HttpError(428, "precondition_required", "A configuration precondition is required.");
 
 export async function handleWorkspaceModelConfiguration(input: {
+  delegation?: DelegatedProductAccess;
   request: Request;
   workspaceId: string;
   test: boolean;
@@ -40,12 +42,7 @@ export async function handleWorkspaceModelConfiguration(input: {
   const { request, workspaceId, auth, workspaceControl } = input;
 
   try {
-    const session = await auth.getSession(request);
-
-    if (!session) throw new HttpError(401, "unauthorized", "Authentication required");
-    const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId: session.id });
-
-    if (!workspace) throw new HttpError(403, "forbidden", "You do not have access to this workspace");
+    const { workspace, assertAuthorized } = await authorizeWorkspaceUser({ ...input, auth, workspaceControl });
     const canManage = workspace.role === "owner" || workspace.role === "admin";
 
     if ((input.test || request.method !== "GET") && !canManage)
@@ -65,6 +62,9 @@ export async function handleWorkspaceModelConfiguration(input: {
     return await input.access.run(
       { workspaceId, mode: request.method === "PUT" ? "create" : "existing" },
       async ({ store }) => {
+        assertAuthorized();
+
+        if (store) input.delegation?.assertCurrent?.(store);
         const vault = createWorkspaceCredentialVault(input.stateDirectory);
 
         const represent = (record: StoredWorkspaceModelConfiguration | null, status = 200) => {
@@ -87,7 +87,7 @@ export async function handleWorkspaceModelConfiguration(input: {
             !current ||
             ifNoneMatch ||
             ifMatch !== modelConfigurationETag(current.revision) ||
-            !store!.clearModelConfiguration(current.revision)
+            !commitDelegatedProductMutation(input.delegation, store!, () => store!.clearModelConfiguration(current.revision))
           )
             throw failedCondition();
           input.onModelConfigurationChanged?.(workspaceId);
@@ -113,6 +113,9 @@ export async function handleWorkspaceModelConfiguration(input: {
         }
 
         const draft = validateWorkspaceModelDraft(body);
+        assertAuthorized();
+
+        if (store) input.delegation?.assertCurrent?.(store);
 
         if (input.test && draft.credential !== undefined) {
           return await testWorkspaceModelConnection(draft, draft.credential, request.signal);
@@ -149,14 +152,14 @@ export async function handleWorkspaceModelConfiguration(input: {
         // Checking usability before preserving ciphertext keeps replacement-with-a-new-key and clear as repair paths.
         if (!credential) vault.decrypt(workspaceId, current!.credential_ciphertext);
 
-        const saved = store!.putModelConfiguration({
+        const saved = commitDelegatedProductMutation(input.delegation, store!, () => store!.putModelConfiguration({
           expectedRevision: current?.revision ?? null,
           configuration: {
             ...fields,
             credential_ciphertext: credential ? vault.encrypt(workspaceId, credential) : current!.credential_ciphertext,
           },
           updatedAt: new Date().toISOString(),
-        });
+        }));
 
         if (!saved) throw failedCondition();
         input.onModelConfigurationChanged?.(workspaceId);

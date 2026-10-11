@@ -2,6 +2,8 @@ import { isJsonObject, parseJson, isString } from "../../shared/json";
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { admin } from "better-auth/plugins/admin";
+import { jwt } from "better-auth/plugins/jwt";
+import { requireMcpAuth } from "@better-auth/mcp";
 import { defaultAc, userAc } from "better-auth/plugins/admin/access";
 import type { Database } from "bun:sqlite";
 
@@ -9,12 +11,15 @@ import { renderAccountEmailVerificationEmail, renderAccountPasswordResetEmail } 
 import type { LocalMailSink } from "./localMailSink";
 import { createLocalAuthRateLimitStorage } from "./localAuthRateLimit";
 import { LOCAL_AUTH_CLIENT_ADDRESS_HEADER, localAuthRequestHeaders } from "./localAuthClientAddress";
+import { createMcpProviderPolicy, type McpAuthorization, type McpConfiguration } from "./mcp/authorization";
+import { HttpError } from "./lib/http";
 
 type LocalAuthLogger = {
   error(message: string, cause: unknown): void;
 };
 
 export type LocalAuth = {
+  mcp?: McpAuthorization;
   getSession(request: Request): Promise<LocalSession | null>;
   handler(request: Request): Promise<Response>;
   isTrustedOrigin?(origin: string): boolean;
@@ -24,14 +29,17 @@ export type LocalSession = {
   id: string;
   /** The Better Auth session, distinct from the user id, for state owned by one signed-in browser session. */
   sessionId?: string;
+  createdAt?: number;
   email: string;
   name: string;
   role?: string;
+  impersonatedBy?: string;
   /** Revalidate the persisted session immediately before delivering live data. */
   isActive?: () => boolean;
 };
 
 export type LocalAuthSettings = {
+  mcp?: McpConfiguration;
   emailPasswordEnabled?: boolean;
   googleEnabled?: boolean;
   signupEnabled?: boolean;
@@ -54,6 +62,7 @@ export async function createLocalAuth({
   trustedOrigins = [],
   trustedIpHeaders = [],
   emailFrom,
+  mcp: mcpConfiguration,
   logger = console,
   mailSink,
   secret,
@@ -98,6 +107,9 @@ export async function createLocalAuth({
 
   if (socialProviders) providerConfiguration.socialProviders = socialProviders;
 
+  const configuration = mcpConfiguration ?? { enabled: false, sensitiveActions: false, allowedRedirectUris: [] };
+  const mcpPolicy = createMcpProviderPolicy({ database, secret, baseURL, configuration, requireEmailVerification });
+
   const auth = betterAuth({
     advanced: {
       // Migrations run below; the background check would race them and log false mismatches.
@@ -111,6 +123,7 @@ export async function createLocalAuth({
     baseURL,
     database,
     secret,
+    disabledPaths: ["/token"],
     rateLimit: { enabled: true, customStorage: createLocalAuthRateLimitStorage() },
     trustedOrigins: allowedOrigins,
     emailAndPassword: {
@@ -120,6 +133,7 @@ export async function createLocalAuth({
       requireEmailVerification,
       resetPasswordTokenExpiresIn: 60 * 60,
       revokeSessionsOnPasswordReset: true,
+      onPasswordReset: async ({ user }) => { mcpPolicy?.grants.revokeUser(user.id); },
       sendResetPassword: async ({ user, url }) => {
         await captureMail(mailSink, logger, {
           ...renderAccountPasswordResetEmail({ resetUrl: url, from: emailFrom }),
@@ -151,13 +165,14 @@ export async function createLocalAuth({
     },
     ...providerConfiguration,
     plugins: [
+      ...(mcpPolicy ? [jwt({ jwt: { issuer: `${new URL(baseURL).origin}/api/auth` } }), mcpPolicy.plugin] as const : []),
       admin({
         roles: {
           admin: defaultAc.newRole({ user: ["list", "set-role", "ban", "impersonate"], session: [] }),
           user: userAc,
         },
       }),
-    ],
+    ] as const,
     databaseHooks: {
       user: {
         create: {
@@ -172,10 +187,15 @@ export async function createLocalAuth({
   });
 
   await (await getMigrations(auth.options)).runMigrations();
+  // OAuth initialization reads persisted provider state. Finish it before a
+  // migration-only caller can close the database.
+  await auth.$context;
 
-  return {
+  const localAuth: LocalAuth = {
     isTrustedOrigin: (origin) => allowedOrigins.includes(origin),
     getSession: async (request) => {
+      // OAuth credentials never acquire browser authority, even with cookies.
+      if (request.headers.has("authorization")) return null;
       const session = await auth.api.getSession({ headers: localAuthRequestHeaders(request, trustedIpHeaders) });
 
       if (!session?.user?.id) {
@@ -185,6 +205,7 @@ export async function createLocalAuth({
       const localSession: LocalSession = {
         id: session.user.id,
         sessionId: session.session.id,
+        createdAt: session.session.createdAt.getTime(),
         email: session.user.email,
         name: session.user.name,
         isActive: () =>
@@ -199,17 +220,79 @@ export async function createLocalAuth({
           ),
       };
 
-      if (isString(session.user.role)) localSession.role = session.user.role;
+      if ("role" in session.user && isString(session.user.role)) localSession.role = session.user.role;
+
+      if ("impersonatedBy" in session.session && isString(session.session.impersonatedBy)) localSession.impersonatedBy = session.session.impersonatedBy;
 
       return localSession;
     },
     handler: async (request) => {
       request = new Request(request, { headers: localAuthRequestHeaders(request, trustedIpHeaders) });
+      const mcpRejection = await mcpPolicy?.guardAuthRequest(request);
+
+      if (mcpRejection) return mcpRejection;
       const session = await auth.api.getSession({ headers: request.headers });
 
       return (await validateLocalAdminAction(request, session?.user)) ?? auth.handler(request);
     },
   };
+
+  {
+    localAuth.mcp = {
+      configuration,
+      resource: mcpPolicy.resource,
+      database,
+      grants: mcpPolicy.grants,
+      consentInfo: (oauthQuery) => mcpPolicy.consentInfo(oauthQuery, async (clientId) => {
+        const context = await auth.$context;
+
+        const client = await context.adapter.findOne<{ clientId: string; name?: string; uri?: string; disabled?: boolean }>({
+          model: "oauthClient", where: [{ field: "clientId", value: clientId }],
+        });
+
+        if (!client || client.disabled) throw new HttpError(400, "mcp_client_unavailable", "This app is no longer available.");
+
+        return { client_id: client.clientId, client_name: client.name, client_uri: client.uri };
+      }),
+      consent: async ({ request, oauthQuery, accept, grantId, scopes }) => {
+        const headers = localAuthRequestHeaders(request, trustedIpHeaders);
+        headers.set("content-type", "application/json");
+        headers.delete("content-length");
+
+        type ConsentSubmission = { oauth_query: string; accept: boolean; scope?: string };
+
+        const consentBody: ConsentSubmission = { oauth_query: oauthQuery, accept };
+
+        if (scopes) consentBody.scope = scopes.join(" ");
+
+        const response = await mcpPolicy.consentContext.run(grantId ?? "denied", () => auth.handler(new Request(
+          `${new URL(baseURL).origin}/api/auth/oauth2/consent`, {
+            method: "POST", headers,
+            body: JSON.stringify(consentBody),
+          },
+        )));
+
+        const result = parseJson(await response.text());
+
+        if (!response.ok || !isJsonObject(result) || !isString(result.url)) {
+          throw new HttpError(400, "mcp_authorization_invalid", "This connection request could not be completed. Connect the app again.");
+        }
+
+        return result.url;
+      },
+      protect: (request, handler) => requireMcpAuth(auth, async (verifiedRequest, claims) => {
+        try {
+          return await handler(verifiedRequest, mcpPolicy.actor(claims));
+        } catch (error) {
+          if (!(error instanceof HttpError)) throw error;
+
+          return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+        }
+      }, { resource: mcpPolicy.resource, requiredScopes: ["workspace:read"] })(request),
+    };
+  }
+
+  return localAuth;
 }
 
 /** Admin-plugin guard rails Better Auth does not provide itself. */

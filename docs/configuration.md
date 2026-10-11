@@ -36,6 +36,18 @@ By default, the app accepts connections only from its own machine. To allow acce
 4. Keep `HOST` at `127.0.0.1` if the proxy runs on the same machine. Use `HOST=0.0.0.0` only with firewall rules that control network access.
 5. If the proxy supplies the visitor’s IP address, specify its header in `AUTH_TRUSTED_IP_HEADERS`. The proxy must always overwrite this header to prevent forged addresses. Without a trusted header, all visitors share the proxy’s sign-in rate limit. Use `cf-connecting-ip` only when traffic comes through Cloudflare.
 
+## Connected apps (MCP)
+
+MCP is disabled by default. [Connected apps through MCP](mcp.md) describes public HTTPS/proxy setup, callbacks, permissions, approvals, file transfer and client qualification.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `MCP_ENABLED` | `false` | Enable OAuth-backed MCP at exact `/mcp`. Connection listing/revocation stays available when disabled. |
+| `MCP_SENSITIVE_ACTIONS_ENABLED` | `false` | Enable browser-approved delegated Workspace changes and deletion. |
+| `MCP_ALLOWED_REDIRECT_URIS` | empty | Exact comma-separated OAuth callbacks allowed for dynamic registration; maximum 64, HTTPS except loopback. Empty disables registration. |
+
+`BETTER_AUTH_URL` fixes both the public issuer and protected resource origin. Hosted clients need a reachable HTTPS installation. Claude Desktop and ChatGPT are the intended compatibility targets; users must qualify their specific client/deployment before enabling sensitive administration.
+
 ## Google sign-in
 
 1. Create an OAuth web client in the [Google credentials console](https://console.cloud.google.com/apis/credentials).

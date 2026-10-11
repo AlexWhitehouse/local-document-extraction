@@ -1,5 +1,6 @@
 import { HttpError, toHttpError } from "./lib/http";
 import type { LocalAuth } from "./localAuth";
+import { authorizeWorkspaceUser, type DelegatedProductAccess } from "./localActor";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import {
   LocalWorkspaceProductDataAccessError,
@@ -8,6 +9,7 @@ import {
 import { parseCostRange } from "../../shared/workspaceCosts";
 
 export async function handleWorkspaceCosts(input: {
+  delegation?: DelegatedProductAccess;
   request: Request;
   workspaceId: string;
   resource: string;
@@ -19,14 +21,7 @@ export async function handleWorkspaceCosts(input: {
   const headers = { "cache-control": "private, no-store" };
 
   try {
-    const session = await input.auth.getSession(input.request);
-
-    if (!session) throw new HttpError(401, "unauthorized", "Authentication required");
-
-    const workspace = input.workspaceControl.getAcceptedWorkspaceContext({
-      workspaceId: input.workspaceId,
-      userId: session.id,
-    });
+    const { workspace, assertAuthorized } = await authorizeWorkspaceUser(input);
 
     if (!workspace || !["owner", "admin"].includes(workspace.role))
       throw new HttpError(403, "forbidden", "Costs are visible to Workspace owners and admins.");
@@ -51,6 +46,8 @@ export async function handleWorkspaceCosts(input: {
       throw new RangeError("Invalid cost filters.");
 
     return await input.access.run({ workspaceId: input.workspaceId, mode: "create" }, ({ store }) => {
+      assertAuthorized();
+
       // Reads use already materialized summaries. The background worker owns bounded catch-up.
       const data = input.documentId
         ? store!.getCostUpload(input.documentId)

@@ -41,7 +41,7 @@ The accepted **Workspace** or pending **Workspace invitation** currently selecte
 _Avoid_: selected workspace, active workspace state
 
 **Accepted workspace context**:
-A **Workspace context** with accepted **Workspace membership**. A valid session or Workspace API key permits access to its product data.
+A **Workspace context** with accepted **Workspace membership**. A valid session, Workspace API key, or explicitly consented **Delegated actor** permits access within its own authority.
 _Avoid_: connected workspace, unlocked workspace
 
 **Pending workspace invitation context**:
@@ -63,6 +63,18 @@ _Avoid_: invitation row, invite card
 **Workspace member action**:
 An action that changes a member's workspace access or role.
 _Avoid_: user status change, member edit
+
+**Delegated actor**:
+An authenticated Account acting through one OAuth client and persisted **Grant**. Its authority is the intersection of token scopes, the live grant, current accepted Workspace membership/role, installation policy and any required exact-action approval.
+_Avoid_: API-key user, impersonated user, browser session
+
+**Grant**:
+One user's explicit consent for one connected app, one accepted Workspace and a fixed scope ceiling. Reconnecting creates a separate grant; browser Workspace switching cannot change it.
+_Avoid_: session, universal token, Workspace API key
+
+**Exact-action approval**:
+An expiring request bound to the initiating user/client/grant, canonical inputs and relevant target revision. Only an authenticated non-impersonated browser can execute it once.
+_Avoid_: client confirmation, confirmed flag, reusable approval
 
 **Workspace API key**:
 A workspace-scoped credential for external API clients to access workspace-scoped product routes.
@@ -322,7 +334,7 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - **Account password reset** links land on the SPA `/reset-password` experience with a Better Auth reset token or token error in the query string.
 - **Account password reset** requires the same **Account password policy** as email/password sign-up.
 - **Account password reset** links expire after one hour.
-- **Account password reset** revokes existing sessions after the password changes.
+- **Account password reset** revokes existing sessions and delegated grants after the password changes. Ordinary logout preserves only grants explicitly approved for offline access.
 - **Account password reset** email uses the same configured sender as account verification.
 - **Account password reset** email is HTML formatted, includes a plain-text alternative, includes the reset link, and tells unexpected recipients they can ignore it.
 - **Account password reset** delivery attempts are awaited and bounded; provider acceptance does not prove inbox delivery.
@@ -394,9 +406,9 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - The SPA uses the signed-in user session plus accepted **Workspace context** for workspace-scoped requests; **Workspace API keys** are for external API clients.
 - **Workspace API keys** may be generated and shown to workspace owners/admins for external clients, but they are not SPA authentication credentials.
 - **Workspace API keys** authenticate external clients for workspace-scoped product routes such as templates, extraction jobs, and document submission.
-- **Workspace API keys** authorize integration product routes. Signed-in members perform **Template assistance**, suggestion and evidence selection, held Template selection, and split-plan confirmation in the frontend.
+- **Workspace API keys** authorize integration product routes. **Template assistance** and manual review accept browser users or explicitly scoped **Delegated actors**; API keys do not gain those capabilities.
 - **Workspace API keys** require only accepted Workspace authorization in the local-only runtime.
-- Users manage profiles, membership, invitations, Workspace deletion, and API key generation in the frontend. **Template assistance** and manual document review also require sign-in. Sample-based **Template generation** remains available to API-key clients.
+- Profiles and Application administration remain browser-only. Delegated Workspace administration executes existing domain operations after exact-action browser approval. Sample-based **Template generation** remains available to API-key clients.
 - **Workspace API keys** do not create browser sessions or authenticate access to the SPA shell.
 - **Workspace API key** material is visible only immediately after creation or rotation because the backend stores only a hash.
 - **Workspace API key format** is opaque to users and clients beyond being passed as a bearer token.
@@ -587,3 +599,12 @@ The **Go document processor** executes Document processing stages through a priv
 - Use **Workspace member action** for Workspace access management. The older term "user status" is ambiguous.
 - Use **Workspace context** for backend access and **Workspace selection view** for frontend presentation. "Workspace state" can also refer to local storage and is ambiguous.
 - Use **Document** for submitted PDFs and images. Use **Source file** for the original binary. Legacy `image` terminology does not describe all supported sources.
+
+### Delegated MCP access
+
+- OAuth tokens authenticate only exact `/mcp` and protected MCP Source delivery; they never become browser sessions or Workspace API keys. Login, consent, uploads, approvals and connection management retain cookie-origin checks.
+- MCP is opt-in and sensitive actions have a separate installation switch. Authority is rechecked after awaits and at mutation commit. Disabling MCP retains connection revocation.
+- Documents already admitted may finish after grant revocation; further submissions and reads stop. Uploads use shared admission and validation, and references cannot cross grants or Workspaces.
+- Mutation receipts commit with their owning database. A product receipt repairs missing control completion/audit after a crash without executing twice. Unknown external outcomes are not retried automatically.
+- Durable security activity is separate from privacy-filtered product analytics. It contains actor/action identifiers and outcomes, never credentials or customer content. Operator-only access and 90-day retention apply.
+- See [delegated MCP access decision](docs/adr/0028-delegated-mcp-access.md) and the [operator guide](../docs/mcp.md). Real Claude Desktop and ChatGPT qualification is separate from local protocol/browser evidence.

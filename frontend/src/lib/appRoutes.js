@@ -7,6 +7,10 @@ export function parseAppRoute(pathname) {
 
   if (pathname === "/admin") return { page: "admin" };
 
+  if (pathname === "/connected-apps") return { page: "connected-apps" };
+
+  if (pathname === "/mcp/connect") return { page: "mcp-connect", delegated: true };
+
   try {
     const parts = pathname.replace(/\/$/, "").split("/").slice(1).map(decodeURIComponent);
 
@@ -14,6 +18,13 @@ export function parseAppRoute(pathname) {
       return { page: "not-found" };
 
     if (parts[0] === "invitations" && parts.length === 2) return { page: "workspace", invitationId: parts[1] };
+
+    // Delegated access pages open from links an MCP client shows; they sit outside Workspace routes.
+    if (parts[0] === "mcp" && parts.length === 3 && parts[1] === "approvals")
+      return { page: "mcp-approval", delegated: true, approvalId: parts[2] };
+
+    if (parts[0] === "mcp" && parts.length === 3 && parts[1] === "uploads")
+      return { page: "mcp-upload", delegated: true, uploadId: parts[2] };
 
     if (parts[0] !== "workspaces" || !parts[1]) return { page: "not-found" };
     const workspaceId = parts[1];
@@ -61,6 +72,8 @@ export function appPath({
   costTab,
 } = {}) {
   if (page === "admin") return "/admin";
+
+  if (page === "connected-apps") return "/connected-apps";
 
   if (invitationId) return `/invitations/${encodeURIComponent(invitationId)}`;
 

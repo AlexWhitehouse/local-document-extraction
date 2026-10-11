@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { ChevronDownIcon, CloseIcon } from "../layout/Icons.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { NavigationLink } from "../context/NavigationLink.jsx";
 import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { Field, TextInput } from "../ui/Field.jsx";
 import { Segmented } from "../ui/Tabs.jsx";
@@ -28,6 +29,8 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
     onDraftNameChange,
     onSaveProfile,
     onSignOut,
+    connectedAppsHref,
+    onOpenConnectedApps,
     tourAction,
   },
   ref,
@@ -161,6 +164,17 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         onChange={setThemePreference}
                       />
                     </section>
+                    {onOpenConnectedApps ? (
+                      <section className="settings-connected-apps" aria-labelledby="settings-connected-apps-title">
+                        <div className="settings-section-intro">
+                          <h4 id="settings-connected-apps-title">Connected apps</h4>
+                          <p>Apps you&apos;ve allowed to act for you through MCP.</p>
+                        </div>
+                        <NavigationLink className="settings-link" href={connectedAppsHref} onClick={onOpenConnectedApps}>
+                          Manage connected apps
+                        </NavigationLink>
+                      </section>
+                    ) : null}
                     <section
                       ref={shortcutsRef}
                       tabIndex={-1}

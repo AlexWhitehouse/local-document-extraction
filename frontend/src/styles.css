@@ -1563,6 +1563,9 @@ input[type="checkbox"]:disabled {
 }
 
 .settings-appearance { display: grid; justify-items: start; gap: 12px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.settings-connected-apps { display: grid; justify-items: start; gap: 10px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.settings-link { color: var(--text-1); font-size: var(--font-size-4); }
+.settings-link:hover { color: var(--text-0); }
 .settings-shortcuts { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--rule); }
 .settings-shortcuts:focus { outline: none; }
 .settings-shortcuts:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }

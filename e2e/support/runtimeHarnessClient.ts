@@ -24,7 +24,13 @@ export async function startRuntimeHarness({
   timeoutMs = 20_000,
   requireEmailVerification,
   sourceStorage,
-}: { timeoutMs?: number; requireEmailVerification?: boolean; sourceStorage?: "local" } = {}) {
+  mcp,
+}: {
+  timeoutMs?: number;
+  requireEmailVerification?: boolean;
+  sourceStorage?: "local";
+  mcp?: { redirectUris: string[]; sensitiveActions?: boolean };
+} = {}) {
   const rootDirectory = resolve(process.cwd());
 
   const environment = {
@@ -34,6 +40,14 @@ export async function startRuntimeHarness({
   };
 
   if (sourceStorage) Object.assign(environment, { SOURCE_STORAGE_PROVIDER: sourceStorage });
+
+  if (mcp) {
+    Object.assign(environment, {
+      MCP_ENABLED: "true",
+      MCP_SENSITIVE_ACTIONS_ENABLED: String(mcp.sensitiveActions === true),
+      MCP_ALLOWED_REDIRECT_URIS: mcp.redirectUris.join(","),
+    });
+  }
 
   const child = spawn(process.env.E2E_BUN_EXECUTABLE || "bun", ["e2e/support/runtimeHarness.ts"], {
     cwd: rootDirectory,

@@ -62,6 +62,7 @@ export function createLocalRuntimeFetchHandler({
 
 function isApiPath(pathname: string): boolean {
   return (
+    pathname === "/mcp" || pathname.startsWith("/.well-known/") ||
     pathname === "/v1" || pathname.startsWith("/v1/") || pathname === "/api/auth" || pathname.startsWith("/api/auth/")
   );
 }

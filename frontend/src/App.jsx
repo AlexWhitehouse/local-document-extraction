@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toaster } from "sonner";
 import { createNotifier, defaultToast } from "./lib/notify";
-import { createRuntimeAuthClient } from "./lib/authClient";
+import { createDelegatedAuthClient as createRuntimeDelegatedAuthClient, createRuntimeAuthClient } from "./lib/authClient";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
 import { appPath, parseAppRoute } from "./lib/appRoutes";
 import { templateImprovementRequest } from "./features/documents/templateImprovement.js";
@@ -13,6 +13,9 @@ import { ApplicationAdminPage } from "./features/admin/ApplicationAdminPage.jsx"
 import { AdminContextFooter, AdminContextList } from "./features/admin/AdminContextList.jsx";
 import { useApplicationAdminController } from "./features/admin/useApplicationAdminController.js";
 import { ContextSidebar } from "./features/context/ContextSidebar.jsx";
+import { ConnectedAppsPage } from "./features/delegation/ConnectedAppsPage.jsx";
+import { DelegatedAccessRoute } from "./features/delegation/DelegatedAccessRoute.jsx";
+import { createDelegationRequests } from "./features/delegation/delegationRequests.js";
 import { DocumentContextList } from "./features/documents/DocumentContextList.jsx";
 import { DocumentLifecycleAnnouncer } from "./features/documents/DocumentLifecycleAnnouncer.jsx";
 import { DocumentPage } from "./features/documents/DocumentPage.jsx";
@@ -65,7 +68,11 @@ const PAGE_TITLES = {
   evaluations: "Evaluations",
   costs: "Costs",
   admin: "Admin",
+  "connected-apps": "Connected apps",
 };
+
+// Account-level pages: no Workspace route state, header or context list.
+const ACCOUNT_PAGES = new Set(["admin", "connected-apps"]);
 
 const PAGE_LABELS = {
   workspace: "Workspace overview",
@@ -83,7 +90,9 @@ const CONTEXT_SIDEBAR_TITLES = {
 export function App({
   configuration = DEFAULT_RUNTIME_CONFIGURATION,
   createAuthClient = createRuntimeAuthClient,
+  createDelegatedAuthClient = createRuntimeDelegatedAuthClient,
   notifications = defaultToast,
+  navigateTo,
 }) {
   const navigation = useAppNavigation();
 
@@ -93,7 +102,16 @@ export function App({
   return (
     <>
       <Toaster richColors closeButton theme="dark" position="top-center" />
-      {resetPasswordRoute ? (
+      {navigation.route.delegated ? (
+        <DelegatedAccessRoute
+          route={navigation.route}
+          configuration={configuration}
+          createAuthClient={createAuthClient}
+          createDelegatedAuthClient={createDelegatedAuthClient}
+          toast={notifications}
+          {...(navigateTo ? { navigateTo } : {})}
+        />
+      ) : resetPasswordRoute ? (
         <AccountPasswordResetRoute
           authOptions={configuration.auth}
           createAuthClient={createAuthClient}
@@ -147,6 +165,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     showActionToast,
     showDocumentUploadToast,
   } = useMemo(() => createAppRuntimeCore({ apiBase: API_BASE, toast }), [toast]);
+
+  const delegationRequests = useMemo(() => createDelegationRequests(coreRequest), [coreRequest]);
 
   const workspaceController = useWorkspaceController({
     coreRequest,
@@ -474,6 +494,16 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     },
   });
 
+  // The menu is a modal, so it closes before the page changes.
+  const profileMenuProps = {
+    ...profileMenu,
+    connectedAppsHref: appPath({ page: "connected-apps" }),
+    onOpenConnectedApps: () => {
+      if (profileMenu.isOpen) profileMenu.onToggle();
+      navigate(appPath({ page: "connected-apps" }));
+    },
+  };
+
   function handleSidebarNavigation(pageId) {
     if (pageId === "admin" && !isApplicationAdmin) {
       setActivePage("workspace");
@@ -497,10 +527,10 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     );
   }
 
-  const workspaceUnavailable = activePage !== "admin" && !route.root && workspaceContext.unavailableRoute;
+  const isAccountPage = ACCOUNT_PAGES.has(activePage);
+  const workspaceUnavailable = !isAccountPage && !route.root && workspaceContext.unavailableRoute;
 
-  const workspaceResolutionFailed =
-    activePage !== "admin" && !route.root && workspaceContext.hasWorkspaceResolutionError;
+  const workspaceResolutionFailed = !isAccountPage && !route.root && workspaceContext.hasWorkspaceResolutionError;
 
   const templateLoad = templateController.navigation.load;
   const requestedTemplate = activePage === "templates" && route.templateId && route.templateId !== "new";
@@ -591,7 +621,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
   const routeLoading =
     !routeState &&
     !route.root &&
-    activePage !== "admin" &&
+    !isAccountPage &&
     (workspaceContext.isWorkspaceContextLoading || templateLoading || documentLoading || packetLoading);
 
   const showPage = !routeState && !routeLoading;
@@ -599,7 +629,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
   // A load failure keeps the page header so its breadcrumbs stay; an unavailable route has no page to head.
   // Without the page, item actions in the header are off, since the selection may be the previous item.
   const showPageHeader =
-    (!routeState || Boolean(routeState.retry)) && !["admin", "evaluations", "costs"].includes(visiblePage);
+    (!routeState || Boolean(routeState.retry)) &&
+    !["admin", "connected-apps", "evaluations", "costs"].includes(visiblePage);
 
   const selectedDocument = documentController.documentPage.selectedDocument;
 
@@ -662,7 +693,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     : {
         item: visiblePage === "workspace" ? workspaceName : pageItem,
         page: PAGE_TITLES[visiblePage],
-        workspace: visiblePage === "workspace" || visiblePage === "admin" ? "" : workspaceName,
+        workspace: visiblePage === "workspace" || ACCOUNT_PAGES.has(visiblePage) ? "" : workspaceName,
       };
 
   return (
@@ -716,7 +747,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         onUploadDocument={documentToolbar.onUploadDocument}
         profileSlot={
           isImpersonating ? (
-            <ProfileMenu ref={profileMenu.panelRef} {...profileMenu} />
+            <ProfileMenu ref={profileMenu.panelRef} {...profileMenuProps} />
           ) : (
             <OnboardingTour
               key={sessionUserId}
@@ -731,7 +762,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               onActiveChange={setIsTourActive}
               returnFocusRef={profileMenu.panelRef}
               renderProfile={(tourAction) => (
-                <ProfileMenu ref={profileMenu.panelRef} {...profileMenu} tourAction={tourAction} />
+                <ProfileMenu ref={profileMenu.panelRef} {...profileMenuProps} tourAction={tourAction} />
               )}
               onStart={() => {
                 if (profileMenu.isOpen) profileMenu.onToggle();
@@ -743,7 +774,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         }
         contextListLabel={CONTEXT_SIDEBAR_TITLES[visiblePage === "costs" ? "workspace" : visiblePage] || ""}
         contextSidebar={
-          visiblePage === "evaluations" ? null : (
+          visiblePage === "evaluations" || visiblePage === "connected-apps" ? null : (
             <ContextSidebar
               title={CONTEXT_SIDEBAR_TITLES[visiblePage === "costs" ? "workspace" : visiblePage]}
               footer={visiblePage === "admin" ? <AdminContextFooter admin={adminController} /> : null}
@@ -849,6 +880,10 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         {routeLoading ? <PageSkeleton /> : null}
         {showPage && visiblePage === "admin" ? (
           <ApplicationAdminPage admin={adminController} breadcrumbs={headerBreadcrumbs} />
+        ) : null}
+
+        {showPage && visiblePage === "connected-apps" ? (
+          <ConnectedAppsPage key={sessionId} requests={delegationRequests} toast={toast} />
         ) : null}
 
         {showPage && visiblePage === "costs" ? (
