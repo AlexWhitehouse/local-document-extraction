@@ -68,8 +68,13 @@ test("Workspace costs report processing spend and retain deleted documents throu
     await expect(page.getByLabel("Headline figures")).toContainText("$0.0370");
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.screenshot({ path: testInfo.outputPath("costs-overview.png"), fullPage: true });
-    await page.getByRole("radio", { name: "Table", exact: true }).click();
-    await expect(page.getByRole("table").first()).toContainText("Extraction");
+    const spend = page.getByRole("region", { name: "Spend over time" });
+    await spend.getByRole("radio", { name: "Table", exact: true }).click();
+    await expect(spend.getByRole("table")).toContainText("Extraction");
+    const spread = page.getByRole("region", { name: "Cost per document" });
+    await expect(spread.getByRole("table")).toHaveCount(0);
+    await spread.getByRole("radio", { name: "Table", exact: true }).click();
+    await expect(spread.getByRole("columnheader", { name: "Median" })).toBeVisible();
     await page.getByRole("tab", { name: "Documents", exact: true }).click();
     await expect(page).toHaveURL(`${harness.origin}/workspaces/${workspace}/costs/documents`);
     await expect(page.getByRole("button", { name: /cost-invoice-0.png/ })).toBeVisible();
