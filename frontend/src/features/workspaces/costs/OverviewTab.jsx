@@ -6,11 +6,14 @@ import { DataTable } from "../../ui/DataTable.jsx";
 import { Button } from "../../ui/Button.jsx";
 import { DownloadIcon } from "../../layout/Icons.jsx";
 import { downloadBlob } from "../../../lib/download.js";
+import { createNotifier, defaultToast } from "../../../lib/notify.js";
 import { xlsxBlob } from "../../../lib/xlsx.js";
 import { costLabel, niceMax, percent, plural, shortDate, usd, weightedQuantile } from "./costFormat.js";
 import { useChartTip, useWidth } from "./costHooks.js";
 
 const STACK = ["split", "auto_template", "extraction"];
+
+const defaultNotify = createNotifier(defaultToast);
 
 const PAD = { left: 56, right: 12 };
 
@@ -24,7 +27,7 @@ const bucketLabel = (bucket, unit) =>
   unit === "hour" ? `${String(bucket.hour).padStart(2, "0")}:00` : shortDate(bucket.date);
 
 /** Exact figures use bucket summaries; only the distribution is sampled. */
-export function OverviewTab({ data }) {
+export function OverviewTab({ data, notify = defaultNotify }) {
   const { totals: metrics, previous, range, samples, sampled } = data;
   const totals = metrics.costs;
 
@@ -73,7 +76,7 @@ export function OverviewTab({ data }) {
     <div className="cp-tab-panel">
       <FigureStrip figures={figures} label="Headline figures" />
       <SpendCharts buckets={buckets} unit={range.unit} totals={totals} />
-      <CostSpread documents={samples} sampled={sampled} population={metrics.fullyCostedDocuments} range={range} />
+      <CostSpread documents={samples} sampled={sampled} population={metrics.fullyCostedDocuments} range={range} notify={notify} />
     </div>
   );
 }
@@ -299,7 +302,7 @@ function jitter(id) {
 const rangeDates = (range) =>
   `${range.start.slice(0, 10)}-to-${new Date(Date.parse(range.end) - 1).toISOString().slice(0, 10)}`;
 
-function CostSpread({ documents, sampled, population, range }) {
+function CostSpread({ documents, sampled, population, range, notify }) {
   const [ref, width] = useWidth(720);
   const { tip, show, hide } = useChartTip();
   const [metric, setMetric] = useState("document");
@@ -341,7 +344,16 @@ function CostSpread({ documents, sampled, population, range }) {
 
   // The export lists every template; only the chart folds small ones into "Other templates".
   const exportTemplates = () => {
-    const blob = xlsxBlob({
+    try {
+      downloadBlob(templateWorkbook(), `template-cost-per-${metric}-${rangeDates(range)}.xlsx`);
+      notify("costs.templateExport", "success", { count: ranked.length });
+    } catch (error) {
+      notify("costs.templateExport", "failure", { error });
+    }
+  };
+
+  const templateWorkbook = () =>
+    xlsxBlob({
       sheet: `Cost per ${metric}`,
       columns: [
         { header: "Template", width: 36 },
@@ -358,9 +370,6 @@ function CostSpread({ documents, sampled, population, range }) {
         return [label, members.length, low, middle, high, p90];
       }),
     });
-
-    downloadBlob(blob, `template-cost-per-${metric}-${rangeDates(range)}.xlsx`);
-  };
 
   const max = niceMax(Math.max(...priced.map(value), 0));
   const plotWidth = Math.max(200, width - SPREAD_PAD.left - SPREAD_PAD.right);

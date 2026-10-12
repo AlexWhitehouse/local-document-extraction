@@ -289,13 +289,15 @@ it("exports every template's percentiles for the selected measure to an Excel wo
   });
 
   try {
-    render(<OverviewTab data={{ ...overview, samples }} />);
+    const notify = vi.fn();
+    render(<OverviewTab data={{ ...overview, samples }} notify={notify} />);
     const spread = screen.getByRole("region", { name: "Cost per document" });
     fireEvent.click(within(spread).getByRole("radio", { name: "Per page" }));
     fireEvent.click(within(spread).getByRole("button", { name: "Export" }));
 
     expect(names).toEqual(["template-cost-per-page-2026-09-01-to-2026-09-01.xlsx"]);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:template-costs");
+    expect(notify).toHaveBeenCalledWith("costs.templateExport", "success", { count: 13 });
     const [blob] = createObjectURL.mock.calls[0];
     expect(blob.type).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     const text = new TextDecoder().decode(await blob.arrayBuffer());
