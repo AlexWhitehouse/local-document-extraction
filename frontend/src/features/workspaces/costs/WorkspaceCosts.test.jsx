@@ -236,20 +236,78 @@ it("shows weighted template percentiles, combines small groups, and explains rea
   expect(screen.getByText("▲ 100%")).toBeTruthy();
   const spread = screen.getByRole("region", { name: "Cost per document" });
   expect(within(spread).getByText(/Based on a sample of 14 of 23 documents/)).toBeTruthy();
+  expect(within(spread).getByRole("radio", { name: "Chart" }).getAttribute("aria-checked")).toBe("true");
+  expect(within(spread).queryByRole("table")).toBeNull();
+  fireEvent.focus(screen.getByLabelText("Reassessed invoice: $20.00"));
+  expect(screen.getByRole("tooltip").textContent).toContain("The retries are included.");
+  fireEvent.blur(screen.getByLabelText("Reassessed invoice: $20.00"));
+  expect(screen.queryByRole("tooltip")).toBeNull();
+  fireEvent.click(within(spread).getByRole("radio", { name: "Table" }));
   expect(within(spread).getByRole("columnheader", { name: "Est. median" })).toBeTruthy();
   const table = within(spread).getByRole("table");
   expect(within(table).getAllByRole("row")).toHaveLength(13);
   expect(within(table).getByText("Other templates")).toBeTruthy();
   expect(within(table).getByText(primary.template).closest("tr").textContent).toContain("$2.00$2.00");
-  fireEvent.focus(screen.getByLabelText("Reassessed invoice: $20.00"));
-  expect(screen.getByRole("tooltip").textContent).toContain("The retries are included.");
-  fireEvent.blur(screen.getByLabelText("Reassessed invoice: $20.00"));
-  expect(screen.queryByRole("tooltip")).toBeNull();
   fireEvent.click(within(spread).getByRole("radio", { name: "Per page" }));
   expect(within(table).getByText(primary.template).closest("tr").textContent).toContain("$1.00$1.00");
+  fireEvent.click(within(spread).getByRole("radio", { name: "Chart" }));
   fireEvent.mouseMove(screen.getByLabelText("Reassessed invoice: $5.00"), { clientX: 50, clientY: 50 });
   expect(screen.getByRole("tooltip").textContent).toContain("$5.00 per page");
   fireEvent.mouseLeave(screen.getByLabelText("Reassessed invoice: $5.00"));
+});
+
+it("exports every template's percentiles for the selected measure to an Excel workbook", async () => {
+  const sample = (id, template, amount, pages = 1) => ({
+    id,
+    name: `Document ${id}`,
+    templateId: template,
+    template: template === "a" ? "Invoices & receipts" : `Template ${template}`,
+    pages,
+    costs: costs(amount),
+    weight: 1,
+  });
+
+  const samples = [
+    sample("1", "a", 2, 2),
+    sample("2", "a", 4, 2),
+    ...Array.from({ length: 12 }, (_, index) => sample(`t${index}`, `${index}`, 1)),
+  ];
+
+  const createObjectURL = vi.fn(() => "blob:template-costs");
+  const revokeObjectURL = vi.fn();
+
+  class ExportURL extends globalThis.URL {}
+
+  ExportURL.createObjectURL = createObjectURL;
+  ExportURL.revokeObjectURL = revokeObjectURL;
+  vi.stubGlobal("URL", ExportURL);
+
+  const names = [];
+
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function () {
+    names.push(this.download);
+  });
+
+  try {
+    render(<OverviewTab data={{ ...overview, samples }} />);
+    const spread = screen.getByRole("region", { name: "Cost per document" });
+    fireEvent.click(within(spread).getByRole("radio", { name: "Per page" }));
+    fireEvent.click(within(spread).getByRole("button", { name: "Export" }));
+
+    expect(names).toEqual(["template-cost-per-page-2026-09-01-to-2026-09-01.xlsx"]);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:template-costs");
+    const [blob] = createObjectURL.mock.calls[0];
+    expect(blob.type).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    const text = new TextDecoder().decode(await blob.arrayBuffer());
+    expect(text).toContain('<sheet name="Cost per page"');
+    expect(text).toContain("Invoices &amp; receipts");
+    expect(text).toContain("Template 11");
+    expect(text).not.toContain("Other templates");
+    expect(text).toContain('<row r="2"><c r="A2" t="inlineStr"><is><t xml:space="preserve">Invoices &amp; receipts</t></is></c><c r="B2"><v>2</v></c>');
+  } finally {
+    click.mockRestore();
+    vi.unstubAllGlobals();
+  }
 });
 
 it("keeps incomplete hourly spend distinct from fully costed averages in chart and table views", () => {

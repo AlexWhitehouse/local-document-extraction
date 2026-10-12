@@ -3,6 +3,10 @@ import { ChartTip, FigureStrip, StageLegend, StageTipRows } from "./costShared.j
 import { Segmented } from "../../ui/Tabs.jsx";
 import { EmptyState } from "../../ui/States.jsx";
 import { DataTable } from "../../ui/DataTable.jsx";
+import { Button } from "../../ui/Button.jsx";
+import { DownloadIcon } from "../../layout/Icons.jsx";
+import { downloadBlob } from "../../../lib/download.js";
+import { xlsxBlob } from "../../../lib/xlsx.js";
 import { costLabel, niceMax, percent, plural, shortDate, usd, weightedQuantile } from "./costFormat.js";
 import { useChartTip, useWidth } from "./costHooks.js";
 
@@ -69,7 +73,7 @@ export function OverviewTab({ data }) {
     <div className="cp-tab-panel">
       <FigureStrip figures={figures} label="Headline figures" />
       <SpendCharts buckets={buckets} unit={range.unit} totals={totals} />
-      <CostSpread documents={samples} sampled={sampled} population={metrics.fullyCostedDocuments} />
+      <CostSpread documents={samples} sampled={sampled} population={metrics.fullyCostedDocuments} range={range} />
     </div>
   );
 }
@@ -291,10 +295,15 @@ function jitter(id) {
   return ((hash >>> 0) % 1000) / 1000 - 0.5;
 }
 
-function CostSpread({ documents, sampled, population }) {
+// The range end is exclusive, so the file name uses the last millisecond inside it.
+const rangeDates = (range) =>
+  `${range.start.slice(0, 10)}-to-${new Date(Date.parse(range.end) - 1).toISOString().slice(0, 10)}`;
+
+function CostSpread({ documents, sampled, population, range }) {
   const [ref, width] = useWidth(720);
   const { tip, show, hide } = useChartTip();
   const [metric, setMetric] = useState("document");
+  const [view, setView] = useState("chart");
   const value = (item) => (metric === "page" ? item.costs.total.amount / item.pages : item.costs.total.amount);
   const priced = documents;
   const templates = new Map();
@@ -319,13 +328,39 @@ function CostSpread({ documents, sampled, population }) {
         ]
       : ranked;
 
-  const groups = visible.map((group) => ({
+  const summarise = (group) => ({
     ...group,
     middle: weightedQuantile(group.members, value, 0.5),
     low: weightedQuantile(group.members, value, 0.25),
     high: weightedQuantile(group.members, value, 0.75),
     p90: weightedQuantile(group.members, value, 0.9),
-  }));
+  });
+
+  const groups = visible.map(summarise);
+  const estimate = (label) => (sampled ? `Est. ${label.charAt(0).toLowerCase()}${label.slice(1)}` : label);
+
+  // The export lists every template; only the chart folds small ones into "Other templates".
+  const exportTemplates = () => {
+    const blob = xlsxBlob({
+      sheet: `Cost per ${metric}`,
+      columns: [
+        { header: "Template", width: 36 },
+        { header: sampled ? "Sample documents" : "Documents", width: 18 },
+        ...["25th percentile", "Median", "75th percentile", "90th percentile"].map((label) => ({
+          header: estimate(label),
+          width: 20,
+          format: "usd",
+        })),
+      ],
+      rows: ranked.map((group) => {
+        const { label, members, low, middle, high, p90 } = summarise(group);
+
+        return [label, members.length, low, middle, high, p90];
+      }),
+    });
+
+    downloadBlob(blob, `template-cost-per-${metric}-${rangeDates(range)}.xlsx`);
+  };
 
   const max = niceMax(Math.max(...priced.map(value), 0));
   const plotWidth = Math.max(200, width - SPREAD_PAD.left - SPREAD_PAD.right);
@@ -345,9 +380,7 @@ function CostSpread({ documents, sampled, population }) {
       <div className="studio-section-heading">
         <div>
           <h2>Cost per {metric === "page" ? "page" : "document"}</h2>
-          <p>
-            One dot per document. Bands show the middle 50%; ticks show the median.
-          </p>
+          {view === "chart" ? <p>One dot per document. Bands show the middle 50%; ticks show the median.</p> : null}
         </div>
         <div className="cp-controls">
           <Segmented
@@ -359,6 +392,23 @@ function CostSpread({ documents, sampled, population }) {
               { value: "page", label: "Per page" },
             ]}
           />
+          {groups.length ? (
+            <>
+              <Segmented
+                label="Display"
+                value={view}
+                onChange={setView}
+                items={[
+                  { value: "chart", label: "Chart" },
+                  { value: "table", label: "Table" },
+                ]}
+              />
+              <Button variant="secondary" className="cp-export" onClick={exportTemplates}>
+                <DownloadIcon size={13} />
+                Export
+              </Button>
+            </>
+          ) : null}
         </div>
       </div>
       {sampled ? (
@@ -366,94 +416,97 @@ function CostSpread({ documents, sampled, population }) {
           Based on a sample of {documents.length} of {population.toLocaleString()} documents.
         </p>
       ) : null}
-      {groups.length ? (
-        <>
-          <div ref={ref} className="cp-chart">
-            <svg width={width} height={height} role="group" aria-label={`Cost per ${metric} by template`}>
-              {[0, 0.25, 0.5, 0.75, 1].map((step) => (
-                <g key={step}>
-                  <line
-                    className="cp-grid"
-                    x1={x(max * step) + 0.5}
-                    x2={x(max * step) + 0.5}
-                    y1={SPREAD_PAD.top}
-                    y2={height - SPREAD_PAD.bottom}
-                  />
-                  <text
-                    className="cp-axis-text"
-                    x={x(max * step)}
-                    y={height - 8}
-                    textAnchor={step === 1 ? "end" : "middle"}
-                  >
-                    {usd(max * step)}
+      {!groups.length ? (
+        <EmptyState message="No priced documents in this range" variant="inline" />
+      ) : view === "chart" ? (
+        <div ref={ref} className="cp-chart">
+          <svg width={width} height={height} role="group" aria-label={`Cost per ${metric} by template`}>
+            {[0, 0.25, 0.5, 0.75, 1].map((step) => (
+              <g key={step}>
+                <line
+                  className="cp-grid"
+                  x1={x(max * step) + 0.5}
+                  x2={x(max * step) + 0.5}
+                  y1={SPREAD_PAD.top}
+                  y2={height - SPREAD_PAD.bottom}
+                />
+                <text
+                  className="cp-axis-text"
+                  x={x(max * step)}
+                  y={height - 8}
+                  textAnchor={step === 1 ? "end" : "middle"}
+                >
+                  {usd(max * step)}
+                </text>
+              </g>
+            ))}
+            {groups.map((group, index) => {
+              const middleY = SPREAD_PAD.top + index * ROW + ROW / 2;
+
+              const flagged = group.members
+                .filter((item) => value(item) > group.middle * OUTLIER)
+                .sort((a, b) => value(b) - value(a))[0];
+
+              return (
+                <g key={group.key}>
+                  <text className="cp-row-label" x={SPREAD_PAD.left - 12} y={middleY + 4} textAnchor="end">
+                    {group.label.length > 17 ? `${group.label.slice(0, 16)}…` : group.label}
+                    <title>{group.label}</title>
                   </text>
-                </g>
-              ))}
-              {groups.map((group, index) => {
-                const middleY = SPREAD_PAD.top + index * ROW + ROW / 2;
-
-                const flagged = group.members
-                  .filter((item) => value(item) > group.middle * OUTLIER)
-                  .sort((a, b) => value(b) - value(a))[0];
-
-                return (
-                  <g key={group.key}>
-                    <text className="cp-row-label" x={SPREAD_PAD.left - 12} y={middleY + 4} textAnchor="end">
-                      {group.label.length > 17 ? `${group.label.slice(0, 16)}…` : group.label}
-                      <title>{group.label}</title>
+                  <rect
+                    className="cp-iqr"
+                    x={x(group.low)}
+                    y={middleY - 13}
+                    width={Math.max(2, x(group.high) - x(group.low))}
+                    height={26}
+                    rx={3}
+                  />
+                  <line
+                    className="cp-median"
+                    x1={x(group.middle)}
+                    x2={x(group.middle)}
+                    y1={middleY - 15}
+                    y2={middleY + 15}
+                  />
+                  {group.members.map((item) => (
+                    <circle
+                      key={item.id}
+                      className={`cp-spread-dot${value(item) > group.middle * OUTLIER ? " cp-spread-outlier" : ""}`}
+                      cx={x(value(item))}
+                      cy={middleY + jitter(item.id) * 20}
+                      r={4}
+                      tabIndex={0}
+                      aria-label={`${item.name}: ${usd(value(item))}`}
+                      onMouseMove={(event) => show(event, tipFor(item))}
+                      onMouseLeave={hide}
+                      onFocus={(event) => show(event, tipFor(item))}
+                      onBlur={hide}
+                    />
+                  ))}
+                  {flagged ? (
+                    <text
+                      className="cp-dot-label"
+                      x={x(value(flagged)) + (x(value(flagged)) + 130 > SPREAD_PAD.left + plotWidth ? -10 : 10)}
+                      y={middleY + jitter(flagged.id) * 20 + 3.5}
+                      textAnchor={x(value(flagged)) + 130 > SPREAD_PAD.left + plotWidth ? "end" : "start"}
+                    >
+                      {flagged.retried ? "Reassessed" : "Outlier"} · {usd(value(flagged))}
                     </text>
-                    <rect
-                      className="cp-iqr"
-                      x={x(group.low)}
-                      y={middleY - 13}
-                      width={Math.max(2, x(group.high) - x(group.low))}
-                      height={26}
-                      rx={3}
-                    />
-                    <line
-                      className="cp-median"
-                      x1={x(group.middle)}
-                      x2={x(group.middle)}
-                      y1={middleY - 15}
-                      y2={middleY + 15}
-                    />
-                    {group.members.map((item) => (
-                      <circle
-                        key={item.id}
-                        className={`cp-spread-dot${value(item) > group.middle * OUTLIER ? " cp-spread-outlier" : ""}`}
-                        cx={x(value(item))}
-                        cy={middleY + jitter(item.id) * 20}
-                        r={4}
-                        tabIndex={0}
-                        aria-label={`${item.name}: ${usd(value(item))}`}
-                        onMouseMove={(event) => show(event, tipFor(item))}
-                        onMouseLeave={hide}
-                        onFocus={(event) => show(event, tipFor(item))}
-                        onBlur={hide}
-                      />
-                    ))}
-                    {flagged ? (
-                      <text
-                        className="cp-dot-label"
-                        x={x(value(flagged)) + (x(value(flagged)) + 130 > SPREAD_PAD.left + plotWidth ? -10 : 10)}
-                        y={middleY + jitter(flagged.id) * 20 + 3.5}
-                        textAnchor={x(value(flagged)) + 130 > SPREAD_PAD.left + plotWidth ? "end" : "start"}
-                      >
-                        {flagged.retried ? "Reassessed" : "Outlier"} · {usd(value(flagged))}
-                      </text>
-                    ) : null}
-                  </g>
-                );
-              })}
-            </svg>
-          </div>
+                  ) : null}
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      ) : (
+        <div className="cp-table-scroll" ref={ref}>
           <DataTable className="cp-table cp-spread-table">
             <thead>
               <tr>
                 <th>Template</th>
                 <th className="cp-num">{sampled ? "Sample documents" : "Documents"}</th>
-                <th className="cp-num">{sampled ? "Est. median" : "Median"}</th>
-                <th className="cp-num">{sampled ? "Est. 90th percentile" : "90th percentile"}</th>
+                <th className="cp-num">{estimate("Median")}</th>
+                <th className="cp-num">{estimate("90th percentile")}</th>
               </tr>
             </thead>
             <tbody>
@@ -467,9 +520,7 @@ function CostSpread({ documents, sampled, population }) {
               ))}
             </tbody>
           </DataTable>
-        </>
-      ) : (
-        <EmptyState message="No priced documents in this range" variant="inline" />
+        </div>
       )}
       <ChartTip tip={tip} />
     </section>

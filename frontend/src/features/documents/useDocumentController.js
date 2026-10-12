@@ -6,6 +6,7 @@ import { isPacketListed, isSingleDocumentPacket, singlePacketDocument } from "./
 import { useDocumentReconciliation } from "./useDocumentReconciliation";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { validateSourceFiles } from "./sourceFileValidation.js";
+import { downloadBlob } from "../../lib/download.js";
 
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
@@ -1083,22 +1084,6 @@ function documentTemplateName(document, templates) {
   ]
     .filter(Boolean)
     .join(" · ");
-}
-
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.style.display = "none";
-  document.body.appendChild(link);
-
-  try {
-    link.click();
-  } finally {
-    link.remove();
-    URL.revokeObjectURL(url);
-  }
 }
 
 function createWorkspaceLiveUpdateUrl(apiBase, workspaceId) {
