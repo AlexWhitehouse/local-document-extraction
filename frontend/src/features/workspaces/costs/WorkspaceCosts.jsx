@@ -8,9 +8,26 @@ import { ErrorState, LoadingState } from "../../ui/States.jsx";
 import { Tabs } from "../../ui/Tabs.jsx";
 import { Callout } from "../../ui/Callout.jsx";
 import { DocumentsTab } from "./DocumentsTab.jsx";
+import { Button } from "../../ui/Button.jsx";
+import { useAsyncAction } from "../../ui/useAsyncAction.js";
+import { DownloadIcon } from "../../layout/Icons.jsx";
+import { downloadBlob } from "../../../lib/download.js";
+import { createNotifier, defaultToast } from "../../../lib/notify.js";
+import { xlsxBlob } from "../../../lib/xlsx.js";
+import { costExportFileName, costWorkbookSheets } from "./costExport.js";
 import "./workspaceCosts.css";
 
-export function WorkspaceCosts({ workspaceId, workspaceCrumb = null, role, tab = "overview", request, onTab }) {
+const defaultNotify = createNotifier(defaultToast);
+
+export function WorkspaceCosts({
+  workspaceId,
+  workspaceCrumb = null,
+  role,
+  tab = "overview",
+  request,
+  onTab,
+  notify = defaultNotify,
+}) {
   return (
     <div className="workspace-costs">
       <PageHeader
@@ -20,7 +37,7 @@ export function WorkspaceCosts({ workspaceId, workspaceCrumb = null, role, tab =
         description="Model costs by upload date (USD, UTC). Deleted documents keep their costs."
       />
       {["owner", "admin"].includes(role) ? (
-        <CostViews workspaceId={workspaceId} request={request} tab={tab} onTab={onTab} />
+        <CostViews workspaceId={workspaceId} request={request} tab={tab} onTab={onTab} notify={notify} />
       ) : (
         <div className="cp-restricted">
           <strong>Only workspace owners and admins can view costs.</strong>
@@ -30,7 +47,7 @@ export function WorkspaceCosts({ workspaceId, workspaceCrumb = null, role, tab =
   );
 }
 
-function CostViews({ workspaceId, request, tab, onTab }) {
+function CostViews({ workspaceId, request, tab, onTab, notify }) {
   const [range, setRange] = useState({ preset: "30d" });
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -41,6 +58,20 @@ function CostViews({ workspaceId, request, tab, onTab }) {
   const resolved = resolveRange(range, now);
   const query = new URLSearchParams(resolved).toString();
   const base = `/workspaces/${encodeURIComponent(workspaceId)}/costs`;
+
+  // The export reads the whole range fresh, whichever tab is open.
+  const [exporting, exportCosts] = useAsyncAction(async () => {
+    const label = rangeLabel(range);
+
+    try {
+      const read = (path) => request(`${base}/${path}?${query}`, { method: "GET", cache: "no-store" });
+      const [overview, exported] = await Promise.all([read("overview"), read("export")]);
+      downloadBlob(xlsxBlob(costWorkbookSheets({ overview, exported, label })), costExportFileName(resolved));
+      notify("costs.export", "success", { label });
+    } catch (error) {
+      notify("costs.export", "failure", { error });
+    }
+  });
 
   return (
     <>
@@ -58,6 +89,16 @@ function CostViews({ workspaceId, request, tab, onTab }) {
         <div className="cp-range-row">
           <span className="cp-muted">{rangeLabel(range)}</span>
           <RangePicker range={range} onChange={setRange} />
+          <Button
+            variant="secondary"
+            className="cp-export"
+            pending={exporting}
+            pendingLabel="Exporting…"
+            onClick={() => void exportCosts()}
+          >
+            <DownloadIcon size={13} />
+            Export
+          </Button>
         </div>
       </div>
       <div role="tabpanel" id={`cost-views-panel-${tab}`} aria-labelledby={`cost-views-tab-${tab}`} tabIndex={0}>

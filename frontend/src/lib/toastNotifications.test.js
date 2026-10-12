@@ -222,13 +222,13 @@ describe("app action toast notifications", () => {
       severity: "error",
       message: "Couldn't export selected documents.",
     });
-    expect(getActionToast("costs.templateExport", "success", { count: 1 })).toEqual({
+    expect(getActionToast("costs.export", "success", { label: "Last 30 days" })).toEqual({
       severity: "success",
-      message: "Exported 1 template",
+      message: "Exported costs for last 30 days",
     });
-    expect(getActionToast("costs.templateExport", "failure")).toEqual({
+    expect(getActionToast("costs.export", "failure")).toEqual({
       severity: "error",
-      message: "Couldn't export template costs.",
+      message: "Couldn't export costs.",
     });
   });
 

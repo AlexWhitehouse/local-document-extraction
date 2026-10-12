@@ -68,7 +68,7 @@ function fixture() {
 test("all cost resources require an owner/admin session, including deleted detail; authorization precedes opening a store", async () => {
   const f = fixture();
 
-  for (const resource of [`overview?${dates}`, `documents?${dates}`, "documents/deleted"]) {
+  for (const resource of [`overview?${dates}`, `documents?${dates}`, `export?${dates}`, "documents/deleted"]) {
     expect((await f.request(resource, {})).status).toBe(401);
     expect((await f.request(resource, { authorization: "Bearer workspace-api-key" })).status).toBe(401);
     expect((await f.request(resource, { cookie: "member" })).status).toBe(403);
@@ -105,6 +105,10 @@ test("cost API rejects unbounded ranges and malformed filters/cursors and suppor
     expect((await f.request(path)).status).toBe(400);
   expect((await f.request(undefined, { cookie: "owner" }, "POST")).status).toBe(405);
   expect((await f.request("documents/missing")).status).toBe(404);
+  expect((await f.request("export?start=2000-01-01&end=2027-01-01&unit=day")).status).toBe(400);
+  const exported = await f.request(`export?${dates}`);
+  expect(exported.status).toBe(200);
+  expect(await exported.json()).toMatchObject({ uploads: [], truncated: false });
   const page = await f.request(`documents?${dates}&sort=total&kind=multi`);
   expect(page.status).toBe(200);
   expect(await page.json()).toMatchObject({ items: [], cursor: null });
