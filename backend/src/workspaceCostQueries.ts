@@ -304,7 +304,7 @@ export function createCostQueries(db: Database) {
       return { ...state(), items, cursor, searchContinuing: Boolean(search && cursor && items.length < PAGE_SIZE) };
     },
     /** Every upload in range with its documents, oldest first, for a spreadsheet export. */
-    listCostExport(range: CostRange) {
+    listCostExport(range: CostRange, limit = EXPORT_LIMIT) {
       const rows = db
         .query<{ upload: string; document: string | null }, SQLQueryBindings[]>(
           `SELECT u.data AS upload,d.data AS document
@@ -313,7 +313,7 @@ export function createCostQueries(db: Database) {
           LEFT JOIN cost_documents d ON d.upload_id=u.id
           ORDER BY u.created_at,u.id,d.id`,
         )
-        .all(range.start, range.end, EXPORT_LIMIT + 1);
+        .all(range.start, range.end, limit + 1);
 
       const uploads: Array<CostUpload & { children: CostDocument[] }> = [];
 
@@ -334,7 +334,18 @@ export function createCostQueries(db: Database) {
         current.children.push(document);
       }
 
-      return { ...state(), range, uploads: uploads.slice(0, EXPORT_LIMIT), truncated: uploads.length > EXPORT_LIMIT };
+      const truncated = uploads.length > limit;
+
+      // SAFETY: an aggregate COUNT without GROUP BY always returns exactly one row.
+      const uploadCount = truncated
+        ? db
+            .query<{ count: number }, SQLQueryBindings[]>(
+              "SELECT COUNT(*) AS count FROM cost_uploads WHERE created_at>=? AND created_at<?",
+            )
+            .get(range.start, range.end)!.count
+        : uploads.length;
+
+      return { ...state(), range, uploads: uploads.slice(0, limit), uploadCount, truncated };
     },
     getCostUpload(id: string) {
       const upload = readCostUpload(db, id);

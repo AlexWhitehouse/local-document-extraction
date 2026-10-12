@@ -258,6 +258,9 @@ test("the export lists every upload in range oldest first with its documents", (
 
   const exported = f.store.listCostExport(range);
   expect(exported.truncated).toBe(false);
+  expect(exported.uploadCount).toBe(2);
+  const capped = f.store.listCostExport(range, 1);
+  expect([capped.truncated, capped.uploadCount, capped.uploads.map((upload) => upload.id)]).toEqual([true, 2, ["packet"]]);
   expect(exported.uploads.map((upload) => [upload.id, upload.children.length])).toEqual([
     ["packet", 2],
     ["single", 1],

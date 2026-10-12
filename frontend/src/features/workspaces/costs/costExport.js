@@ -2,10 +2,19 @@ import { statusLabel } from "../../../lib/status.js";
 import { Formatted } from "../../../lib/xlsx.js";
 import { STAGES } from "./costConstants.js";
 import { sumItemCosts } from "./costFormat.js";
+import { fullyCosted } from "../../../../../shared/workspaceCosts.ts";
 
 const STAGE_IDS = [...STAGES.map((stage) => stage.id), "total"];
 
 const STAGE_COLUMNS = [...STAGES, { label: "Total" }].map((stage) => ({ header: stage.label, width: 18, format: "usd" }));
+
+// Template groups are keyed by ID, so prefixes keep real templates apart from the synthetic rows.
+const OVERHEAD = "overhead";
+
+const PENDING = "pending";
+
+const templateKey = (document) =>
+  document.templateId ? `id:${document.templateId}` : document.template ? `name:${document.template}` : PENDING;
 
 // Shares smaller than this are floating-point noise from dividing a split across documents.
 const EPSILON = 1e-9;
@@ -32,11 +41,24 @@ export function documentRows(uploads) {
     const uploaded = new Date(upload.created_at);
 
     if (!upload.children.length)
-      return [{ uploaded, upload, name: upload.name, template: "", pages: upload.pages, status: upload.status, deleted: upload.deleted, costs: upload.costs }];
+      return [
+        {
+          uploaded,
+          upload,
+          group: PENDING,
+          name: upload.name,
+          template: "",
+          pages: upload.pages,
+          status: upload.status,
+          deleted: upload.deleted,
+          costs: upload.costs,
+        },
+      ];
 
     const rows = upload.children.map((child) => ({
       uploaded,
       upload,
+      group: templateKey(child),
       name: child.name,
       template: child.template,
       pages: child.pages,
@@ -61,6 +83,7 @@ export function documentRows(uploads) {
       rows.push({
         uploaded,
         upload,
+        group: OVERHEAD,
         name: "Pages not in a document",
         template: "Split overhead",
         pages: Math.max(0, upload.pages - upload.children.reduce((sum, child) => sum + child.pages, 0)),
@@ -87,7 +110,9 @@ function summarySheet({ overview, exported, label }) {
   const notes = [
     costs.total.complete ? null : "Some model calls have no reported cost, so totals are a minimum.",
     exported.updating ? "Cost history is still updating. Figures may be incomplete." : null,
-    exported.truncated ? `The Documents sheet lists the first ${exported.uploads.length.toLocaleString("en-GB")} uploads.` : null,
+    exported.truncated
+      ? `The By template and Documents sheets cover only the first ${exported.uploads.length.toLocaleString("en-GB")} of ${exported.uploadCount.toLocaleString("en-GB")} uploads.`
+      : null,
   ].filter(Boolean);
 
   return {
@@ -102,7 +127,7 @@ function summarySheet({ overview, exported, label }) {
       ["To", new Formatted(hourly ? new Date(range.end) : lastDay(range), hourly ? "datetime" : "date")],
       ["Total spend", usd(costs.total.amount)],
       ...STAGES.map((stage) => [stage.label, usd(costs[stage.id].amount)]),
-      ["Uploads", exported.uploads.length],
+      ["Uploads", exported.uploadCount],
       ["Documents", totals.documents],
       ["Pages", totals.pages],
       ["Average per document", usd(ratio(totals.fullyCostedAmount, totals.fullyCostedDocuments))],
@@ -140,28 +165,43 @@ function periodSheet({ buckets, range }) {
   };
 }
 
-function templateSheet(rows) {
+const GROUP_LABELS = { [OVERHEAD]: "Split overhead", [PENDING]: "No template yet" };
+
+// Partial sheets say so in their tab name, since their totals come from capped rows.
+const sheetName = (name, truncated) => (truncated ? `${name} (partial)` : name);
+
+function templateSheet(rows, truncated) {
   const groups = new Map();
 
   for (const row of rows) {
-    const key = row.template || "No template yet";
-
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(row);
+    if (!groups.has(row.group)) groups.set(row.group, []);
+    groups.get(row.group).push(row);
   }
 
-  const summaries = [...groups].map(([template, members]) => {
+  const summaries = [...groups].map(([group, members]) => {
     const costs = sumItemCosts(members);
-    const documents = members.filter((member) => member.template !== "Split overhead").length;
+    const documents = group === OVERHEAD ? 0 : members.length;
     const pages = members.reduce((sum, member) => sum + member.pages, 0);
+    const priced = group === OVERHEAD ? [] : members.filter(fullyCosted);
+    const pricedAmount = priced.reduce((sum, member) => sum + member.costs.total.amount, 0);
+    const pricedPages = priced.reduce((sum, member) => sum + member.pages, 0);
+    // Rows are oldest first, so the newest name wins after a rename.
+    const template = GROUP_LABELS[group] ?? members.at(-1).template;
 
-    return { template, documents, pages, costs };
+    return {
+      template,
+      documents,
+      pages,
+      costs,
+      perDocument: ratio(pricedAmount, priced.length),
+      perPage: ratio(pricedAmount, pricedPages),
+    };
   });
 
   summaries.sort((a, b) => (b.costs.total.amount ?? 0) - (a.costs.total.amount ?? 0));
 
   return {
-    name: "By template",
+    name: sheetName("By template", truncated),
     columns: [
       { header: "Template", width: 34 },
       { header: "Documents", width: 12 },
@@ -171,21 +211,21 @@ function templateSheet(rows) {
       { header: "Average per page", width: 18, format: "usd" },
       { header: "Costs complete", width: 16 },
     ],
-    rows: summaries.map(({ template, documents, pages, costs }) => [
+    rows: summaries.map(({ template, documents, pages, costs, perDocument, perPage }) => [
       template,
       documents,
       pages,
       ...amounts(costs),
-      ratio(costs.total.amount, documents),
-      ratio(costs.total.amount, pages),
+      perDocument,
+      perPage,
       complete(costs),
     ]),
   };
 }
 
-function documentSheet(rows) {
+function documentSheet(rows, truncated) {
   return {
-    name: "Documents",
+    name: sheetName("Documents", truncated),
     columns: [
       { header: "Uploaded (UTC)", width: 18, format: "datetime" },
       { header: "Upload", width: 34 },
@@ -215,5 +255,5 @@ function documentSheet(rows) {
 export function costWorkbookSheets({ overview, exported, label }) {
   const rows = documentRows(exported.uploads);
 
-  return [summarySheet({ overview, exported, label }), periodSheet(overview), templateSheet(rows), documentSheet(rows)];
+  return [summarySheet({ overview, exported, label }), periodSheet(overview), templateSheet(rows, exported.truncated), documentSheet(rows, exported.truncated)];
 }

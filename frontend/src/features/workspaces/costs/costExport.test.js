@@ -11,10 +11,11 @@ const costs = (split, extraction, unreported = 0) => ({
   total: costAmount(split + extraction, 2, unreported),
 });
 
-const child = (id, template, split, extraction) => ({
+const child = (id, template, split, extraction, templateId = null) => ({
   id,
   name: `${id}.pdf`,
   template,
+  templateId,
   pages: 2,
   status: "completed",
   deleted: false,
@@ -64,7 +65,7 @@ const overview = {
   ],
 };
 
-const exported = { updating: true, truncated: false, generatedAt: "2026-09-03T08:00:00.000Z", uploads: [packet, pending] };
+const exported = { updating: true, truncated: false, uploadCount: 2, generatedAt: "2026-09-03T08:00:00.000Z", uploads: [packet, pending] };
 
 const plain = (cell) => (cell instanceof Formatted ? cell.value : cell);
 
@@ -104,6 +105,8 @@ describe("cost export workbook", () => {
       ["No template yet", 1, 3],
     ]);
     expect(templates.rows[0][6]).toBeCloseTo(0.6, 12);
+    expect(templates.rows[0][7]).toBeCloseTo(0.3, 12);
+    expect(templates.rows[1][7]).toBeNull();
 
     expect(documents.columns.map((column) => column.header)).toEqual([
       "Uploaded (UTC)",
@@ -120,6 +123,73 @@ describe("cost export workbook", () => {
       "Costs complete",
     ]);
     expect(documents.rows[0].slice(0, 7)).toEqual([new Date(packet.created_at), "bundle.pdf", "a.pdf", "Invoices", 2, "Completed", "No"]);
+  });
+
+  it("groups templates by ID, keeping the newest name and apart from synthetic rows", () => {
+    const upload = (id, created_at, children) => ({
+      ...packet,
+      id,
+      created_at,
+      costs: sumCosts(children),
+      children,
+    });
+
+    const sumCosts = (children) => ({
+      currency: "USD",
+      ...Object.fromEntries(
+        ["split", "auto_template", "extraction", "total"].map((stage) => [
+          stage,
+          costAmount(children.reduce((sum, item) => sum + item.costs[stage].amount, 0), 1),
+        ]),
+      ),
+    });
+
+    const uploads = [
+      upload("old", "2026-09-01T09:00:00.000Z", [child("a", "Invoice", 0.1, 0.1, "tpl-1")]),
+      upload("new", "2026-09-01T10:00:00.000Z", [
+        child("b", "Supplier invoice", 0.1, 0.1, "tpl-1"),
+        child("c", "Invoice", 0.2, 0.2, "tpl-2"),
+        child("d", "Split overhead", 0.3, 0.3, "tpl-3"),
+      ]),
+    ];
+
+    const [, , templates] = costWorkbookSheets({
+      overview,
+      exported: { ...exported, uploadCount: 2, uploads },
+      label: "Last 2 days",
+    });
+
+    expect(templates.rows.map((row) => row.slice(0, 2))).toEqual([
+      ["Split overhead", 1],
+      ["Supplier invoice", 2],
+      ["Invoice", 1],
+    ]);
+  });
+
+  it("leaves template averages to fully costed documents", () => {
+    const incomplete = { ...child("b", "Invoices", 0.1, 0.2, "tpl"), costs: costs(0.1, 0.2, 1) };
+    const uploads = [{ ...packet, children: [child("a", "Invoices", 0.4, 0.6, "tpl"), incomplete] }];
+    const [, , templates] = costWorkbookSheets({ overview, exported: { ...exported, uploads }, label: "Last 2 days" });
+    const invoices = templates.rows.find((row) => row[0] === "Invoices");
+
+    expect(invoices[1]).toBe(2);
+    expect(invoices[7]).toBeCloseTo(1, 12);
+    expect(invoices[8]).toBeCloseTo(0.5, 12);
+    expect(invoices.at(-1)).toBe("No");
+  });
+
+  it("marks every sheet built from capped uploads and reports the exact upload count", () => {
+    const [summary, , templates, documents] = costWorkbookSheets({
+      overview,
+      exported: { ...exported, truncated: true, uploadCount: 30000 },
+      label: "Last 2 days",
+    });
+
+    expect(plain(summary.rows.find((row) => row[0] === "Uploads")[1])).toBe(30000);
+    expect(summary.rows.filter((row) => row[0] === "Note").at(-1)[1]).toBe(
+      "The By template and Documents sheets cover only the first 2 of 30,000 uploads.",
+    );
+    expect([templates.name, documents.name]).toEqual(["By template (partial)", "Documents (partial)"]);
   });
 
   it("names the file after the first and last day in range", () => {
