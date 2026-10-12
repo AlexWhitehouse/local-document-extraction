@@ -222,6 +222,14 @@ describe("app action toast notifications", () => {
       severity: "error",
       message: "Couldn't export selected documents.",
     });
+    expect(getActionToast("costs.templateExport", "success", { count: 1 })).toEqual({
+      severity: "success",
+      message: "Exported 1 template",
+    });
+    expect(getActionToast("costs.templateExport", "failure")).toEqual({
+      severity: "error",
+      message: "Couldn't export template costs.",
+    });
   });
 
   it("names tag, template use and split plan outcomes", () => {

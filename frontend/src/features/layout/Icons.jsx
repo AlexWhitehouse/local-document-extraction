@@ -182,6 +182,15 @@ export function UploadIcon(props) {
   );
 }
 
+export function DownloadIcon(props) {
+  return (
+    <Icon {...props}>
+      <path d="M12 4v12M7 11l5 5 5-5" />
+      <path d="M4 15v5h16v-5" />
+    </Icon>
+  );
+}
+
 export function TrashIcon(props) {
   return (
     <Icon {...props}>

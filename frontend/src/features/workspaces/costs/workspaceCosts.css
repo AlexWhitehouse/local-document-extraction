@@ -175,3 +175,4 @@
 .cp-tip .cp-tip-total { margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--rule); font-weight: 600; }
 .cp-tip .cp-tip-total dt { color: var(--text-1); }
 .cp-tip-foot { margin: 6px 0 0; color: var(--text-2); font-size: var(--font-size-2); }
+.studio-main button.cp-export { display: inline-flex; align-items: center; gap: 6px; }
