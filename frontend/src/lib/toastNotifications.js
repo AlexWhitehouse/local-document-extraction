@@ -35,7 +35,7 @@ const successMessages = {
 
     return skippedCount ? `${exported}. Skipped ${skippedCount} that can't be exported.` : exported;
   },
-  "costs.templateExport": ({ count = 0 }) => `Exported ${pluralize(count, "template")}`,
+  "costs.export": ({ label = "" }) => (label ? `Exported costs for ${label.charAt(0).toLowerCase()}${label.slice(1)}` : "Exported costs"),
   "workspace.documentProcessing": ({ setting, enabled }) => `${setting} turned ${enabled ? "on" : "off"}`,
   "workspace.sourceRetention": ({ enabled }) =>
     enabled ? "New uploads keep their originals" : "New uploads keep only results",
@@ -103,7 +103,7 @@ const failureMessages = {
   "document.bulkDelete": ({ removed = 0, total = 0 }) => `Deleted ${removed} of ${total}. Couldn't delete ${total - removed}.`,
   "document.export": () => "Couldn't export selected documents.",
   "document.downloadOriginal": () => "Couldn't download the original.",
-  "costs.templateExport": () => "Couldn't export template costs.",
+  "costs.export": () => "Couldn't export costs.",
   "document.downloadOriginalMissing": () => "Couldn't download the original. The original file is no longer available.",
   "workspace.documentProcessing": () => "Couldn't save document processing settings.",
   "workspace.sourceRetention": () => "Couldn't update retention settings.",

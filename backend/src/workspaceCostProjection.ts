@@ -2,7 +2,7 @@ import { isJsonArray, isJsonObject, isNumber, parseJson } from "../../shared/jso
 import type { SQLQueryBindings, Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { allocateCost, costAmount, sumCosts, type ProcessingCosts } from "../../shared/processingCosts";
-import { COST_STAGES, type CostDocument, type CostMetrics, type CostUpload } from "../../shared/workspaceCosts";
+import { COST_STAGES, fullyCosted, type CostDocument, type CostMetrics, type CostUpload } from "../../shared/workspaceCosts";
 import { finishedPacketStatus } from "./documentPacketCompletion";
 
 export function emptyCosts(): ProcessingCosts {
@@ -45,9 +45,6 @@ export function addMetrics(a: CostMetrics, b: CostMetrics, sign = 1): CostMetric
 
   return result;
 }
-
-export const fullyCosted = (document: CostDocument) =>
-  ["completed", "failed"].includes(document.status) && document.costs.total.complete && document.pages > 0;
 
 // SAFETY: callers pair each projection table with the CostUpload, CostDocument or CostMetrics value serialized into its data column by this module.
 const decode = <T extends CostUpload | CostDocument | CostMetrics>(row: { data: string } | null): T | null =>

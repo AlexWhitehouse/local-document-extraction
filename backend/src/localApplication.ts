@@ -266,7 +266,7 @@ export function createLocalApplication({
       return Response.json(health);
     }
 
-    const costsMatch = pathname.match(/^\/v1\/workspaces\/([^/]+)\/costs\/(overview|documents)(?:\/([^/]+))?$/);
+    const costsMatch = pathname.match(/^\/v1\/workspaces\/([^/]+)\/costs\/(overview|documents|export)(?:\/([^/]+))?$/);
 
     if (costsMatch && (!costsMatch[3] || costsMatch[2] === "documents")) {
       if (!product) return productStoreUnavailable();

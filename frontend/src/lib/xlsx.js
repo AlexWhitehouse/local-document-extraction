@@ -1,5 +1,5 @@
-// A minimal single-sheet .xlsx writer: inline strings, numeric cells, a bold frozen header and
-// an optional USD number format. Parts are stored uncompressed in the zip, which Excel accepts.
+// A minimal .xlsx writer: inline strings, numbers, dates, a bold frozen header row and a few
+// number formats. Parts are stored uncompressed in the zip, which Excel accepts.
 
 import { isNumber } from "../../../shared/json.ts";
 
@@ -11,7 +11,18 @@ const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationsh
 
 const PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
-const STYLE = { header: 1, usd: 2 };
+const STYLE = { header: 1, usd: 2, datetime: 3, percent: 4, date: 5 };
+
+// Excel counts days from 1899-12-30; JavaScript dates are milliseconds from 1970-01-01.
+const EXCEL_EPOCH_DAYS = 25569;
+
+/** A cell whose number format differs from its column's, such as a mixed summary column. */
+export class Formatted {
+  constructor(value, format) {
+    this.value = value;
+    this.format = format;
+  }
+}
 
 const escapeXml = (text) =>
   String(text)
@@ -30,23 +41,32 @@ function columnName(index) {
   return name;
 }
 
-function cell(value, ref, style) {
+function cell(raw, ref, columnFormat) {
+  const value = raw instanceof Formatted ? raw.value : raw;
+  const format = raw instanceof Formatted ? raw.format : columnFormat;
+
   if (value === null || value === undefined || value === "") return "";
 
-  const s = style ? ` s="${style}"` : "";
+  const s = STYLE[format] ? ` s="${STYLE[format]}"` : "";
+
+  if (value instanceof Date) {
+    const serial = value.getTime() / 86400000 + EXCEL_EPOCH_DAYS;
+
+    return Number.isFinite(serial) ? `<c r="${ref}"${s}><v>${serial}</v></c>` : "";
+  }
 
   if (isNumber(value)) return Number.isFinite(value) ? `<c r="${ref}"${s}><v>${value}</v></c>` : "";
 
   return `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
 }
 
-function sheetXml(columns, rows) {
-  const header = columns.map((column, index) => cell(column.header, `${columnName(index)}1`, STYLE.header)).join("");
+function sheetXml({ columns, rows }) {
+  const header = columns.map((column, index) => cell(column.header, `${columnName(index)}1`, "header")).join("");
 
   const body = rows
     .map((row, rowIndex) => {
       const r = rowIndex + 2;
-      const cells = columns.map((column, index) => cell(row[index], `${columnName(index)}${r}`, STYLE[column.format]));
+      const cells = columns.map((column, index) => cell(row[index], `${columnName(index)}${r}`, column.format));
 
       return `<row r="${r}">${cells.join("")}</row>`;
     })
@@ -61,16 +81,25 @@ function sheetXml(columns, rows) {
 }
 
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="${NS}"><numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00####"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+<styleSheet xmlns="${NS}"><numFmts count="3"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00####"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd hh:mm"/><numFmt numFmtId="166" formatCode="yyyy-mm-dd"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="9" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 
-const sheetName = (name) => name.replace(/[[\]:*?/\\]/g, " ").slice(0, 31) || "Sheet1";
+const sheetName = (name) => name.replace(/[[\]:*?/\\]/g, " ").slice(0, 31) || "Sheet";
 
-function parts(name, columns, rows) {
+function parts(sheets) {
+  const numbered = sheets.map((sheet, index) => ({ ...sheet, id: index + 1 }));
+
   return [
     [
       "[Content_Types].xml",
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${numbered
+        .map(
+          ({ id }) =>
+            `<Override PartName="/xl/worksheets/sheet${id}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
+        )
+        .join(
+          "",
+        )}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
     ],
     [
       "_rels/.rels",
@@ -80,15 +109,22 @@ function parts(name, columns, rows) {
     [
       "xl/workbook.xml",
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="${NS}" xmlns:r="${REL_NS}"><sheets><sheet name="${escapeXml(sheetName(name))}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+<workbook xmlns="${NS}" xmlns:r="${REL_NS}"><sheets>${numbered
+        .map(({ id, name }) => `<sheet name="${escapeXml(sheetName(name))}" sheetId="${id}" r:id="rId${id}"/>`)
+        .join("")}</sheets></workbook>`,
     ],
     [
       "xl/_rels/workbook.xml.rels",
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="${PKG_REL_NS}"><Relationship Id="rId1" Type="${REL_NS}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${REL_NS}/styles" Target="styles.xml"/></Relationships>`,
+<Relationships xmlns="${PKG_REL_NS}">${numbered
+        .map(
+          ({ id }) =>
+            `<Relationship Id="rId${id}" Type="${REL_NS}/worksheet" Target="worksheets/sheet${id}.xml"/>`,
+        )
+        .join("")}<Relationship Id="rId${numbered.length + 1}" Type="${REL_NS}/styles" Target="styles.xml"/></Relationships>`,
     ],
     ["xl/styles.xml", STYLES],
-    ["xl/worksheets/sheet1.xml", sheetXml(columns, rows)],
+    ...numbered.map((sheet) => [`xl/worksheets/sheet${sheet.id}.xml`, sheetXml(sheet)]),
   ];
 }
 
@@ -161,9 +197,10 @@ function zip(files) {
 }
 
 /**
- * Builds a one-sheet workbook. `columns` are `{ header, width?, format? }`, where `format: "usd"`
- * shows numbers as dollars. Each row is an array of strings, numbers or null (an empty cell).
+ * Builds a workbook from `sheets` of `{ name, columns, rows }`. Columns are `{ header, width?, format? }`,
+ * where format is "usd", "percent", "date" or "datetime". Rows are arrays of strings, numbers, Dates,
+ * null (an empty cell) or `Formatted` cells.
  */
-export function xlsxBlob({ sheet, columns, rows }) {
-  return new Blob(zip(parts(sheet, columns, rows)), { type: MIME });
+export function xlsxBlob(sheets) {
+  return new Blob(zip(parts(sheets)), { type: MIME });
 }

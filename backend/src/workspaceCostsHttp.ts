@@ -53,7 +53,9 @@ export async function handleWorkspaceCosts(input: {
         ? store!.getCostUpload(input.documentId)
         : input.resource === "overview"
           ? store!.getCostOverview(range!)
-          : store!.listCostUploads({ ...range!, sort, kind, search, cursor: params.get("cursor") });
+          : input.resource === "export"
+            ? store!.listCostExport(range!)
+            : store!.listCostUploads({ ...range!, sort, kind, search, cursor: params.get("cursor") });
 
       if (!data) throw new HttpError(404, "not_found", "Cost history is unavailable for this document.");
 

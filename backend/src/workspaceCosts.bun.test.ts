@@ -226,6 +226,50 @@ test("split children retain resolved template names when costs were projected be
   expect(f.store.getCostUpload("packet")!.children.map((document) => document.template)).toEqual(["Invoice", "Invoice"]);
 });
 
+test("the export lists every upload in range oldest first with its documents", () => {
+  const f = fixture();
+  packet(f.store);
+
+  const planned = f.store.acceptDocumentPacketPlan({
+    packetId: "packet",
+    revision: 1,
+    expectedRound: 1,
+    groups: [[2, 3], [5, 8]],
+    exclusions: [],
+    updatedAt: later,
+  })!;
+
+  for (const slot of planned.child_slots) {
+    f.store.materializePacketChild({
+      packetId: "packet",
+      jobId: slot.job_id,
+      sourceFileKey: `${slot.job_id}/source.pdf`,
+      sourceFilePageCount: slot.pages.length,
+      updatedAt: later,
+    });
+    charge(f.store, slot.job_id, 0.2);
+    finish(f.store, slot.job_id);
+  }
+
+  job(f.store, "single");
+  charge(f.store, "single", 0.3);
+  finish(f.store, "single");
+  drain(f.store);
+
+  const exported = f.store.listCostExport(range);
+  expect(exported.truncated).toBe(false);
+  expect(exported.uploadCount).toBe(2);
+  const capped = f.store.listCostExport(range, 1);
+  expect([capped.truncated, capped.uploadCount, capped.uploads.map((upload) => upload.id)]).toEqual([true, 2, ["packet"]]);
+  expect(exported.uploads.map((upload) => [upload.id, upload.children.length])).toEqual([
+    ["packet", 2],
+    ["single", 1],
+  ]);
+  expect(exported.uploads[0]!.children.map((document) => document.template)).toEqual(["Invoice", "Invoice"]);
+  expect(exported.uploads[1]!.children[0]!.costs.total.amount).toBe(0.3);
+  expect(f.store.listCostExport(parseCostRange("2026-10-04", "2026-10-05", "day")).uploads).toEqual([]);
+});
+
 test("template label repair is incremental, resumes after restart and includes deleted documents", () => {
   const f = fixture();
 

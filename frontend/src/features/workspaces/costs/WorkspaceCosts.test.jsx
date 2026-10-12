@@ -256,24 +256,45 @@ it("shows weighted template percentiles, combines small groups, and explains rea
   fireEvent.mouseLeave(screen.getByLabelText("Reassessed invoice: $5.00"));
 });
 
-it("exports every template's percentiles for the selected measure to an Excel workbook", async () => {
-  const sample = (id, template, amount, pages = 1) => ({
+it("exports the selected range from the header as a summary and detailed workbook", async () => {
+  const child = (id, template, amount) => ({
     id,
-    name: `Document ${id}`,
+    kind: "document",
+    name: `${id}.pdf`,
+    template,
     templateId: template,
-    template: template === "a" ? "Invoices & receipts" : `Template ${template}`,
-    pages,
+    pages: 2,
+    pageNumbers: [],
+    created_at: "2026-09-01T10:30:00.000Z",
+    status: "completed",
+    deleted: false,
     costs: costs(amount),
-    weight: 1,
+    retried: false,
   });
 
-  const samples = [
-    sample("1", "a", 2, 2),
-    sample("2", "a", 4, 2),
-    ...Array.from({ length: 12 }, (_, index) => sample(`t${index}`, `${index}`, 1)),
-  ];
+  const exported = {
+    updating: false,
+    generatedAt: "2026-09-02T09:00:00.000Z",
+    truncated: false,
+    uploads: [
+      {
+        id: "packet",
+        kind: "packet",
+        name: "Bundle & co.pdf",
+        created_at: "2026-09-01T10:30:00.000Z",
+        status: "completed",
+        pages: 5,
+        deleted: false,
+        documentCount: 2,
+        costs: costs(0.5),
+        children: [child("first", "Invoices", 0.2), child("second", "Receipts", 0.2)],
+      },
+    ],
+  };
 
-  const createObjectURL = vi.fn(() => "blob:template-costs");
+  const request = vi.fn(async (path) => (path.includes("/export?") ? exported : overview));
+  const notify = vi.fn();
+  const createObjectURL = vi.fn(() => "blob:costs");
   const revokeObjectURL = vi.fn();
 
   class ExportURL extends globalThis.URL {}
@@ -289,27 +310,40 @@ it("exports every template's percentiles for the selected measure to an Excel wo
   });
 
   try {
-    const notify = vi.fn();
-    render(<OverviewTab data={{ ...overview, samples }} notify={notify} />);
-    const spread = screen.getByRole("region", { name: "Cost per document" });
-    fireEvent.click(within(spread).getByRole("radio", { name: "Per page" }));
-    fireEvent.click(within(spread).getByRole("button", { name: "Export" }));
+    render(<WorkspaceCosts {...props} tab="documents" request={request} notify={notify} />);
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("costs.export", "success", { label: "Last 30 days" }));
 
-    expect(names).toEqual(["template-cost-per-page-2026-09-01-to-2026-09-01.xlsx"]);
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:template-costs");
-    expect(notify).toHaveBeenCalledWith("costs.templateExport", "success", { count: 13 });
-    const [blob] = createObjectURL.mock.calls[0];
-    expect(blob.type).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    const text = new TextDecoder().decode(await blob.arrayBuffer());
-    expect(text).toContain('<sheet name="Cost per page"');
-    expect(text).toContain("Invoices &amp; receipts");
-    expect(text).toContain("Template 11");
-    expect(text).not.toContain("Other templates");
-    expect(text).toContain('<row r="2"><c r="A2" t="inlineStr"><is><t xml:space="preserve">Invoices &amp; receipts</t></is></c><c r="B2"><v>2</v></c>');
+    const exportUrl = new URL(request.mock.calls.find(([path]) => path.includes("/export?"))[0], "http://localhost");
+    expect(exportUrl.pathname).toBe("/workspaces/workspace_a/costs/export");
+    expect(Date.parse(exportUrl.searchParams.get("end")) - Date.parse(exportUrl.searchParams.get("start"))).toBe(
+      30 * 86400000,
+    );
+    expect(names[0]).toMatch(/^costs-\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:costs");
+    const text = new TextDecoder().decode(await createObjectURL.mock.calls[0][0].arrayBuffer());
+
+    for (const sheet of ["Summary", "Daily", "By template", "Documents"]) expect(text).toContain(`<sheet name="${sheet}"`);
+    expect(text).toContain("Bundle &amp; co.pdf");
+    expect(text).toContain("Pages not in a document");
   } finally {
     click.mockRestore();
     vi.unstubAllGlobals();
   }
+});
+
+it("reports a failed export without downloading", async () => {
+  const request = vi.fn(async (path) => {
+    if (path.includes("/export?")) throw new Error("offline");
+
+    return overview;
+  });
+
+  const notify = vi.fn();
+  render(<WorkspaceCosts {...props} request={request} notify={notify} />);
+  fireEvent.click(screen.getByRole("button", { name: "Export" }));
+  await waitFor(() => expect(notify).toHaveBeenCalledWith("costs.export", "failure", expect.anything()));
+  expect(screen.getByRole("button", { name: "Export" }).disabled).toBe(false);
 });
 
 it("keeps incomplete hourly spend distinct from fully costed averages in chart and table views", () => {

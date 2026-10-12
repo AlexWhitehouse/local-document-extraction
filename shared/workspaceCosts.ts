@@ -36,6 +36,10 @@ export type CostUpload = {
   costs: ProcessingCosts;
 };
 
+/** Averages count only finished documents whose every model call reported a cost. */
+export const fullyCosted = (document: Pick<CostDocument, "status" | "costs" | "pages">) =>
+  ["completed", "failed"].includes(document.status) && document.costs.total.complete && document.pages > 0;
+
 export type CostMetrics = {
   costs: ProcessingCosts;
   documents: number;

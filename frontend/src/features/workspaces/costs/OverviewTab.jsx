@@ -3,17 +3,10 @@ import { ChartTip, FigureStrip, StageLegend, StageTipRows } from "./costShared.j
 import { Segmented } from "../../ui/Tabs.jsx";
 import { EmptyState } from "../../ui/States.jsx";
 import { DataTable } from "../../ui/DataTable.jsx";
-import { Button } from "../../ui/Button.jsx";
-import { DownloadIcon } from "../../layout/Icons.jsx";
-import { downloadBlob } from "../../../lib/download.js";
-import { createNotifier, defaultToast } from "../../../lib/notify.js";
-import { xlsxBlob } from "../../../lib/xlsx.js";
 import { costLabel, niceMax, percent, plural, shortDate, usd, weightedQuantile } from "./costFormat.js";
 import { useChartTip, useWidth } from "./costHooks.js";
 
 const STACK = ["split", "auto_template", "extraction"];
-
-const defaultNotify = createNotifier(defaultToast);
 
 const PAD = { left: 56, right: 12 };
 
@@ -27,7 +20,7 @@ const bucketLabel = (bucket, unit) =>
   unit === "hour" ? `${String(bucket.hour).padStart(2, "0")}:00` : shortDate(bucket.date);
 
 /** Exact figures use bucket summaries; only the distribution is sampled. */
-export function OverviewTab({ data, notify = defaultNotify }) {
+export function OverviewTab({ data }) {
   const { totals: metrics, previous, range, samples, sampled } = data;
   const totals = metrics.costs;
 
@@ -76,7 +69,7 @@ export function OverviewTab({ data, notify = defaultNotify }) {
     <div className="cp-tab-panel">
       <FigureStrip figures={figures} label="Headline figures" />
       <SpendCharts buckets={buckets} unit={range.unit} totals={totals} />
-      <CostSpread documents={samples} sampled={sampled} population={metrics.fullyCostedDocuments} range={range} notify={notify} />
+      <CostSpread documents={samples} sampled={sampled} population={metrics.fullyCostedDocuments} />
     </div>
   );
 }
@@ -298,11 +291,7 @@ function jitter(id) {
   return ((hash >>> 0) % 1000) / 1000 - 0.5;
 }
 
-// The range end is exclusive, so the file name uses the last millisecond inside it.
-const rangeDates = (range) =>
-  `${range.start.slice(0, 10)}-to-${new Date(Date.parse(range.end) - 1).toISOString().slice(0, 10)}`;
-
-function CostSpread({ documents, sampled, population, range, notify }) {
+function CostSpread({ documents, sampled, population }) {
   const [ref, width] = useWidth(720);
   const { tip, show, hide } = useChartTip();
   const [metric, setMetric] = useState("document");
@@ -331,45 +320,15 @@ function CostSpread({ documents, sampled, population, range, notify }) {
         ]
       : ranked;
 
-  const summarise = (group) => ({
+  const groups = visible.map((group) => ({
     ...group,
     middle: weightedQuantile(group.members, value, 0.5),
     low: weightedQuantile(group.members, value, 0.25),
     high: weightedQuantile(group.members, value, 0.75),
     p90: weightedQuantile(group.members, value, 0.9),
-  });
+  }));
 
-  const groups = visible.map(summarise);
   const estimate = (label) => (sampled ? `Est. ${label.charAt(0).toLowerCase()}${label.slice(1)}` : label);
-
-  // The export lists every template; only the chart folds small ones into "Other templates".
-  const exportTemplates = () => {
-    try {
-      downloadBlob(templateWorkbook(), `template-cost-per-${metric}-${rangeDates(range)}.xlsx`);
-      notify("costs.templateExport", "success", { count: ranked.length });
-    } catch (error) {
-      notify("costs.templateExport", "failure", { error });
-    }
-  };
-
-  const templateWorkbook = () =>
-    xlsxBlob({
-      sheet: `Cost per ${metric}`,
-      columns: [
-        { header: "Template", width: 36 },
-        { header: sampled ? "Sample documents" : "Documents", width: 18 },
-        ...["25th percentile", "Median", "75th percentile", "90th percentile"].map((label) => ({
-          header: estimate(label),
-          width: 20,
-          format: "usd",
-        })),
-      ],
-      rows: ranked.map((group) => {
-        const { label, members, low, middle, high, p90 } = summarise(group);
-
-        return [label, members.length, low, middle, high, p90];
-      }),
-    });
 
   const max = niceMax(Math.max(...priced.map(value), 0));
   const plotWidth = Math.max(200, width - SPREAD_PAD.left - SPREAD_PAD.right);
@@ -402,21 +361,15 @@ function CostSpread({ documents, sampled, population, range, notify }) {
             ]}
           />
           {groups.length ? (
-            <>
-              <Segmented
-                label="Display"
-                value={view}
-                onChange={setView}
-                items={[
-                  { value: "chart", label: "Chart" },
-                  { value: "table", label: "Table" },
-                ]}
-              />
-              <Button variant="secondary" className="cp-export" onClick={exportTemplates}>
-                <DownloadIcon size={13} />
-                Export
-              </Button>
-            </>
+            <Segmented
+              label="Display"
+              value={view}
+              onChange={setView}
+              items={[
+                { value: "chart", label: "Chart" },
+                { value: "table", label: "Table" },
+              ]}
+            />
           ) : null}
         </div>
       </div>

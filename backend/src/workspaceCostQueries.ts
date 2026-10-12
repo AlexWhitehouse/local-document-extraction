@@ -1,6 +1,12 @@
 import { isJsonObject, parseJson, isString, isNumber } from "../../shared/json";
 import type { SQLQueryBindings, Database } from "bun:sqlite";
-import { costRangeDays, type CostDocument, type CostMetrics, type CostRange } from "../../shared/workspaceCosts";
+import {
+  costRangeDays,
+  type CostDocument,
+  type CostMetrics,
+  type CostRange,
+  type CostUpload,
+} from "../../shared/workspaceCosts";
 import { addMetrics, emptyMetrics, readCostDocuments, readCostUpload } from "./workspaceCostProjection";
 
 export type CostListQuery = CostRange & {
@@ -17,6 +23,8 @@ const PAGE_SIZE = 50;
 const SEARCH_BATCH = 200;
 
 const SEARCH_CANDIDATES = 2000;
+
+const EXPORT_LIMIT = 25000;
 
 function indexedCandidates(db: Database, search: string): Array<{ rowid: number }> | null {
   const characters = [...search];
@@ -294,6 +302,50 @@ export function createCostQueries(db: Database) {
           : null;
 
       return { ...state(), items, cursor, searchContinuing: Boolean(search && cursor && items.length < PAGE_SIZE) };
+    },
+    /** Every upload in range with its documents, oldest first, for a spreadsheet export. */
+    listCostExport(range: CostRange, limit = EXPORT_LIMIT) {
+      const rows = db
+        .query<{ upload: string; document: string | null }, SQLQueryBindings[]>(
+          `SELECT u.data AS upload,d.data AS document
+          FROM (SELECT id,created_at,data FROM cost_uploads WHERE created_at>=? AND created_at<?
+            ORDER BY created_at,id LIMIT ?) u
+          LEFT JOIN cost_documents d ON d.upload_id=u.id
+          ORDER BY u.created_at,u.id,d.id`,
+        )
+        .all(range.start, range.end, limit + 1);
+
+      const uploads: Array<CostUpload & { children: CostDocument[] }> = [];
+
+      for (const row of rows) {
+        // SAFETY: cost_uploads.data is written from the typed CostUpload projection.
+        const upload = JSON.parse(row.upload) as CostUpload;
+        let current = uploads.at(-1);
+
+        if (current?.id !== upload.id) {
+          current = { ...upload, children: [] };
+          uploads.push(current);
+        }
+
+        if (!row.document) continue;
+
+        // SAFETY: cost_documents.data is written from the typed CostDocument projection.
+        const document = JSON.parse(row.document) as CostDocument;
+        current.children.push(document);
+      }
+
+      const truncated = uploads.length > limit;
+
+      // SAFETY: an aggregate COUNT without GROUP BY always returns exactly one row.
+      const uploadCount = truncated
+        ? db
+            .query<{ count: number }, SQLQueryBindings[]>(
+              "SELECT COUNT(*) AS count FROM cost_uploads WHERE created_at>=? AND created_at<?",
+            )
+            .get(range.start, range.end)!.count
+        : uploads.length;
+
+      return { ...state(), range, uploads: uploads.slice(0, limit), uploadCount, truncated };
     },
     getCostUpload(id: string) {
       const upload = readCostUpload(db, id);
