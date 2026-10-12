@@ -1,0 +1,1262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command palette prototype</title>
+<style>
+  /* ---------- Reviewer chrome (follows the host theme; fallbacks when opened directly) ---------- */
+  body { background: var(--background, #0d1014); color: var(--foreground, #e6e9ee); margin: 0; }
+  .proto { --fg: var(--foreground, #e6e9ee); --mf: var(--muted-foreground, #98a2b0); --bd: var(--border, #2a3240); --acc: var(--accent, #19c1b4); --rad: var(--radius, 8px);
+    color: var(--fg); font-family: var(--font-sans, system-ui, sans-serif); max-width: 1400px; margin: 0 auto; }
+  .switcher { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
+  .switcher button { text-align: left; padding: 8px 10px; border-radius: var(--rad); cursor: pointer; border: 1px solid var(--bd); background: transparent; color: var(--fg); font: inherit; line-height: 1.25; }
+  .switcher button b { display: block; font-size: 13px; }
+  .switcher button span { display: block; font-size: 11.5px; color: var(--mf); margin-top: 2px; }
+  .switcher button[aria-selected="true"] { border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }
+  .brief { font-size: 13px; line-height: 1.45; margin: 0 0 8px; }
+  .tries { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px; font-size: 12px; color: var(--mf); }
+  .tries button { font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 999px; cursor: pointer; border: 1px solid var(--bd); background: transparent; color: var(--fg); text-align: left; }
+  .tries button:hover { border-color: var(--acc); }
+  .tries .follow { border-style: dashed; }
+  .tradeoffs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; font-size: 12.5px; line-height: 1.45; }
+  .tradeoffs div { border: 1px solid var(--bd); border-radius: var(--rad); padding: 10px 12px; }
+  .tradeoffs h4 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--mf); }
+  .tradeoffs ul { margin: 0; padding-left: 16px; }
+  .frame { background: #04060a; border-radius: var(--rad); padding: 16px; }
+
+  /* ---------- Studio tokens ---------- */
+  .app {
+    --pane-main: #070a0f; --pane-nav: #080b11; --pane-context: #090d13; --pane-raised: #0a0f16;
+    --pane-elevated: #101722; --pane-overlay: #151f2c; --pane-active: #1a2636; --field-bg: #0b1018; --row-hover: #0d131c;
+    --rule: #19212d; --rule-strong: #283346; --rule-dashed: #32425b;
+    --text-0: #f3f7ff; --text-1: #c2cfdf; --text-2: #91a0b7; --text-3: #67778f; --text-label: #a0aec1;
+    --ac: #19c1b4; --ac-fill: #14a397;
+    --ok-fg: #19c1b4; --ok-bg: rgba(25,193,180,.12); --ok-sub: rgba(25,193,180,.06); --ok-bd: rgba(25,193,180,.45); --ok-tx: #9df4eb;
+    --in-fg: #4fa6ff; --in-bg: rgba(79,166,255,.12); --in-bd: rgba(79,166,255,.45); --in-tx: #a9d2ff;
+    --wa-fg: #f4b84f; --wa-bg: rgba(244,184,79,.12); --wa-bd: rgba(244,184,79,.45); --wa-tx: #ffdca1;
+    --da-fg: #ff6f8f; --da-bg: rgba(255,111,143,.12); --da-bd: rgba(255,111,143,.45); --da-tx: #ffadc2;
+    --ne-fg: #91a0b7; --ne-bg: rgba(159,176,199,.12); --ne-bd: rgba(159,176,199,.45);
+    /* Proposed new token family for query pills (one per part of speech). */
+    --tk-action-bg: rgba(25,193,180,.16); --tk-action-bd: rgba(25,193,180,.55); --tk-action-fg: #9df4eb;
+    --tk-qty-bg: rgba(159,176,199,.14); --tk-qty-bd: rgba(159,176,199,.5); --tk-qty-fg: #dbe4f0;
+    --tk-subject-bg: rgba(148,163,255,.14); --tk-subject-bd: rgba(148,163,255,.5); --tk-subject-fg: #c9d0ff;
+    --tk-field-bg: rgba(79,166,255,.15); --tk-field-bd: rgba(79,166,255,.55); --tk-field-fg: #a9d2ff;
+    --tk-cond-bg: rgba(244,184,79,.15); --tk-cond-bd: rgba(244,184,79,.55); --tk-cond-fg: #ffdca1;
+    --tk-time-bg: rgba(206,140,255,.14); --tk-time-bd: rgba(206,140,255,.5); --tk-time-fg: #e8c8ff;
+    --tk-status-bg: rgba(255,111,143,.14); --tk-status-bd: rgba(255,111,143,.5); --tk-status-fg: #ffc2d1;
+    --tk-instr-bg: rgba(255,255,255,.04); --tk-instr-bd: #3a4a63; --tk-instr-fg: #d6deea;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    color-scheme: dark; position: relative; height: 700px; overflow: hidden; border: 1px solid var(--rule-strong); border-radius: 6px;
+    background: var(--pane-main); color: var(--text-0); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: grid; grid-template-columns: 190px 250px minmax(0, 1fr);
+  }
+  .app *, .app *::before, .app *::after { box-sizing: border-box; }
+  .app button { font: inherit; color: inherit; }
+  .app :focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }
+  .app mark { background: rgba(244,184,79,.22); color: var(--wa-tx); border-radius: 2px; padding: 0 1px; }
+
+  /* Background app */
+  .nav { background: var(--pane-nav); border-right: 1px solid var(--rule); padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .nav .brand { font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+  .nav .brand b { display: block; font: 700 15px/1.3 system-ui, sans-serif; color: var(--text-0); letter-spacing: 0; text-transform: none; margin-bottom: 10px; }
+  .searchbtn { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px; margin-bottom: 10px; border: 1px solid var(--rule-strong); border-radius: 3px; background: var(--field-bg); color: var(--text-3); cursor: pointer; font-size: 12.5px; text-align: left; }
+  .searchbtn:hover { border-color: var(--text-3); color: var(--text-2); }
+  .searchbtn kbd { margin-left: auto; }
+  .navitem { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 3px; color: var(--text-2); font-size: 13px; border-left: 2px solid transparent; }
+  .navitem.on { color: var(--text-0); background: var(--ok-sub); border-left-color: var(--ac); }
+  .ctx { background: var(--pane-context); border-right: 1px solid var(--rule); padding: 14px; }
+  .ctx h2 { font-size: 15px; margin: 0 0 10px; }
+  .ghost-row { height: 40px; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+  .ghost-row i { display: block; height: 7px; border-radius: 2px; background: var(--pane-overlay); width: 70%; }
+  .ghost-row i + i { width: 45%; opacity: .6; }
+  .bgmain { padding: 18px 22px; }
+  .bgmain .crumb { font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); }
+  .bgmain h1 { font-size: 19px; font-weight: 500; margin: 4px 0 4px; }
+  .bgmain p { color: var(--text-2); margin: 0 0 16px; font-size: 12.5px; }
+  .bgcard { border: 1px solid var(--rule); border-radius: 4px; height: 120px; margin-bottom: 12px; background: var(--pane-raised); }
+
+  /* Scrim and palette shell */
+  .scrim { position: absolute; inset: 0; background: rgba(2,4,8,.72); z-index: 40; }
+  .pal { position: absolute; left: 50%; transform: translateX(-50%); z-index: 41; width: min(640px, calc(100% - 32px)); top: 60px;
+    background: var(--pane-elevated); border: 1px solid var(--rule-strong); border-radius: 8px; box-shadow: 0 24px 64px rgba(0,0,0,.65); display: flex; flex-direction: column; max-height: calc(100% - 100px); overflow: hidden; }
+  .pal.b { width: min(940px, calc(100% - 32px)); top: 44px; height: calc(100% - 88px); }
+  .pal.c { width: min(720px, calc(100% - 32px)); top: 32px; height: calc(100% - 64px); }
+  .pal.d { width: min(680px, calc(100% - 32px)); }
+  @media (prefers-reduced-motion: no-preference) { .pal.anim { animation: palin .14s ease-out; } }
+  @keyframes palin { from { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(.985); } }
+
+  .pbar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--rule); min-height: 52px; }
+  .pbar .ico { color: var(--text-3); flex: none; }
+  .pin { flex: 1; min-width: 0; border: 0; background: none; color: var(--text-0); font: inherit; font-size: 15px; height: 30px; }
+  .pin:focus { outline: none; }
+  .pin::placeholder { color: var(--text-3); }
+  kbd { font-family: var(--mono); font-size: 10px; color: var(--text-2); border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; line-height: 15px; background: var(--pane-raised); white-space: nowrap; }
+  .crumbp { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 4px; background: var(--tk-action-bg); border: 1px solid var(--tk-action-bd); color: var(--tk-action-fg); font-size: 12.5px; white-space: nowrap; flex: none; }
+  .crumbp.sub { background: var(--tk-subject-bg); border-color: var(--tk-subject-bd); color: var(--tk-subject-fg); }
+
+  /* Query pills */
+  .chunks { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 4px; font-size: 15px; line-height: 26px; cursor: text; padding: 2px 0; }
+  .chunks:focus { outline: none; }
+  .chunks .plain { color: var(--text-2); }
+  .tk { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 5px; border: 1px solid; font-size: 14px; white-space: nowrap; position: relative; overflow: hidden; }
+  .tk .res { font-family: var(--mono); font-size: 10px; opacity: .85; padding-left: 6px; border-left: 1px solid currentColor; line-height: 14px; }
+  .tk-action { background: var(--tk-action-bg); border-color: var(--tk-action-bd); color: var(--tk-action-fg); font-weight: 600; }
+  .tk-quantity { background: var(--tk-qty-bg); border-color: var(--tk-qty-bd); color: var(--tk-qty-fg); }
+  .tk-subject, .tk-template, .tk-page, .tk-workspace { background: var(--tk-subject-bg); border-color: var(--tk-subject-bd); color: var(--tk-subject-fg); }
+  .tk-field { background: var(--tk-field-bg); border-color: var(--tk-field-bd); color: var(--tk-field-fg); }
+  .tk-cond, .tk-value { background: var(--tk-cond-bg); border-color: var(--tk-cond-bd); color: var(--tk-cond-fg); }
+  .tk-time { background: var(--tk-time-bg); border-color: var(--tk-time-bd); color: var(--tk-time-fg); }
+  .tk-status { background: var(--tk-status-bg); border-color: var(--tk-status-bd); color: var(--tk-status-fg); }
+  .tk-person, .tk-role, .tk-format { background: var(--tk-qty-bg); border-color: var(--tk-qty-bd); color: var(--tk-qty-fg); }
+  .tk-instruction { background: var(--tk-instr-bg); border-color: var(--tk-instr-bd); border-style: dashed; color: var(--tk-instr-fg); white-space: normal; height: auto; min-height: 26px; line-height: 1.35; padding: 3px 8px; }
+  .tk.unk { background: none; border: 1px dashed var(--rule-dashed); color: var(--text-2); }
+  .tk.pending::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,.14) 50%, transparent 80%); background-size: 220% 100%; animation: shimmer 1s linear infinite; }
+  @keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+  @media (prefers-reduced-motion: no-preference) { .tk.pop { animation: pop .22s ease-out both; } }
+  @keyframes pop { from { opacity: 0; transform: translateY(3px) scale(.96); } }
+  @media (prefers-reduced-motion: reduce) { .tk.pending::after, .skel { animation: none !important; } }
+
+  /* Body, groups and rows */
+  .pbody { flex: 1; overflow: auto; min-height: 0; padding: 6px; }
+  .pgrp { font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); padding: 10px 10px 4px; }
+  .row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 5px; background: none; text-align: left; cursor: pointer; color: var(--text-1); min-height: 36px; }
+  .row.hi { background: var(--pane-active); color: var(--text-0); }
+  .row .ri { width: 22px; height: 22px; border-radius: 4px; display: grid; place-items: center; background: var(--pane-overlay); color: var(--text-2); flex: none; }
+  .row .ri.act { background: var(--tk-action-bg); color: var(--tk-action-fg); }
+  .row .ri.ask { background: linear-gradient(135deg, rgba(25,193,180,.25), rgba(148,163,255,.25)); color: var(--text-0); }
+  .row .rt { min-width: 0; flex: 1; }
+  .row .rt strong { display: block; font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .rt span { display: block; font-size: 11px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .rk { margin-left: auto; font-size: 11px; color: var(--text-3); white-space: nowrap; display: flex; gap: 6px; align-items: center; }
+  .row.danger .rt strong { color: var(--da-tx); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .t-success { background: var(--ok-fg); } .t-danger { background: var(--da-fg); } .t-info { background: var(--in-fg); } .t-warning { background: var(--wa-fg); } .t-neutral { background: var(--ne-fg); }
+  .pfoot { display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--rule); font-size: 11px; color: var(--text-3); flex-wrap: wrap; }
+  .pfoot .sp { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  .legend { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .legend .tk { height: 18px; font-size: 10.5px; padding: 0 5px; border-radius: 3px; }
+
+  /* Shared UI */
+  .btn { height: 28px; padding: 0 11px; border-radius: 3px; border: 1px solid var(--rule-strong); background: var(--pane-raised); cursor: pointer; font-size: 12.5px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { border-color: var(--text-3); }
+  .btn.primary { background: var(--ac-fill); border-color: var(--ac-fill); color: #03110f; font-weight: 600; }
+  .btn.primary:disabled { opacity: .45; cursor: default; }
+  .btn.danger { background: var(--da-bg); border-color: var(--da-bd); color: var(--da-tx); font-weight: 600; }
+  .btn.text { background: none; border: 0; padding: 0; height: auto; color: var(--ac); }
+  .btn kbd { margin-left: 2px; }
+  .input, .select, .ta { width: 100%; background: var(--field-bg); color: var(--text-0); border: 1px solid var(--rule-strong); border-radius: 3px; font: inherit; font-size: 13px; }
+  .input, .select { height: 30px; padding: 0 9px; }
+  .ta { padding: 8px 9px; resize: none; line-height: 1.45; }
+  .input:focus, .select:focus, .ta:focus { outline: none; border-color: var(--ac); }
+  .input::placeholder, .ta::placeholder { color: var(--text-3); }
+  .lbl { display: block; font-size: 11px; color: var(--text-label); margin: 0 0 4px; }
+  .seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 3px; overflow: hidden; }
+  .seg button { height: 28px; padding: 0 11px; border: 0; background: none; color: var(--text-2); cursor: pointer; font-size: 12px; }
+  .seg button + button { border-left: 1px solid var(--rule-strong); }
+  .seg button[aria-pressed="true"] { background: var(--ok-bg); color: var(--ok-tx); }
+  .badge { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 2px; font-size: 10.5px; border: 1px solid var(--ne-bd); background: var(--ne-bg); color: var(--text-1); white-space: nowrap; }
+  .badge.warning { color: var(--wa-tx); border-color: var(--wa-bd); background: var(--wa-bg); }
+  .badge.success { color: var(--ok-tx); border-color: var(--ok-bd); background: var(--ok-bg); }
+  .badge.danger { color: var(--da-tx); border-color: var(--da-bd); background: var(--da-bg); }
+  .callout { border: 1px solid var(--wa-bd); background: var(--wa-bg); color: var(--wa-tx); border-radius: 4px; padding: 7px 10px; font-size: 12px; margin: 6px 4px; display: flex; gap: 8px; align-items: baseline; }
+  .callout.info { border-color: var(--in-bd); background: var(--in-bg); color: var(--in-tx); }
+  .callout .btn.text { margin-left: auto; font-size: 11.5px; }
+  .hint { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
+  .skel { height: 10px; border-radius: 3px; background: linear-gradient(90deg, var(--pane-overlay), var(--pane-active), var(--pane-overlay)); background-size: 200% 100%; animation: sk 1.1s linear infinite; margin: 10px 10px 0; }
+  @keyframes sk { to { background-position: -200% 0; } }
+  .thinking { padding: 14px 14px 18px; color: var(--text-2); font-size: 12.5px; }
+  .summary { padding: 8px 10px 4px; font-size: 12px; color: var(--text-2); display: flex; justify-content: space-between; gap: 10px; }
+  .summary b { color: var(--text-0); font-weight: 600; }
+  .bulk { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 10px; border-top: 1px solid var(--rule); background: var(--pane-raised); }
+
+  /* Flows */
+  .flow { padding: 12px 14px 14px; }
+  .fhead { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .fhead h3 { margin: 0; font-size: 14px; font-weight: 600; }
+  .fhead .sub { color: var(--text-2); font-size: 12px; }
+  .fstack > * + * { margin-top: 10px; }
+  .factions { display: flex; justify-content: flex-end; gap: 8px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+  .factions .left { margin-right: auto; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font: inherit; font-size: 12px; padding: 4px 9px; border-radius: 999px; cursor: pointer; border: 1px solid var(--rule-strong); background: transparent; color: var(--text-1); text-align: left; }
+  .chip:hover { border-color: var(--ac); color: var(--text-0); }
+  .card { border: 1px solid var(--rule-strong); border-radius: 5px; background: var(--pane-raised); }
+  .gcard { border: 1px solid var(--rule-strong); border-radius: 5px; padding: 10px 12px; background: var(--pane-raised); }
+  .gcard.sel { border-color: var(--ok-bd); background: var(--ok-sub); }
+  .gcard + .gcard { margin-top: 8px; }
+  .gcard label.gh { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+  .gcard input { accent-color: var(--ac); margin-top: 3px; }
+  .gcard strong { font-weight: 600; font-size: 13px; }
+  .gtags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  table.diff { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+  .diff td { padding: 5px 6px; border-top: 1px solid var(--rule); vertical-align: top; }
+  .diff .op { width: 18px; font-family: var(--mono); font-weight: 700; }
+  .diff .add .op { color: var(--ok-fg); } .diff .remove .op { color: var(--da-fg); } .diff .change .op { color: var(--wa-fg); }
+  .diff .remove td:not(.op) { color: var(--text-3); text-decoration: line-through; }
+  .diff .typ { font-family: var(--mono); font-size: 10px; color: var(--text-3); white-space: nowrap; }
+  .explain { font-size: 13px; line-height: 1.5; color: var(--text-1); margin: 0; }
+  .drop { border: 1px dashed var(--rule-dashed); border-radius: 6px; padding: 18px; text-align: center; color: var(--text-2); font-size: 12.5px; }
+  .filelist .row { cursor: default; min-height: 30px; padding: 4px 8px; }
+  .danger-box { border: 1px solid var(--da-bd); background: var(--da-bg); border-radius: 5px; padding: 12px; }
+  .danger-box h3 { margin: 0 0 4px; font-size: 14px; color: var(--da-tx); }
+  .checkrow { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 4px; font-size: 12.5px; color: var(--text-1); cursor: pointer; }
+  .checkrow:hover { background: var(--row-hover); }
+  .checkrow input { accent-color: var(--ac); }
+  .checkrow .rk { margin-left: auto; font-size: 11px; color: var(--text-3); text-align: right; }
+
+  /* Variant B: split */
+  .split { flex: 1; display: grid; grid-template-columns: minmax(250px, 38%) 1fr; min-height: 0; }
+  .split > .pbody { border-right: 1px solid var(--rule); }
+  .preview { overflow: auto; min-height: 0; padding: 14px 16px; }
+  .preview .flow { padding: 0; }
+  .preview h3 { margin: 0 0 2px; font-size: 15px; font-weight: 500; }
+  .preview .meta { font-size: 12px; color: var(--text-2); margin-bottom: 12px; }
+  table.fields { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .fields th { text-align: left; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); font-weight: 500; padding: 6px; border-bottom: 1px solid var(--rule-strong); }
+  .fields td { padding: 6px; border-bottom: 1px solid var(--rule); }
+  .fields tr.match td { background: var(--ok-sub); }
+  .fields tr.match td:first-child { box-shadow: inset 2px 0 0 var(--ac); }
+  .fields .v { font-family: var(--mono); font-size: 12px; }
+  .missing { color: var(--text-3); font-style: italic; font-family: system-ui, sans-serif !important; }
+  .invalid { color: var(--wa-tx); font-family: system-ui, sans-serif !important; }
+  .readas { padding: 10px; border: 1px solid var(--rule); border-radius: 5px; background: var(--pane-raised); margin-bottom: 8px; }
+  .readas .chunks { font-size: 13px; }
+  .readas .tk { height: 22px; font-size: 12.5px; }
+  .steps { list-style: none; margin: 0; padding: 6px; }
+  .steps li { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 5px; color: var(--text-3); font-size: 12.5px; }
+  .steps li.on { background: var(--pane-active); color: var(--text-0); }
+  .steps li.done { color: var(--text-1); }
+  .steps .n { width: 20px; height: 20px; border-radius: 50%; border: 1px solid currentColor; display: grid; place-items: center; font-size: 10.5px; font-family: var(--mono); flex: none; }
+  .steps li.done .n { background: var(--ok-bg); border-color: var(--ok-bd); color: var(--ok-tx); }
+
+  /* Variant C: thread */
+  .thread { flex: 1; overflow: auto; min-height: 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .turn-q { display: flex; justify-content: flex-end; }
+  .turn-q .chunks { flex: 0 1 auto; justify-content: flex-end; background: var(--pane-overlay); border: 1px solid var(--rule-strong); padding: 6px 8px; border-radius: 8px 8px 2px 8px; font-size: 13.5px; max-width: 88%; }
+  .turn-q .tk { height: 23px; font-size: 13px; }
+  .turn-a { border: 1px solid var(--rule-strong); border-radius: 2px 8px 8px 8px; background: var(--pane-raised); overflow: hidden; flex: none; }
+  .turn-a.past { opacity: .78; }
+  .turn-a .pbody { padding: 4px; overflow: visible; }
+  .composer { border-top: 1px solid var(--rule); padding: 10px 12px; position: relative; }
+  .composer .ctxchip { display: inline-flex; gap: 6px; align-items: center; font-size: 11px; color: var(--text-2); margin-bottom: 6px; }
+  .cbox { display: flex; align-items: center; gap: 8px; border: 1px solid var(--rule-strong); border-radius: 6px; padding: 4px 6px 4px 10px; background: var(--field-bg); }
+  .cbox:focus-within { border-color: var(--ac); }
+  .typeahead { position: absolute; left: 12px; right: 12px; bottom: calc(100% - 4px); background: var(--pane-elevated); border: 1px solid var(--rule-strong); border-radius: 6px; box-shadow: 0 -12px 32px rgba(0,0,0,.45); padding: 4px; max-height: 260px; overflow: auto; }
+  .welcome { margin: auto 0; text-align: center; color: var(--text-2); font-size: 13px; padding: 10px; }
+  .welcome h3 { color: var(--text-0); font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  .welcome .chips { justify-content: center; margin-top: 12px; }
+
+  /* Variant D: live sentence */
+  .live { position: relative; flex: 1; min-width: 0; }
+  .live .mirror, .live textarea { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 15px; line-height: 26px; letter-spacing: normal; padding: 2px 2px; margin: 0; border: 0; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; width: 100%; }
+  .live .mirror { position: absolute; inset: 0; pointer-events: none; color: var(--text-0); }
+  .live textarea { position: relative; display: block; background: transparent; color: transparent; caret-color: var(--text-0); resize: none; overflow: hidden; min-height: 30px; }
+  .live textarea:focus { outline: none; }
+  .live textarea::placeholder { color: var(--text-3); }
+  .hl { border-radius: 4px; }
+  .hl-action { background: var(--tk-action-bg); box-shadow: 0 0 0 2px var(--tk-action-bg), inset 0 -2px 0 var(--tk-action-bd); color: var(--tk-action-fg); }
+  .hl-quantity, .hl-person, .hl-role, .hl-format { background: var(--tk-qty-bg); box-shadow: 0 0 0 2px var(--tk-qty-bg), inset 0 -2px 0 var(--tk-qty-bd); color: var(--tk-qty-fg); }
+  .hl-subject, .hl-template, .hl-page, .hl-workspace { background: var(--tk-subject-bg); box-shadow: 0 0 0 2px var(--tk-subject-bg), inset 0 -2px 0 var(--tk-subject-bd); color: var(--tk-subject-fg); }
+  .hl-field { background: var(--tk-field-bg); box-shadow: 0 0 0 2px var(--tk-field-bg), inset 0 -2px 0 var(--tk-field-bd); color: var(--tk-field-fg); }
+  .hl-cond, .hl-value { background: var(--tk-cond-bg); box-shadow: 0 0 0 2px var(--tk-cond-bg), inset 0 -2px 0 var(--tk-cond-bd); color: var(--tk-cond-fg); }
+  .hl-time { background: var(--tk-time-bg); box-shadow: 0 0 0 2px var(--tk-time-bg), inset 0 -2px 0 var(--tk-time-bd); color: var(--tk-time-fg); }
+  .hl-status { background: var(--tk-status-bg); box-shadow: 0 0 0 2px var(--tk-status-bg), inset 0 -2px 0 var(--tk-status-bd); color: var(--tk-status-fg); }
+  .hl-instruction { background: var(--tk-instr-bg); box-shadow: 0 0 0 2px var(--tk-instr-bg); color: var(--tk-instr-fg); }
+  .hl-plain { color: var(--text-2); }
+  .hl-unk { color: var(--text-1); text-decoration: underline dotted var(--wa-fg); text-underline-offset: 4px; }
+  .slots { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--rule); background: var(--pane-raised); position: relative; }
+  .slots .lab { font-size: 10px; font-family: var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); margin-right: 2px; }
+  .slot { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; border-radius: 5px; border: 1px solid; cursor: pointer; font-size: 12.5px; }
+  .slot svg { opacity: .7; }
+  .slot.add { border-style: dashed; border-color: var(--rule-dashed); color: var(--text-2); background: none; }
+  .menu { position: absolute; z-index: 5; background: var(--pane-overlay); border: 1px solid var(--rule-strong); border-radius: 6px; box-shadow: 0 12px 32px rgba(0,0,0,.5); padding: 4px; min-width: 210px; max-height: 300px; overflow: auto; }
+  .menu .row { min-height: 30px; padding: 5px 8px; }
+  .menu .pgrp { padding: 8px 8px 2px; }
+
+  /* Toasts */
+  .toasts { position: absolute; right: 16px; bottom: 16px; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: 300px; }
+  .toast { background: var(--pane-overlay); border: 1px solid var(--rule-strong); border-left: 3px solid var(--ok-fg); border-radius: 4px; padding: 9px 12px; font-size: 12.5px; box-shadow: 0 12px 32px rgba(0,0,0,.5); display: flex; gap: 8px; align-items: center; }
+  @media (prefers-reduced-motion: no-preference) { .toast { animation: tin .18s ease-out; } }
+  @keyframes tin { from { opacity: 0; transform: translateY(6px); } }
+
+  @media (max-width: 900px) { .app { grid-template-columns: 150px minmax(0, 1fr); } .ctx { display: none; } }
+  @media (max-width: 760px) { .split { grid-template-columns: 1fr; } .split .preview { display: none; } .tradeoffs { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) { .switcher { grid-template-columns: 1fr 1fr; } .app { grid-template-columns: 1fr; } .nav { display: none; } }
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="switcher" role="tablist" aria-label="Variants" id="switcher"></div>
+  <p class="brief" id="brief"></p>
+  <div class="tries" id="tries"></div>
+  <div class="frame"><div class="app" id="app"></div></div>
+  <div class="tradeoffs" id="tradeoffs"></div>
+</div>
+<script>
+"use strict";
+// =====================================================================
+// Mock workspace (today is Mon 12 Oct 2026)
+// =====================================================================
+const TODAY = "2026-10-12";
+const fld = (key, label, type, desc = "") => ({ key, label, type, desc });
+const TPL = {
+  invoice: { name: "Invoice", version: 3, fields: [
+    fld("vendor", "Vendor", "text", "Company that issued the invoice"),
+    fld("invoice_number", "Invoice number", "text", "Invoice reference, e.g. HNH-20517"),
+    fld("invoice_date", "Invoice date", "date", "Date the invoice was issued"),
+    fld("total", "Total", "number", "Amount due including tax"),
+    fld("po_number", "PO number", "text", "Purchase order reference, if quoted"),
+    fld("paid", "Paid", "boolean", "Marked as paid on the invoice"),
+    fld("billing_address", "Billing address", "text", "Full billing address as printed"),
+  ] },
+  po: { name: "Purchase order", version: 2, fields: [
+    fld("supplier", "Supplier", "text"), fld("po_number", "PO number", "text"), fld("order_date", "Order date", "date"), fld("amount", "Amount", "number"),
+  ] },
+  receipt: { name: "Receipt", version: 1, fields: [fld("merchant", "Merchant", "text"), fld("date", "Date", "date"), fld("total", "Total", "number")] },
+};
+const v = (x) => ({ v: x }); const MISSING = { state: "missing" }; const bad = (raw) => ({ state: "invalid", raw });
+const M1 = "qwen3-vl-32b", M2 = "gemma-4-27b";
+const inv = (vendor, no, date, total, po, paid, addr) => ({ vendor: v(vendor), invoice_number: v(no), invoice_date: date, total: v(total), po_number: po, paid: v(paid), billing_address: v(addr) });
+const DOCS = [
+  { id: "job_51a0e2", name: "hnh-inv-20517.pdf", tpl: "invoice", status: "completed", up: "2026-10-12", model: M1, f: inv("Medisupply Ltd", "HNH-20517", v("2026-10-09"), 1240, v("PO-8812"), false, "Unit 4, Kirkstall Rd, Leeds, LS3 1LH") },
+  { id: "job_7f3a91", name: "acme-inv-1060.pdf", tpl: "invoice", status: "completed", up: "2026-10-12", model: M1, f: inv("Acme Ltd", "INV-1060", v("2026-10-09"), 480, MISSING, false, "1 Market St, Manchester, M1 1AA") },
+  { id: "job_c81d0e", name: "initech-inv-77.pdf", tpl: "invoice", status: "processing", up: "2026-10-12", model: M1, f: null },
+  { id: "job_2b6e5f", name: "acme-inv-1051.pdf", tpl: "invoice", status: "completed", up: "2026-10-11", model: M2, f: inv("Acme Ltd", "INV-1051", bad("31/02/2026"), 1204.99, v("PO-7802"), false, "1 Market St, Manchester, M1 1AA") },
+  { id: "job_e04c7d", name: "globex-credit-note.pdf", tpl: "invoice", status: "completed", up: "2026-10-10", model: M1, f: inv("Globex Corporation", "CN-0007", v("2026-10-08"), 0, v(""), true, "77 Quay St, Bristol, BS1 4DJ") },
+  { id: "job_91aa2f", name: "scan_0046.png", tpl: "invoice", status: "failed", up: "2026-10-09", model: M2, f: null },
+  { id: "job_5d17b8", name: "receipt-taxi.jpg", tpl: "receipt", status: "completed", up: "2026-10-09", model: M2, f: { merchant: v("City Cabs"), date: v("2026-10-08"), total: v(23.5) } },
+  { id: "job_hnh431", name: "hnh-inv-20431.pdf", tpl: "invoice", status: "completed", up: "2026-10-08", model: M1, f: inv("Medisupply Ltd", "HNH-20431", v("2026-10-06"), 612.4, MISSING, true, "Unit 4, Kirkstall Rd, Leeds, LS3 1LH") },
+  { id: "job_acme42", name: "acme-inv-1042.pdf", tpl: "invoice", status: "completed", up: "2026-10-08", model: M1, f: inv("Acme Ltd", "INV-1042", v("2026-10-01"), 612.4, v("PO-7781"), false, "1 Market St, Manchester, M1 1AA") },
+  { id: "job_4410be", name: "scan_0045.png", tpl: "invoice", status: "failed", up: "2026-10-07", model: M1, f: null },
+  { id: "job_a3c90d", name: "northwind-oct.pdf", tpl: "invoice", status: "completed", up: "2026-10-06", model: M2, f: inv("Northwind Traders", "NW-2231", v("2026-10-02"), 1890, v("PO-7790"), true, "9 Dock Rd, Liverpool, L3 4BB") },
+  { id: "job_6c2f81", name: "receipt-acme-cafe.jpg", tpl: "receipt", status: "completed", up: "2026-10-05", model: M2, f: { merchant: v("Acme Café"), date: v("2026-10-05"), total: v(8.2) } },
+  { id: "job_0b97e3", name: "po-7790.pdf", tpl: "po", status: "completed", up: "2026-10-03", model: M1, f: { supplier: v("Northwind Traders"), po_number: v("PO-7790"), order_date: v("2026-09-29"), amount: v(1890) } },
+  { id: "job_d2e8a6", name: "statement-sept.pdf", tpl: null, status: "awaiting_template", up: "2026-10-02", model: "", f: null },
+  { id: "job_hnh398", name: "hnh-inv-20398.pdf", tpl: "invoice", status: "completed", up: "2026-10-01", model: M2, f: inv("CarePlus Supplies", "HNH-20398", v("2026-09-28"), 89.9, v("PO-8790"), false, "22 Park Row, Leeds, LS1 5HD") },
+  { id: "job_77c4f0", name: "po-7781.pdf", tpl: "po", status: "completed", up: "2026-10-01", model: M1, f: { supplier: v("Acme Ltd"), po_number: v("PO-7781"), order_date: v("2026-09-26"), amount: v(612.4) } },
+  { id: "job_f19b3e", name: "acme-inv-0998.pdf", tpl: "invoice", status: "completed", up: "2026-09-21", model: M1, f: inv("Acme Ltd", "INV-0998", v("2026-09-15"), 245, MISSING, true, "1 Market St, Manchester, M1 1AA") },
+];
+const STATUS = { completed: ["Completed", "success"], failed: ["Failed", "danger"], processing: ["Processing", "info"], queued: ["Queued", "neutral"], awaiting_template: ["Needs template", "warning"] };
+const WORKSPACES = [{ id: "hnh", name: "Operations workspace" }, { id: "demo", name: "Demo workspace" }, { id: "sandbox", name: "Evaluation sandbox" }];
+const PAGES = [["documents", "Documents"], ["templates", "Templates"], ["evaluations", "Evaluations"], ["costs", "Costs"], ["workspaces", "Workspaces"], ["connected-apps", "Connected apps"], ["profile", "Profile"]];
+const TIME = { today: ["today", TODAY, TODAY], yesterday: ["yesterday", "2026-10-11", "2026-10-11"], thisweek: ["this week", "2026-10-12", TODAY], lastweek: ["last week", "2026-10-05", "2026-10-11"], last7: ["last 7 days", "2026-10-06", TODAY], thismonth: ["this month", "2026-10-01", TODAY], lastmonth: ["last month", "2026-09-01", "2026-09-30"] };
+const ACTIONS = {
+  find: { label: "Find documents", hint: "By name, field, status or date", kw: "find search show list look documents" },
+  upload: { label: "Upload documents", hint: "PDF, PNG, JPG or WEBP", kw: "upload add new documents files" },
+  edit_template: { label: "Edit template…", hint: "Describe a change, then review it", kw: "edit change update modify template assistant improve" },
+  create_template: { label: "Create template…", hint: "Describe the document type", kw: "create new make template" },
+  retry: { label: "Try failed documents again", hint: "", kw: "retry try again failed rerun reprocess" },
+  export: { label: "Export documents…", hint: "CSV, JSON or Excel", kw: "export download csv json excel" },
+  delete: { label: "Delete documents…", hint: "", kw: "delete remove documents", danger: true },
+  invite: { label: "Invite member…", hint: "", kw: "invite member add person team" },
+  evaluate: { label: "Run evaluation…", hint: "Compare templates and models", kw: "evaluate evaluation compare run test" },
+  switch: { label: "Switch workspace…", hint: "", kw: "switch workspace change" },
+};
+const EXAMPLES = [
+  'Find all documents where the invoice number starts with "hnh"',
+  "Edit the invoice template to split the billing address into street, town and postcode",
+  "Retry all failed invoices from last week",
+  "Export Acme invoices over 500 as CSV",
+  "Find invoices billed to Leeds",
+  "Create a template for delivery notes with delivery date, driver name, items and signed",
+  "Invite sam@example.com as an editor",
+  "Go to costs",
+];
+const FOLLOWUPS = ["Only the unpaid ones", "Export them as CSV"];
+
+// =====================================================================
+// Helpers
+// =====================================================================
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const field = (tpl, key) => TPL[tpl]?.fields.find((f) => f.key === key);
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const fmtDay = (iso) => { const [, m, d] = iso.split("-"); return `${+d} ${MONTHS[+m - 1]}`; };
+const fmtDate = (iso) => { const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
+const fmtRange = (a, b) => (a === b ? fmtDay(a) : `${fmtDay(a)} – ${fmtDay(b)}`);
+const plural = (n, s, p = s + "s") => `${n} ${n === 1 ? s : p}`;
+const cap = (x) => x.trim().charAt(0).toUpperCase() + x.trim().slice(1);
+const TYPE_LABEL = { text: "Text", number: "Number", date: "Date", boolean: "Yes/no", table: "Table" };
+function fmtValue(f, fvv) {
+  if (!fvv || fvv.state === "missing") return { text: "Not found", cls: "missing" };
+  if (fvv.state === "invalid") return { text: `Invalid: “${fvv.raw}”`, cls: "invalid" };
+  const x = fvv.v;
+  if (f.type === "number") return { text: x.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) };
+  if (f.type === "date") return { text: fmtDate(x) };
+  if (f.type === "boolean") return { text: x ? "Yes" : "No" };
+  if (x === "") return { text: "Empty", cls: "missing" };
+  return { text: x };
+}
+function hlMatch(text, c) {
+  if (!c || !c.value || !["starts", "contains", "is", "ends"].includes(c.op)) return esc(text);
+  const s = String(text), val = String(c.value).toLowerCase(), i = s.toLowerCase().indexOf(val);
+  if (i < 0 || (c.op === "starts" && i !== 0)) return esc(s);
+  return esc(s.slice(0, i)) + "<mark>" + esc(s.slice(i, i + val.length)) + "</mark>" + esc(s.slice(i + val.length));
+}
+const I = {
+  search: `<svg class="ico" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  spark: `<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5l1.6 4.4L14 7.5l-4.4 1.6L8 13.5 6.4 9.1 2 7.5l4.4-1.6z" fill="currentColor"/></svg>`,
+  doc: `<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.5h5.5L13 5v9.5H4z M9.5 1.5V5H13" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>`,
+  tpl: `<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5 6h6M5 8.5h6M5 11h3.5" stroke="currentColor" stroke-width="1.3"/></svg>`,
+  page: `<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  bolt: `<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z" fill="currentColor"/></svg>`,
+  ws: `<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12" stroke="currentColor" stroke-width="1.3"/></svg>`,
+  chev: `<svg width="8" height="5" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`,
+  check: `<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+};
+
+// =====================================================================
+// 1. Local lexer: instant, no network. Splits the text into typed phrases.
+// =====================================================================
+const FIELD_LABELS = [...new Set(Object.values(TPL).flatMap((t) => t.fields.map((f) => f.label.toLowerCase())))].sort((a, b) => b.length - a.length);
+const VENDORS = ["acme", "northwind", "globex", "medisupply", "careplus", "city cabs", "initech"];
+const MONTH_RE = "january|february|march|april|may|june|july|august|september|october|november|december";
+const RULES = [
+  ["action", /(?:show me|search for|look up|find|show|search|list|get|edit|update|modify|change|retry|re-run|rerun|reprocess|try again|export|download|upload|delete|remove|create|make|invite|go to|open|switch to|evaluate|run an evaluation)\b/iy],
+  ["time", new RegExp(`(?:(?:from|in|during|since|uploaded)\\s+)?(?:today|yesterday|this week|last week|this month|last month|(?:the )?last 7 days|past week|${MONTH_RE})\\b`, "iy")],
+  ["template", /(?:the\s+)?(?:invoice|purchase order|receipt|delivery note)s?\s+template\b/iy],
+  ["quantity", /(?:all(?: of the| the)?|every|the latest|latest|most recent|first|top|last)(?:\s+\d+)?\b|\d+(?=\s+(?:documents?|invoices?|receipts?|files?|purchase orders?))/iy],
+  ["subject", /(?:documents?|docs|files|invoices?|receipts?|purchase orders?|templates?|evaluations?|members?)\b/iy],
+  ["field", new RegExp(`(?:the\\s+)?(?:${FIELD_LABELS.join("|")})\\b`, "iy")],
+  ["status", /(?:failed|completed|processing|queued|needs? (?:a )?template|unpaid)\b/iy],
+  ["cond", /(?:is missing|is empty|is blank|was not found|wasn't found|was missing|not found|is unknown|missing)\b/iy],
+  ["cond", /(?:starts? with|begins? with|ends? with|contains?|includes?|is not|isn't|is|equals?|=|matches)\s+(?:"[^"]*"|'[^']*'|“[^”]*”|[^\s,]+)/iy],
+  ["cond", /(?:over|above|more than|greater than|at least|under|below|less than|at most|>=|<=|>|<)\s*[£$€]?\s*\d[\d,]*(?:\.\d+)?/iy],
+  ["cond", /between\s+[£$€]?\d[\d,]*(?:\.\d+)?\s+and\s+[£$€]?\d[\d,]*(?:\.\d+)?/iy],
+  ["value", new RegExp(`(?:from\\s+)?(?:${VENDORS.join("|")})\\b`, "iy")],
+  ["person", /[\w.+-]+@[\w-]+\.[\w.]+/iy],
+  ["role", /as\s+(?:an?\s+)?(?:editor|viewer|admin|owner)\b/iy],
+  ["format", /as\s+(?:a\s+|an\s+)?(?:csv|json|excel|xlsx|spreadsheet)\b/iy],
+  ["page", /(?:costs|evaluations page|connected apps|profile|settings|workspaces)(?:\s+page)?\b/iy],
+  ["workspace", /(?:operations|demo|evaluation sandbox)(?:\s+workspace)?\b/iy],
+];
+const STOP = new Set("where with the a an and of for from in that which me to my any is are was were on at by whose has have had please can you i want all into".split(" "));
+const FOLLOW_WORDS = /^(only|just|those|them|these|ones|it)$/i;
+
+function lex(text) {
+  const segs = []; let i = 0; let wantsInstruction = false;
+  const push = (type, t) => { const last = segs[segs.length - 1]; if (type === "plain" && last?.type === "plain") last.text += t; else segs.push({ type, text: t }); };
+  while (i < text.length) {
+    const ws = /\s+/y; ws.lastIndex = i; const w = ws.exec(text);
+    if (w) { push("plain", w[0]); i += w[0].length; continue; }
+    if (wantsInstruction) {
+      const ins = /(?:to|so that|so|:|that|for|with|by)\s+/iy; ins.lastIndex = i; const m = ins.exec(text);
+      if (m && i + m[0].length < text.length) { push("plain", m[0]); segs.push({ type: "instruction", text: text.slice(i + m[0].length) }); break; }
+    }
+    let best = null;
+    for (const [type, re] of RULES) { re.lastIndex = i; const m = re.exec(text); if (m && m[0].length && (!best || m[0].length > best.text.length)) best = { type, text: m[0] }; }
+    // Only the first verb is an action; later verbs are plain words (e.g. inside a description).
+    if (best?.type === "action" && segs.some((s) => s.type === "action")) best = null;
+    if (best) {
+      segs.push(best); i += best.text.length;
+      const act = segs.find((s) => s.type === "action")?.text.toLowerCase() || "";
+      if ((best.type === "template" || (best.type === "subject" && /^templates?$/i.test(best.text))) && /^(edit|update|modify|change|create|make)/.test(act)) wantsInstruction = true;
+      continue;
+    }
+    const wd = /\S+/y; wd.lastIndex = i; const t = wd.exec(text)[0]; push("plain", t); i += t.length;
+  }
+  for (const s of segs) if (s.type === "plain") s.unknown = s.text.split(/\s+/).filter((x) => x && !STOP.has(x.toLowerCase().replace(/[^\w]/g, "")) && /\w/.test(x) && !FOLLOW_WORDS.test(x));
+  return segs;
+}
+
+// =====================================================================
+// 2. Interpretation. In production this is one model call: the phrases plus a workspace
+//    catalogue go in; a validated filter or action object comes out. Mocked here.
+// =====================================================================
+const emptyCrit = () => ({ text: "", statuses: [], templates: [], from: "", to: "", conds: [] });
+const tplOf = (t) => (/purchase order/i.test(t) ? "po" : /receipt/i.test(t) ? "receipt" : /delivery/i.test(t) ? "delivery" : "invoice");
+function subjectOf(t) {
+  const l = t.toLowerCase();
+  if (/^invoices?$/.test(l)) return { subject: "documents", tpl: "invoice" };
+  if (/^receipts?$/.test(l)) return { subject: "documents", tpl: "receipt" };
+  if (/^purchase orders?$/.test(l)) return { subject: "documents", tpl: "po" };
+  if (/^templates?$/.test(l)) return { subject: "templates" };
+  if (/^evaluations?$/.test(l)) return { subject: "evaluations" };
+  if (/^members?$/.test(l)) return { subject: "members" };
+  return { subject: "documents" };
+}
+function parseCond(t) {
+  const s = t.trim(), l = s.toLowerCase(); let m;
+  if (/^(is missing|is empty|is blank|was not found|wasn't found|was missing|not found|is unknown|missing)$/.test(l)) return { op: "missing" };
+  if ((m = l.match(/^between\s+[£$€]?([\d,.]+)\s+and\s+[£$€]?([\d,.]+)/))) return { op: "between", value: m[1].replace(/,/g, ""), value2: m[2].replace(/,/g, ""), numeric: true };
+  if ((m = l.match(/^(over|above|more than|greater than|at least|under|below|less than|at most|>=|<=|>|<)\s*[£$€]?\s*([\d,.]+)/))) {
+    const op = { over: "gt", above: "gt", "more than": "gt", "greater than": "gt", ">": "gt", "at least": "gte", ">=": "gte", under: "lt", below: "lt", "less than": "lt", "<": "lt", "at most": "lte", "<=": "lte" }[m[1]];
+    return { op, value: m[2].replace(/,/g, ""), numeric: true };
+  }
+  m = s.match(/^(starts? with|begins? with|ends? with|contains?|includes?|is not|isn't|is|equals?|=|matches)\s+(.+)$/i);
+  if (m) {
+    const verb = m[1].toLowerCase(), value = m[2].replace(/^["'“]|["'”]$/g, "");
+    const op = /^(starts?|begins?)/.test(verb) ? "starts" : /^ends?/.test(verb) ? "ends" : /^(contains?|includes?|matches)/.test(verb) ? "contains" : /^(is not|isn't)/.test(verb) ? "not" : "is";
+    return { op, value, numeric: /^\d+(\.\d+)?$/.test(value) && op === "is" };
+  }
+  return { op: "contains", value: s };
+}
+const OP_WORD = { starts: "starts with", ends: "ends with", contains: "contains", is: "is", not: "is not", gt: "over", gte: "at least", lt: "under", lte: "at most", eq: "=", between: "between", missing: "is missing", yes: "is yes", no: "is no", present: "has a value" };
+const NO_VALUE = ["missing", "present", "yes", "no"];
+function resolveField(label, tplHint, notes) {
+  const l = label.toLowerCase().replace(/^the\s+/, "");
+  const cands = Object.keys(TPL).filter((t) => TPL[t].fields.some((f) => f.label.toLowerCase() === l));
+  if (!cands.length) return null;
+  const tpl = cands.includes(tplHint) ? tplHint : cands[0];
+  if (cands.length > 1 && !cands.includes(tplHint)) notes.push({ tone: "info", text: `“${l}” is on ${cands.map((c) => TPL[c].name).join(" and ")}. Using ${TPL[tpl].name}.`, alt: cands.filter((c) => c !== tpl).map((c) => ({ label: `Use ${TPL[c].name}`, tpl: c })) });
+  return { tpl, key: TPL[tpl].fields.find((f) => f.label.toLowerCase() === l).key };
+}
+function interpret(segs, { prev = null, model = true } = {}) {
+  const it = { action: null, quantity: null, subject: null, tpl: null, crit: emptyCrit(), instruction: "", email: "", role: "", fmt: "", page: "", ws: "", notes: [], unknown: [], followUp: false };
+  for (const s of segs) { delete s.res; delete s.resolved; }
+  const of = (t) => segs.filter((s) => s.type === t);
+  const act = (of("action")[0]?.text || "").toLowerCase();
+  for (const s of of("subject")) { const m = subjectOf(s.text); it.subject = m.subject; if (m.tpl) { it.tpl = m.tpl; s.res = TPL[m.tpl].name; } }
+  for (const s of of("template")) { it.tpl = tplOf(s.text); it.subject = "templates"; if (TPL[it.tpl]) s.res = `v${TPL[it.tpl].version}`; }
+  if (/^(find|show|show me|search|search for|list|get|look up)$/.test(act)) it.action = "find";
+  else if (/^(edit|update|modify|change)$/.test(act)) it.action = "edit_template";
+  else if (/^(retry|re-run|rerun|reprocess|try again)$/.test(act)) it.action = "retry";
+  else if (/^(export|download)$/.test(act)) it.action = "export";
+  else if (act === "upload") it.action = "upload";
+  else if (/^(delete|remove)$/.test(act)) it.action = "delete";
+  else if (/^(create|make)$/.test(act)) it.action = "create_template";
+  else if (act === "invite") it.action = "invite";
+  else if (/^(go to|open)$/.test(act)) it.action = "goto";
+  else if (act === "switch to") it.action = "switch";
+  else if (/^(evaluate|run an evaluation)$/.test(act)) it.action = "evaluate";
+  else it.action = of("person").length ? "invite" : "find";
+  if (it.action === "find" && it.subject === "templates") it.action = "find_templates";
+  const q = of("quantity")[0];
+  if (q) { const t = q.text.toLowerCase(), n = t.match(/\d+/); it.quantity = n ? { n: +n[0] } : /latest|most recent|^first$|^last$/.test(t) ? { n: 1 } : { all: true }; }
+  let pending = null;
+  const addCond = (tpl, key, c, anchor) => { it.crit.conds.push({ tpl, field: key, ...c }); if (anchor) anchor.res = TPL[tpl].name; };
+  for (const s of segs) {
+    if (s.type === "field") { pending = s; continue; }
+    if (s.type === "cond") {
+      const c = parseCond(s.text);
+      if (pending) {
+        const r = resolveField(pending.text, it.tpl, it.notes);
+        if (r) { const f = field(r.tpl, r.key); if (f.type === "number" && c.op === "is") c.op = "eq"; addCond(r.tpl, r.key, c, pending); }
+      } else if (c.numeric || c.op === "between") {
+        const tpl = it.tpl === "po" ? "po" : it.tpl === "receipt" ? "receipt" : "invoice"; const key = tpl === "po" ? "amount" : "total";
+        addCond(tpl, key, c); s.res = field(tpl, key).label;
+      } else if (c.op !== "missing") { it.crit.text = c.value; s.res = "Any text"; }
+      pending = null; continue;
+    }
+    if (s.type === "value") {
+      const name = s.text.replace(/^from\s+/i, ""); const tpl = it.tpl === "po" ? "po" : it.tpl === "receipt" ? "receipt" : "invoice";
+      const key = { invoice: "vendor", po: "supplier", receipt: "merchant" }[tpl];
+      it.crit.conds.push({ tpl, field: key, op: "contains", value: cap(name.toLowerCase()) }); s.res = field(tpl, key).label; continue;
+    }
+    if (s.type === "status") {
+      const l = s.text.toLowerCase();
+      if (l === "unpaid") { it.crit.conds.push({ tpl: "invoice", field: "paid", op: "no" }); s.res = "Paid: no"; }
+      else it.crit.statuses.push(/needs?/.test(l) ? "awaiting_template" : l);
+      continue;
+    }
+    if (s.type === "time") { const l = s.text.toLowerCase(); const k = Object.keys(TIME).find((x) => l.includes(TIME[x][0])) || (/past week/.test(l) ? "last7" : null); if (k) { it.crit.from = TIME[k][1]; it.crit.to = TIME[k][2]; s.res = fmtRange(TIME[k][1], TIME[k][2]); } continue; }
+    if (s.type === "person") it.email = s.text;
+    if (s.type === "role") it.role = s.text.match(/(editor|viewer|admin|owner)/i)[1].toLowerCase();
+    if (s.type === "format") it.fmt = /json/i.test(s.text) ? "json" : /csv/i.test(s.text) ? "csv" : "excel";
+    if (s.type === "page") { const l = s.text.toLowerCase(); it.page = /cost/.test(l) ? "costs" : /evaluation/.test(l) ? "evaluations" : /connected/.test(l) ? "connected-apps" : /workspace/.test(l) ? "workspaces" : "profile"; }
+    if (s.type === "workspace") it.ws = /demo/i.test(s.text) ? "demo" : /sandbox/i.test(s.text) ? "sandbox" : "hnh";
+    if (s.type === "instruction") it.instruction = s.text;
+  }
+  if (pending && it.action === "find") { const r = resolveField(pending.text, it.tpl, it.notes); if (r) addCond(r.tpl, r.key, { op: "present" }, pending); }
+  if (it.action === "goto" && !it.page && it.subject) it.page = it.subject === "templates" ? "templates" : it.subject === "evaluations" ? "evaluations" : "documents";
+  if (it.tpl && TPL[it.tpl] && it.subject === "documents" && !it.crit.conds.some((c) => c.tpl === it.tpl)) it.crit.templates.push(it.tpl);
+  // Follow-ups ("only the unpaid ones", "export them") reuse the previous answer's documents.
+  const plainText = segs.filter((s) => s.type === "plain").map((s) => s.text).join(" ");
+  if (prev && /\b(only|just|those|them|these|ones|of them|it)\b/i.test(plainText) && !of("subject").length) {
+    const merged = JSON.parse(JSON.stringify(prev.crit));
+    merged.conds.push(...it.crit.conds); merged.statuses.push(...it.crit.statuses); if (it.crit.from) { merged.from = it.crit.from; merged.to = it.crit.to; }
+    it.crit = merged; it.tpl = it.tpl || prev.tpl; it.quantity = prev.quantity; it.followUp = true;
+    if (!of("action").length) it.action = "find";
+  }
+  if (it.action === "retry" && !it.crit.statuses.length) it.crit.statuses.push("failed");
+  it.unknown = segs.flatMap((s) => (s.type === "plain" ? s.unknown || [] : []));
+  if (model && it.unknown.length) modelResolve(it, segs);
+  return it;
+}
+// Stand-in for what only the model adds: mapping leftover words onto known values.
+function modelResolve(it, segs) {
+  const left = [];
+  for (const w of it.unknown) {
+    const word = w.replace(/[^\w-]/g, ""); if (!word || /^(billed|named|called|show|me|ones)$/i.test(word)) continue;
+    let hit = null;
+    if (word.length > 3) for (const d of DOCS) { if (!d.f) continue; for (const f of TPL[d.tpl].fields) { const fv = d.f[f.key]; if (f.type === "text" && typeof fv?.v === "string" && fv.v.toLowerCase().includes(word.toLowerCase())) { hit = { tpl: d.tpl, key: f.key }; break; } } if (hit) break; }
+    if (hit) {
+      it.crit.conds.push({ tpl: hit.tpl, field: hit.key, op: "contains", value: cap(word) });
+      it.notes.push({ tone: "info", text: `Matched “${word}” to ${TPL[hit.tpl].name} › ${field(hit.tpl, hit.key).label}.` });
+      for (const s of segs) if (s.type === "plain" && s.text.includes(w)) s.resolved = (s.resolved || []).concat(w);
+    } else left.push(word);
+  }
+  if (left.length) { it.notes.push({ tone: "warning", text: `Not used: ${left.map((x) => `“${x}”`).join(", ")}. Not a field, value or status in this workspace.` }); for (const s of segs) if (s.type === "plain") s.ignored = (s.ignored || []).concat(left); }
+  it.unknown = [];
+}
+
+// =====================================================================
+// 3. Deterministic search (the indexed query in production)
+// =====================================================================
+function condMatch(d, c) {
+  if (d.tpl !== c.tpl || !d.f) return false;
+  const f = field(c.tpl, c.field), fv = d.f[c.field], st = !fv ? "missing" : fv.state || "value";
+  if (c.op === "missing") return st === "missing";
+  if (st !== "value") return false;
+  const x = fv.v;
+  if (c.op === "present") return x !== "";
+  if (f.type === "boolean") return c.op === "yes" ? x === true : x === false;
+  if (f.type === "number") { const a = +c.value, b = +c.value2; return { gt: x > a, gte: x >= a, lt: x < a, lte: x <= a, eq: x === a, is: x === a, between: x >= a && x <= b }[c.op] ?? false; }
+  if (f.type === "date") return { is: x === c.value, gt: x > c.value, lt: x < c.value }[c.op] ?? false;
+  const s = String(x).toLowerCase(), val = String(c.value).toLowerCase();
+  return { starts: s.startsWith(val), ends: s.endsWith(val), contains: s.includes(val), is: s === val, not: s !== val }[c.op] ?? false;
+}
+function findDocs(it) {
+  const c = it.crit;
+  let r = DOCS.filter((d) => (!c.statuses.length || c.statuses.includes(d.status)) && (!c.templates.length || c.templates.includes(d.tpl)) && (!c.from || d.up >= c.from) && (!c.to || d.up <= c.to) && c.conds.every((x) => condMatch(d, x))
+    && (!c.text || [d.name, d.id, ...(d.f ? Object.values(d.f).map((x) => String(x?.v ?? "")) : [])].some((s) => s.toLowerCase().includes(c.text.toLowerCase()))));
+  r.sort((a, b) => (a.up < b.up ? 1 : a.up > b.up ? -1 : a.id < b.id ? 1 : -1));
+  if (it.quantity?.n) r = r.slice(0, it.quantity.n);
+  return r;
+}
+function condText(c) { const f = field(c.tpl, c.field); return `${TPL[c.tpl].name} › ${f.label} ${OP_WORD[c.op] || c.op}${NO_VALUE.includes(c.op) ? "" : ` ${f.type === "text" ? `“${c.value}”` : c.value}${c.op === "between" ? ` and ${c.value2}` : ""}`}`; }
+function describeCrit(it) {
+  const c = it.crit, p = [];
+  if (c.templates.length) p.push(c.templates.map((t) => TPL[t].name).join(", "));
+  p.push(...c.statuses.map((s) => STATUS[s][0].toLowerCase()));
+  p.push(...c.conds.map(condText));
+  if (c.from) p.push(`uploaded ${fmtRange(c.from, c.to)}`);
+  if (c.text) p.push(`text “${c.text}”`);
+  return p.join(" · ");
+}
+
+// =====================================================================
+// 4. Action flows: pre-built, so starting one needs no lookup
+// =====================================================================
+function guessType(name) { const l = name.toLowerCase(); if (/date|day/.test(l)) return "date"; if (/total|amount|qty|quantity|price|count|number of/.test(l)) return "number"; if (/signed|signature|paid|approved|^is /.test(l)) return "boolean"; if (/items|lines/.test(l)) return "table"; return "text"; }
+function proposeEdit(tpl, instruction) {
+  const s = instruction.toLowerCase(); const T = TPL[tpl]; let m; const groups = []; let explanation;
+  if (/address/.test(s) && /(split|separate|break)/.test(s)) {
+    explanation = `${T.name} reads the billing address as one block of text, so town and postcode can't be filtered or exported on their own. These changes extract each part separately. Documents already processed keep the old field until they're processed again.`;
+    groups.push({ id: 1, title: "Split Billing address into Street, Town and Postcode", keys: true, ops: [
+      { kind: "add", name: "Street", type: "text", desc: "Building and street, e.g. Unit 4, Kirkstall Rd" },
+      { kind: "add", name: "Town", type: "text", desc: "Town or city" },
+      { kind: "add", name: "Postcode", type: "text", desc: "UK postcode, e.g. LS3 1LH" },
+      { kind: "remove", name: "Billing address", type: "text", desc: "Full billing address as printed" } ] });
+    groups.push({ id: 2, title: "Keep the full address for reference", optional: true, ops: [{ kind: "add", name: "Billing address (as printed)", type: "text", desc: "Full address exactly as it appears" }] });
+  } else if ((m = s.match(/rename\s+(.+?)\s+to\s+(.+)$/))) {
+    explanation = "Renaming changes the label you see and the key in exports and the API.";
+    groups.push({ id: 1, title: `Rename ${cap(m[1])} to ${cap(m[2])}`, keys: true, ops: [{ kind: "change", name: `${cap(m[1])} → ${cap(m[2])}`, type: "text", desc: "Same instructions, new name" }] });
+  } else if ((m = s.match(/add\s+(?:an?\s+)?(.+?)(?:\s+field)?$/))) {
+    const name = cap(m[1].replace(/\s+field$/, "")); const type = guessType(name);
+    explanation = `Adds ${name} to ${T.name}. Earlier documents show it as not found until they're processed again.`;
+    groups.push({ id: 1, title: `Add ${name}`, ops: [{ kind: "add", name, type, desc: `${name} as printed on the ${T.name.toLowerCase()}` }] });
+  } else {
+    explanation = "Here's a change based on your description. Review it before saving.";
+    groups.push({ id: 1, title: `Clarify the instructions for ${T.fields[0].label}`, ops: [{ kind: "change", name: T.fields[0].label, type: T.fields[0].type, desc: cap(instruction) }] });
+  }
+  if (/keep the full address|keep the address/.test(s)) groups.forEach((g) => (g.optional = false));
+  return { explanation, groups, selected: new Set(groups.filter((g) => !g.optional).map((g) => g.id)) };
+}
+function proposeTemplate(instruction) {
+  const l = instruction.replace(/^(a|an)\s+/i, "");
+  const nameM = l.match(/^(?:for\s+)?(.+?)(?:\s+with\s+|$)/i); const name = cap((nameM?.[1] || "New template").replace(/s$/, ""));
+  const list = (l.match(/\bwith\s+(.+)$/i)?.[1] || "date, reference").split(/,\s*|\s+and\s+/).map((x) => x.trim()).filter(Boolean);
+  const fields = list.map((x) => { const n = cap(x.replace(/^(a|an|the)\s+/i, "")); const type = guessType(n); return { name: type === "boolean" && /sign/i.test(n) ? "Signed" : n, type, desc: type === "table" ? "Columns: Description, Quantity" : type === "boolean" ? "Whether the note is signed" : `${n} as printed` }; });
+  return { name, fields, selected: new Set(fields.map((_, i) => i)) };
+}
+function startFlow(kind, it = null, targets = null) {
+  S.menu = null; const T = it?.tpl && TPL[it.tpl] ? it.tpl : null;
+  const failed = DOCS.filter((d) => d.status === "failed");
+  if (kind === "find") { S.q = "Find "; S.view = "edit"; S.flow = null; S.phase = "idle"; return; }
+  if (kind === "goto") return navigate(it?.page || "documents");
+  if (kind === "switch" && it?.ws) return switchWs(it.ws);
+  const hasCrit = it && (it.crit.conds.length || it.crit.templates.length || it.crit.statuses.length || it.crit.from);
+  const f = { kind, step: "start", it, targets };
+  if (kind === "edit_template") { f.tpl = T; f.instruction = it?.instruction || ""; f.step = !T ? "pick" : f.instruction ? "thinking" : "describe"; }
+  if (kind === "create_template") { f.instruction = it?.instruction || ""; f.step = f.instruction ? "thinking" : "describe"; }
+  if (kind === "upload") { f.files = []; f.tpl = T || ""; f.step = "files"; }
+  if (kind === "retry") { f.targets = (targets || (it ? findDocs(it) : failed)).filter((d) => d.status === "failed"); f.checked = new Set(f.targets.map((d) => d.id)); f.step = "confirm"; }
+  if (kind === "export") { f.targets = targets || (hasCrit ? findDocs(it) : DOCS.filter((d) => d.status === "completed")); f.fmt = it?.fmt || "csv"; f.step = "options"; }
+  if (kind === "delete") { f.targets = targets || (hasCrit ? findDocs(it) : []); f.step = f.targets.length ? "confirm" : "empty"; }
+  if (kind === "invite") { f.email = it?.email || ""; f.role = it?.role || "viewer"; f.step = "form"; }
+  if (kind === "switch") f.step = "pick";
+  if (kind === "evaluate") { f.tpl = T || "invoice"; f.models = new Set([M1, M2]); f.step = "setup"; }
+  S.flow = f; S.hi = 0;
+  if (f.step === "thinking") runThinking(f);
+}
+function runThinking(f) {
+  f.step = "thinking"; render();
+  setTimeout(() => {
+    if (S.flow !== f) return;
+    f.proposal = f.kind === "edit_template" ? proposeEdit(f.tpl, f.instruction) : proposeTemplate(f.instruction);
+    f.step = "proposal"; render();
+  }, 1300);
+}
+function closePalette() { Object.assign(S, { open: false, flow: null, q: "", view: "edit", phase: "idle", segs: [], it: null, menu: null }); }
+function finish(msg, page) { closePalette(); if (page) S.page = page; toast(msg); render(); }
+function navigate(page) { closePalette(); S.page = page; render(); }
+function switchWs(id) { closePalette(); S.ws = id; render(); }
+function toast(msg) { const t = { msg }; S.toasts.push(t); render(); setTimeout(() => { S.toasts = S.toasts.filter((x) => x !== t); render(); }, 4200); }
+
+const FLOW_TITLE = { edit_template: "Edit template", create_template: "Create template", upload: "Upload documents", retry: "Try again", export: "Export", delete: "Delete documents", invite: "Invite member", switch: "Switch workspace", evaluate: "Run evaluation" };
+const FLOW_STEPS = { edit_template: [["pick", "Choose template"], ["describe", "Describe the change"], ["proposal", "Review and save"]], create_template: [["describe", "Describe the document"], ["proposal", "Review fields"]], upload: [["files", "Choose files"]], retry: [["confirm", "Confirm documents"]], export: [["options", "Choose a format"]], delete: [["confirm", "Confirm"]], invite: [["form", "Email and role"]], switch: [["pick", "Choose workspace"]], evaluate: [["setup", "Template and models"]] };
+// Keyboard-navigable rows inside a flow step.
+function flowItems(f) {
+  if (f.kind === "edit_template" && f.step === "pick") return Object.keys(TPL).filter((t) => !S.q || TPL[t].name.toLowerCase().includes(S.q.toLowerCase())).map((t) => ({ kind: "pick-tpl", id: t, label: TPL[t].name, sub: `v${TPL[t].version} · ${plural(TPL[t].fields.length, "field")} · ${plural(DOCS.filter((d) => d.tpl === t).length, "document")}`, icon: I.tpl }));
+  if (f.kind === "switch") return WORKSPACES.map((w) => ({ kind: "pick-ws", id: w.id, label: w.name, sub: w.id === S.ws ? "Current workspace" : "", icon: I.ws }));
+  return [];
+}
+function flowHtml(f) {
+  const T = f.tpl && TPL[f.tpl];
+  const actions = (left, right) => `<div class="factions">${left ? `<span class="left">${left}</span>` : ""}${right}</div>`;
+  const cancel = `<button class="btn" data-act="flow-cancel">Cancel</button>`;
+  if (f.kind === "edit_template") {
+    if (f.step === "pick") return `<div class="pgrp">Which template?</div>${rowsHtml(flowItems(f))}`;
+    if (f.step === "describe") return `<div class="flow"><div class="fhead"><h3>Edit ${esc(T.name)}</h3><span class="badge">v${T.version}</span><span class="sub">${plural(T.fields.length, "field")}</span></div>
+      <div class="fstack"><label class="lbl" for="instr">What should change?</label><textarea id="instr" class="ta" rows="3" data-in="instr" data-focus="instr" placeholder="e.g. Split the billing address into street, town and postcode">${esc(f.instruction)}</textarea>
+      <div class="chips">${["Split the billing address into street, town and postcode", "Add a VAT number field", "Rename Vendor to Supplier"].map((x) => `<button class="chip" data-act="instr-chip" data-v="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+      <label class="checkrow" style="padding-left:0"><input type="checkbox" checked> Check against 3 recent documents</label></div>
+      ${actions(`<span class="hint">You'll review each change before it's saved.</span>`, `${cancel}<button class="btn primary" data-act="propose"${f.instruction.trim() ? "" : " disabled"}>Propose changes <kbd>↵</kbd></button>`)}</div>`;
+    if (f.step === "thinking") return `<div class="thinking" role="status">Working out changes to ${esc(T.name)} v${T.version}…<div class="skel" style="width:85%"></div><div class="skel" style="width:60%"></div><div class="skel" style="width:72%"></div></div>`;
+    if (f.step === "proposal") {
+      const p = f.proposal, n = [...p.selected].reduce((a, id) => a + p.groups.find((g) => g.id === id).ops.length, 0);
+      return `<div class="flow"><div class="fhead"><h3>Proposed changes</h3><span class="badge">${esc(T.name)} v${T.version}</span><span class="sub">“${esc(f.instruction)}”</span></div>
+        <div class="fstack"><p class="explain">${esc(p.explanation)}</p>
+        <div>${p.groups.map((g) => `<div class="gcard${p.selected.has(g.id) ? " sel" : ""}"><label class="gh"><input type="checkbox" data-act="toggle-group" data-v="${g.id}"${p.selected.has(g.id) ? " checked" : ""}><span><strong>${esc(g.title)}</strong><span class="gtags">${g.ops.length > 1 ? `<span class="badge">${g.ops.length} changes · applied together</span>` : ""}${g.keys ? `<span class="badge warning">Changes output keys</span>` : ""}${g.optional ? `<span class="badge">Optional</span>` : ""}</span></span></label>
+          <table class="diff">${g.ops.map((o) => `<tr class="${o.kind}"><td class="op">${o.kind === "add" ? "+" : o.kind === "remove" ? "−" : "~"}</td><td>${esc(o.name)}</td><td class="typ">${TYPE_LABEL[o.type]}</td><td class="hint">${esc(o.desc)}</td></tr>`).join("")}</table></div>`).join("")}</div>
+        <div><label class="lbl" for="refine">Ask for something different</label><input id="refine" class="input" data-in="refine" placeholder="e.g. Keep the full address as well" value="${esc(f.refine || "")}"></div></div>
+        ${actions(`<button class="btn" data-act="flow-back">Back</button>`, `<button class="btn" data-act="open-editor">Open in editor</button><button class="btn primary" data-act="save-template"${n ? "" : " disabled"}>Save ${plural(n, "change")} as v${T.version + 1}</button>`)}</div>`;
+    }
+  }
+  if (f.kind === "create_template") {
+    if (f.step === "describe") return `<div class="flow"><div class="fhead"><h3>Create template</h3></div><div class="fstack"><label class="lbl" for="instr">Describe the document and what to extract</label><textarea id="instr" class="ta" rows="3" data-in="instr" data-focus="instr" placeholder="e.g. Delivery notes with delivery date, driver name, items and signed">${esc(f.instruction)}</textarea></div>${actions("", `${cancel}<button class="btn primary" data-act="propose"${f.instruction.trim() ? "" : " disabled"}>Propose fields <kbd>↵</kbd></button>`)}</div>`;
+    if (f.step === "thinking") return `<div class="thinking" role="status">Drafting fields…<div class="skel" style="width:80%"></div><div class="skel" style="width:66%"></div></div>`;
+    if (f.step === "proposal") { const p = f.proposal; return `<div class="flow"><div class="fhead"><h3>New template</h3><span class="sub">“${esc(f.instruction)}”</span></div>
+      <div class="fstack"><div><label class="lbl" for="tname">Name</label><input id="tname" class="input" data-in="tname" value="${esc(p.name)}"></div>
+      <div class="card">${p.fields.map((x, i) => `<label class="checkrow"><input type="checkbox" data-act="toggle-field" data-v="${i}"${p.selected.has(i) ? " checked" : ""}><span>${esc(x.name)}</span><span class="badge">${TYPE_LABEL[x.type]}</span><span class="rk">${esc(x.desc)}</span></label>`).join("")}</div>
+      <p class="hint" style="margin:0">You can change instructions and types in the template editor afterwards.</p></div>
+      ${actions(`<button class="btn" data-act="flow-back">Back</button>`, `<button class="btn primary" data-act="create-template"${p.selected.size ? "" : " disabled"}>Create template</button>`)}</div>`; }
+  }
+  if (f.kind === "upload") {
+    return `<div class="flow"><div class="fhead"><h3>Upload documents</h3></div><div class="fstack">
+      ${f.files.length ? `<div class="card filelist">${f.files.map((x, i) => `<div class="row"><span class="ri">${I.doc}</span><span class="rt"><strong>${esc(x.name)}</strong><span>${x.size}</span></span><button class="btn text" data-act="rm-file" data-v="${i}" aria-label="Remove ${esc(x.name)}">Remove</button></div>`).join("")}</div>` : ""}
+      <div class="drop">Drop files here or <button class="btn text" data-act="add-files">choose files…</button><div class="hint" style="margin-top:4px">PDF, PNG, JPG or WEBP, up to 50 MB each</div></div>
+      <div><label class="lbl" for="utpl">Template</label><select id="utpl" class="select" data-in="utpl"><option value="">Choose automatically</option>${Object.keys(TPL).map((t) => `<option value="${t}"${f.tpl === t ? " selected" : ""}>${TPL[t].name} v${TPL[t].version}</option>`).join("")}</select></div></div>
+      ${actions("", `${cancel}<button class="btn primary" data-act="do-upload"${f.files.length ? "" : " disabled"}>${f.files.length ? `Upload ${plural(f.files.length, "document")}` : "Upload"}</button>`)}</div>`;
+  }
+  if (f.kind === "retry") {
+    const n = f.checked.size;
+    return `<div class="flow"><div class="fhead"><h3>Try failed documents again</h3>${f.it ? `<span class="sub">${esc(describeCrit(f.it))}</span>` : ""}</div>
+      ${f.targets.length ? `<div class="card">${f.targets.map((d) => `<label class="checkrow"><input type="checkbox" data-act="toggle-target" data-v="${d.id}"${f.checked.has(d.id) ? " checked" : ""}><span>${esc(d.name)}</span><span class="rk">${d.tpl ? TPL[d.tpl].name : ""} · ${fmtDay(d.up)}</span></label>`).join("")}</div>` : `<p class="hint">No failed documents match.</p>`}
+      ${actions(`<span class="hint">Uses each template's current version.</span>`, `${cancel}<button class="btn primary" data-act="do-retry"${n ? "" : " disabled"}>Try again on ${plural(n, "document")}</button>`)}</div>`;
+  }
+  if (f.kind === "export") {
+    const n = f.targets.length; const tpls = [...new Set(f.targets.map((d) => d.tpl).filter(Boolean))];
+    return `<div class="flow"><div class="fhead"><h3>Export ${plural(n, "document")}</h3>${f.it && describeCrit(f.it) ? `<span class="sub">${esc(describeCrit(f.it))}</span>` : ""}</div><div class="fstack">
+      <div><span class="lbl">Format</span><div class="seg" role="group" aria-label="Format">${[["csv", "CSV"], ["json", "JSON"], ["excel", "Excel"]].map(([k, l]) => `<button data-act="fmt" data-v="${k}" aria-pressed="${f.fmt === k}">${l}</button>`).join("")}</div></div>
+      <p class="hint" style="margin:0">${tpls.length === 1 ? `Columns: the ${plural(TPL[tpls[0]].fields.length, "field")} of ${TPL[tpls[0]].name}.` : tpls.length ? `${tpls.length} templates. Excel puts each template on its own sheet.` : ""} Up to 500 documents per export.</p></div>
+      ${actions("", `${cancel}<button class="btn primary" data-act="do-export"${n ? "" : " disabled"}>Export ${plural(n, "document")}</button>`)}</div>`;
+  }
+  if (f.kind === "delete") {
+    if (f.step === "empty") return `<div class="flow"><p class="hint">Find the documents to delete first, then choose Delete.</p>${actions("", `<button class="btn primary" data-act="start-find">Find documents</button>`)}</div>`;
+    const n = f.targets.length; const names = f.targets.slice(0, 4).map((d) => esc(d.name)).join(", ") + (n > 4 ? ` and ${n - 4} more` : "");
+    return `<div class="flow"><div class="danger-box"><h3>Delete ${n === 1 ? `“${esc(f.targets[0].name)}”` : plural(n, "document")}?</h3><p class="hint" style="margin:0;color:var(--text-1)">${n > 1 ? names + ". " : ""}Their originals and results are removed. This can't be undone.</p></div>
+      ${actions("", `<button class="btn" data-act="flow-cancel" data-focus="cancel-del">Cancel</button><button class="btn danger" data-act="do-delete">Delete ${n === 1 ? "document" : "documents"}</button>`)}</div>`;
+  }
+  if (f.kind === "invite") {
+    const ok = /^[\w.+-]+@[\w-]+\.[\w.]+$/.test(f.email);
+    return `<div class="flow"><div class="fhead"><h3>Invite member</h3><span class="sub">${esc(WORKSPACES.find((w) => w.id === S.ws).name)}</span></div><div class="fstack">
+      <div><label class="lbl" for="iemail">Email</label><input id="iemail" class="input" data-in="iemail" data-focus="iemail" value="${esc(f.email)}" placeholder="e.g. sam@example.com"></div>
+      <div><span class="lbl">Role</span><div class="seg" role="group" aria-label="Role">${["viewer", "editor", "admin"].map((r) => `<button data-act="role" data-v="${r}" aria-pressed="${f.role === r}">${cap(r)}</button>`).join("")}</div></div></div>
+      ${actions("", `${cancel}<button class="btn primary" data-act="do-invite"${ok ? "" : " disabled"}>Send invitation</button>`)}</div>`;
+  }
+  if (f.kind === "switch") return `<div class="pgrp">Switch workspace</div>${rowsHtml(flowItems(f))}`;
+  if (f.kind === "evaluate") {
+    return `<div class="flow"><div class="fhead"><h3>Run evaluation</h3></div><div class="fstack">
+      <div><label class="lbl" for="etpl">Template</label><select id="etpl" class="select" data-in="etpl">${Object.keys(TPL).map((t) => `<option value="${t}"${f.tpl === t ? " selected" : ""}>${TPL[t].name} v${TPL[t].version}</option>`).join("")}</select></div>
+      <div><span class="lbl">Models</span><div class="card">${[M1, M2].map((m) => `<label class="checkrow"><input type="checkbox" data-act="toggle-model" data-v="${m}"${f.models.has(m) ? " checked" : ""}>${m}</label>`).join("")}</div></div>
+      <p class="hint" style="margin:0">Runs against the 12 saved documents with expected answers.</p></div>
+      ${actions("", `${cancel}<button class="btn primary" data-act="do-evaluate"${f.models.size ? "" : " disabled"}>Run evaluation</button>`)}</div>`;
+  }
+  return "";
+}
+
+// =====================================================================
+// 5. Shared rendering
+// =====================================================================
+const S = { variant: "a", open: true, q: "", view: "edit", phase: "idle", segs: [], it: null, results: null, hi: 0, flow: null, thread: [], toasts: [], page: "documents", ws: "hnh", menu: null, typing: false, popped: false, openDoc: null };
+const TK_LABEL = { action: "Action", quantity: "Quantity", subject: "Subject", template: "Template", field: "Field", cond: "Condition", value: "Value", time: "Date", status: "Status", person: "Person", role: "Role", format: "Format", page: "Page", workspace: "Workspace", instruction: "Instruction" };
+
+function chunksHtml(segs, pending, { pop = false } = {}) {
+  let k = 0;
+  return segs.map((s) => {
+    if (s.type === "plain") {
+      return s.text.split(/(\s+)/).map((w) => {
+        if (!w) return ""; if (!w.trim()) return " ";
+        const word = w.replace(/[^\w-]/g, "");
+        if (s.resolved?.includes(w)) return `<span class="tk tk-value" title="Value: matched by meaning">${esc(w)}</span>`;
+        if (!pending && s.ignored?.includes(word)) return `<span class="tk unk" title="Not used">${esc(w)}</span>`;
+        return `<span class="plain">${esc(w)}</span>`;
+      }).join("");
+    }
+    const delay = pop ? ` style="animation-delay:${k++ * 45}ms"` : "";
+    return `<span class="tk tk-${s.type}${pending ? " pending" : ""}${pop ? " pop" : ""}" title="${TK_LABEL[s.type]}${s.res ? `: ${esc(s.res)}` : ""}"${delay}>${esc(s.text)}${!pending && s.res ? `<span class="res">${esc(s.res)}</span>` : ""}</span>`;
+  }).join("");
+}
+function legendHtml(segs) {
+  const types = [...new Set(segs.filter((s) => s.type !== "plain").map((s) => s.type))];
+  return types.length ? `<span class="legend">${types.map((t) => `<span class="tk tk-${t}">${TK_LABEL[t]}</span>`).join("")}</span>` : "";
+}
+function docItem(d, c) {
+  const [sl, tone] = STATUS[d.status];
+  const hit = c?.conds.find((x) => x.tpl === d.tpl) && d.f ? c.conds.find((x) => x.tpl === d.tpl) : null;
+  const f = hit && field(hit.tpl, hit.field);
+  const match = f ? ` · ${esc(f.label)} ${hlMatch(fmtValue(f, d.f[f.key]).text, hit)}` : "";
+  return { kind: "doc", id: d.id, labelHtml: esc(d.name), subHtml: `${d.tpl ? TPL[d.tpl].name : "No template"} · ${sl} · ${fmtDay(d.up)}${match}`, icon: `<span class="dot t-${tone}" aria-hidden="true"></span>`, right: "Open" };
+}
+const actItem = (k) => ({ kind: "action", id: k, label: ACTIONS[k].label, sub: k === "retry" ? plural(DOCS.filter((d) => d.status === "failed").length, "failed document") : ACTIONS[k].hint, icon: I.bolt, iconCls: "act", danger: ACTIONS[k].danger });
+const tplItem = (t) => ({ kind: "tpl", id: t, label: TPL[t].name, sub: `Template · v${TPL[t].version} · ${plural(TPL[t].fields.length, "field")}`, icon: I.tpl, right: "Open" });
+function localItems(q) {
+  const l = q.trim().toLowerCase(); const out = [];
+  const add = (group, item) => out.push({ group, ...item });
+  if (!l) {
+    ["upload", "find", "edit_template", "retry", "create_template"].forEach((k) => add("Actions", actItem(k)));
+    DOCS.slice(0, 3).forEach((d) => add("Recent documents", docItem(d)));
+    EXAMPLES.slice(0, 4).forEach((e) => add("Try asking", { kind: "example", id: e, label: e, icon: I.spark, iconCls: "ask" }));
+    return out;
+  }
+  const words = l.split(/\s+/); const has = (t) => words.every((w) => t.toLowerCase().includes(w));
+  Object.keys(ACTIONS).forEach((k) => { if (has(ACTIONS[k].label + " " + ACTIONS[k].kw)) add("Actions", actItem(k)); });
+  Object.keys(TPL).forEach((t) => { if (has(TPL[t].name + " template")) add("Templates", tplItem(t)); });
+  DOCS.filter((d) => has(d.name + " " + (d.f?.invoice_number?.v || ""))).slice(0, 4).forEach((d) => add("Documents", docItem(d)));
+  PAGES.forEach(([id, label]) => { if (has(label + " go to page")) add("Go to", { kind: "page", id, label, sub: "Page", icon: I.page }); });
+  WORKSPACES.forEach((w) => { if (has(w.name + " switch workspace")) add("Workspaces", { kind: "ws", id: w.id, label: w.name, sub: "Switch workspace", icon: I.ws }); });
+  const ask = { group: "Ask", kind: "ask", id: "ask", label: q.trim(), sub: "Search and run actions in plain language", icon: I.spark, iconCls: "ask", right: `<kbd>⌘↵</kbd>` };
+  const question = words.length >= 3 || lex(q).some((s) => !["plain", "action", "subject"].includes(s.type));
+  return question || !out.length ? [ask, ...out] : [...out, ask];
+}
+function rowsHtml(items, offset = 0) {
+  let last = null; let html = "";
+  items.forEach((it, i) => {
+    if (it.group && it.group !== last) { html += `<div class="pgrp">${esc(it.group)}</div>`; last = it.group; }
+    const idx = i + offset;
+    html += `<button class="row${S.hi === idx ? " hi" : ""}${it.danger ? " danger" : ""}" data-act="item" data-i="${idx}" role="option" aria-selected="${S.hi === idx}">
+      <span class="ri ${it.iconCls || ""}">${it.icon || ""}</span><span class="rt"><strong>${it.labelHtml || esc(it.label)}</strong>${it.subHtml || it.sub ? `<span>${it.subHtml || esc(it.sub)}</span>` : ""}</span>${it.right ? `<span class="rk">${it.right}</span>` : ""}</button>`;
+  });
+  return html;
+}
+function resultItems() {
+  const it = S.it; if (!it) return [];
+  if (it.action === "find_templates") return Object.keys(TPL).filter((t) => !it.tpl || t === it.tpl).map(tplItem);
+  return (S.results || []).map((d) => docItem(d, it.crit));
+}
+function notesHtml(it) { return it.notes.map((n) => `<div class="callout ${n.tone === "info" ? "info" : ""}">${esc(n.text)}${n.alt ? n.alt.map((a) => `<button class="btn text" data-act="alt-tpl" data-v="${a.tpl}">${esc(a.label)}</button>`).join("") : ""}</div>`).join(""); }
+function resultsHtml(it, results, { compact = false } = {}) {
+  if (it.action === "find_templates") return `<div class="summary"><span><b>${plural(resultItems().length, "template")}</b></span></div>${rowsHtml(resultItems())}`;
+  const items = results.map((d) => docItem(d, it.crit));
+  const shown = compact ? items.slice(0, 5) : items;
+  const failed = results.filter((d) => d.status === "failed").length;
+  const bulk = results.length ? `<div class="bulk"><button class="btn" data-act="bulk" data-v="export">Export ${results.length}</button>${failed ? `<button class="btn" data-act="bulk" data-v="retry">Try ${failed} failed again</button>` : ""}<button class="btn" data-act="bulk" data-v="delete">Delete…</button><button class="btn" data-act="bulk" data-v="open">Open in Documents</button></div>` : "";
+  return `<div class="summary"><span><b>${plural(results.length, "document")}</b>${it.quantity?.n ? ` · latest ${it.quantity.n}` : ""} · ${esc(describeCrit(it)) || "all documents"}</span><span>Newest first</span></div>${notesHtml(it)}
+    ${results.length ? rowsHtml(shown) : `<div class="hint" style="padding:12px 10px">No documents match. Try removing a condition.</div>`}
+    ${compact && items.length > 5 ? `<button class="btn text" style="margin:4px 10px 8px;font-size:12px" data-act="bulk" data-v="open">Show all ${items.length}</button>` : ""}${bulk}`;
+}
+function currentItems() {
+  if (S.flow) return flowItems(S.flow);
+  if (S.view === "chunked" && S.phase === "done" && S.it) return resultItems();
+  return localItems(S.q);
+}
+
+// =====================================================================
+// 6. Enter: chunk instantly, then interpret
+// =====================================================================
+function submit(text = S.q) {
+  const q = text.trim(); if (!q) return;
+  S.menu = null; S.flow = null; S.segs = lex(q); S.view = "chunked"; S.phase = "thinking"; S.hi = 0; S.popped = true;
+  const prevTurn = S.variant === "c" ? [...S.thread].reverse().find((t) => t.it?.action === "find") : null;
+  let turn = null;
+  if (S.variant === "c") { turn = { q, segs: S.segs, phase: "thinking" }; S.thread.push(turn); S.q = ""; }
+  render(); S.popped = false;
+  const segs = S.segs;
+  setTimeout(() => {
+    if (S.segs !== segs && !turn) return;
+    const it = interpret(segs, { prev: prevTurn?.it });
+    if (it.followUp && prevTurn && it.action !== "find") it.targets = prevTurn.results;
+    S.it = it; S.phase = "done"; S.results = it.action === "find" ? findDocs(it) : null;
+    const q0 = segs.find((s) => s.type === "quantity"); if (q0 && S.results) q0.res = `${S.results.length} found`;
+    if (turn) { turn.phase = "done"; turn.it = it; turn.results = S.results; }
+    if (!["find", "find_templates"].includes(it.action)) { startFlow(it.action, it, it.followUp ? findDocs(it) : null); if (turn) turn.flow = S.flow; }
+    render();
+  }, 750);
+}
+function runItem(item) {
+  if (!item) return submit();
+  if (item.kind === "ask") return submit();
+  if (item.kind === "example") return typeAndRun(item.id);
+  if (item.kind === "action") { startFlow(item.id); if (S.variant === "c" && S.flow) S.thread.push({ q: item.label, segs: [{ type: "action", text: item.label.replace("…", "") }], phase: "done", flow: S.flow }); return render(); }
+  if (item.kind === "doc") { S.openDoc = DOCS.find((d) => d.id === item.id).name; return navigate("documents"); }
+  if (item.kind === "tpl") return navigate("templates");
+  if (item.kind === "page") return navigate(item.id);
+  if (item.kind === "ws") return switchWs(item.id);
+  if (item.kind === "pick-tpl") { S.flow.tpl = item.id; S.flow.step = "describe"; S.q = ""; return render(); }
+  if (item.kind === "pick-ws") return switchWs(item.id);
+}
+let typingRun = 0;
+function typeAndRun(text) {
+  const run = ++typingRun;
+  if (!S.open) S.anim = true;
+  Object.assign(S, { open: true, flow: null, menu: null, phase: "idle", view: "edit", q: "", typing: true, segs: [], it: null });
+  render(); let i = 0;
+  const tick = () => {
+    if (run !== typingRun) return;
+    if (i < text.length) { i = Math.min(text.length, i + 2); S.q = text.slice(0, i); if (S.variant === "d") liveUpdate(); render(); setTimeout(tick, 18); return; }
+    S.typing = false;
+    // Live search needs no Enter; only unknown words or actions go further.
+    if (S.variant === "d") { render(); if (S.it && (S.it.unknown.length || !["find", "find_templates"].includes(S.it.action))) setTimeout(() => run === typingRun && dEnter(), 450); } else setTimeout(() => run === typingRun && submit(), 150);
+  };
+  tick();
+}
+
+// =====================================================================
+// 7. Variants
+// =====================================================================
+function inputBar(placeholder) {
+  const f = S.flow;
+  const crumbs = f ? `<span class="crumbp">${esc(FLOW_TITLE[f.kind])}</span>${f.kind === "edit_template" && f.tpl ? `<span class="crumbp sub">${esc(TPL[f.tpl].name)}</span>` : ""}` : "";
+  let fieldHtml;
+  if (S.view === "chunked" && S.segs.length) fieldHtml = `<div class="chunks" tabindex="0" data-focus="q" data-chunks role="textbox" aria-label="Your request. Type to edit." title="Type to edit">${chunksHtml(S.segs, S.phase === "thinking", { pop: S.popped })}</div>`;
+  else if (f && !flowItems(f).length) fieldHtml = `<span class="hint" style="flex:1">${esc(FLOW_STEPS[f.kind].find(([k]) => k === f.step)?.[1] || "")}</span>`;
+  else fieldHtml = `<input class="pin" data-focus="q" data-in="q" value="${esc(S.q)}" placeholder="${esc(f ? "Type to filter" : placeholder)}" aria-label="Search or ask" autocomplete="off" spellcheck="false">`;
+  return `<div class="pbar">${I.search}${S.view === "chunked" ? "" : crumbs}${fieldHtml}<kbd>Esc</kbd></div>`;
+}
+function footHtml(enterLabel = "to open") {
+  const legend = S.view === "chunked" && S.phase === "done" ? legendHtml(S.segs) : "";
+  return `<div class="pfoot">${legend || `<span><kbd>↑</kbd> <kbd>↓</kbd> to move</span><span><kbd>↵</kbd> ${enterLabel}</span><span><kbd>⌘</kbd><kbd>↵</kbd> to ask</span>`}<span class="sp">${S.flow ? `<span><kbd>Esc</kbd> back</span>` : S.view === "chunked" ? `<span>Type to edit</span>` : `<span><kbd>⌘K</kbd> anywhere</span>`}</span></div>`;
+}
+const thinkingHtml = () => `<div class="thinking" role="status">Understanding your request…<div class="skel" style="width:70%"></div><div class="skel" style="width:50%"></div></div>`;
+
+// A: one column
+function variantA() {
+  let body;
+  if (S.view === "chunked" && S.phase === "thinking") body = thinkingHtml();
+  else if (S.flow) body = (S.it ? notesHtml(S.it) : "") + flowHtml(S.flow);
+  else if (S.view === "chunked" && S.it) body = resultsHtml(S.it, S.results || []);
+  else body = rowsHtml(localItems(S.q));
+  return `<div class="pal a" role="dialog" aria-modal="true" aria-label="Search and actions">${inputBar("Search, ask or run an action…")}<div class="pbody" role="listbox">${body}</div>${footHtml()}</div>`;
+}
+
+// B: list + preview
+function previewHtml(item) {
+  if (!item) return `<p class="hint">Nothing selected.</p>`;
+  if (item.kind === "doc") {
+    const d = DOCS.find((x) => x.id === item.id); const [sl, tone] = STATUS[d.status];
+    const conds = (S.it?.crit.conds || []).filter((c) => c.tpl === d.tpl);
+    return `<h3>${esc(d.name)}</h3><div class="meta">${d.tpl ? `${TPL[d.tpl].name} · v${TPL[d.tpl].version}` : "No template"} · <span class="badge ${tone}">${sl}</span> · Uploaded ${fmtDay(d.up)}</div>
+      ${d.f ? `<table class="fields"><thead><tr><th>Field</th><th>Extracted value</th></tr></thead><tbody>${TPL[d.tpl].fields.map((f) => { const fv = fmtValue(f, d.f[f.key]); const c = conds.find((x) => x.field === f.key); return `<tr class="${c ? "match" : ""}"><td>${esc(f.label)}</td><td class="v"><span class="${fv.cls || ""}">${c ? hlMatch(fv.text, c) : esc(fv.text)}</span></td></tr>`; }).join("")}</tbody></table>` : `<p class="hint">${d.status === "failed" ? "Extraction failed. You can try it again." : "No results yet."}</p>`}
+      <div class="factions" style="justify-content:flex-start"><button class="btn primary" data-act="open-doc" data-v="${d.id}">Open document</button>${d.status === "failed" ? `<button class="btn" data-act="bulk-one" data-v="retry" data-id="${d.id}">Try again</button>` : ""}<button class="btn" data-act="bulk-one" data-v="export" data-id="${d.id}">Export</button></div>`;
+  }
+  if (item.kind === "tpl") { const t = TPL[item.id]; return `<h3>${esc(t.name)}</h3><div class="meta">Template · v${t.version} · ${plural(DOCS.filter((d) => d.tpl === item.id).length, "document")}</div><table class="fields"><thead><tr><th>Field</th><th>Type</th></tr></thead><tbody>${t.fields.map((f) => `<tr><td>${esc(f.label)}</td><td class="hint">${TYPE_LABEL[f.type]}</td></tr>`).join("")}</tbody></table><div class="factions" style="justify-content:flex-start"><button class="btn primary" data-act="nav" data-v="templates">Open template</button><button class="btn" data-act="edit-this" data-v="${item.id}">Edit with assistant…</button></div>`; }
+  if (item.kind === "action") { const a = ACTIONS[item.id]; const ex = { find: 'Find all documents where the invoice number starts with "hnh"', upload: "Upload receipts", edit_template: "Edit the invoice template to add a VAT number field", create_template: "Create a template for delivery notes with delivery date and signed", retry: "Retry all failed invoices from last week", export: "Export Acme invoices over 500 as CSV", delete: "Delete failed documents from last week", invite: "Invite sam@example.com as an editor", evaluate: "Evaluate the invoice template", switch: "Switch to demo workspace" }[item.id]; const segs = lex(ex); interpret(segs, { model: false }); return `<h3>${esc(a.label.replace("…", ""))}</h3><div class="meta">${esc(item.sub || a.hint)}</div><div class="readas"><div class="lbl">Or say it in a sentence</div><div class="chunks">${chunksHtml(segs, false)}</div></div><div class="factions" style="justify-content:flex-start"><button class="btn primary" data-act="start-action" data-v="${item.id}">Start</button><button class="btn" data-act="try-ex" data-v="${esc(ex)}">Use this sentence</button></div>`; }
+  if (item.kind === "ask" || item.kind === "example") {
+    const segs = lex(item.kind === "ask" ? S.q : item.id); const it = interpret(segs, { model: false }); const n = it.action === "find" ? findDocs(it).length : null;
+    return `<h3>${item.kind === "ask" ? "Read as you type" : "Example"}</h3><div class="meta">Press Enter to confirm. Unclear words are worked out then.</div><div class="readas"><div class="chunks">${chunksHtml(segs, false)}</div></div>${legendHtml(segs)}<p class="hint">${n !== null ? `${plural(n, "document")} match so far${it.unknown.length ? `; Enter works out “${esc(it.unknown.join(" "))}”` : ""}.` : `Starts: ${esc(ACTIONS[it.action]?.label.replace("…", "") || FLOW_TITLE[it.action] || "Go to page")}`}</p>`;
+  }
+  if (item.kind === "page") return `<h3>${esc(item.label)}</h3><div class="meta">Go to page</div>`;
+  if (item.kind === "ws") return `<h3>${esc(item.label)}</h3><div class="meta">Switch workspace</div>`;
+  return "";
+}
+function variantB() {
+  const items = currentItems(); let left, right;
+  if (S.view === "chunked" && S.phase === "thinking") { left = thinkingHtml(); right = `<div class="readas"><div class="lbl">Your request</div><div class="chunks">${chunksHtml(S.segs, true)}</div></div>`; }
+  else if (S.flow) {
+    const steps = FLOW_STEPS[S.flow.kind].filter(([k]) => !(k === "pick" && S.flow.it?.tpl)); const cur = S.flow.step === "thinking" ? "proposal" : S.flow.step; const idx = Math.max(0, steps.findIndex(([k]) => k === cur));
+    left = `<div class="pgrp">${esc(FLOW_TITLE[S.flow.kind])}</div><ol class="steps">${steps.map(([k, l], i) => `<li class="${i < idx ? "done" : i === idx ? "on" : ""}"><span class="n">${i < idx ? I.check : i + 1}</span>${esc(l)}${k === "pick" && S.flow.tpl ? ` · ${esc(TPL[S.flow.tpl].name)}` : ""}</li>`).join("")}</ol>${flowItems(S.flow).length ? rowsHtml(flowItems(S.flow)) : ""}`;
+    right = flowItems(S.flow).length ? `<p class="hint">Choose from the list, or type to filter.</p>` : (S.it ? notesHtml(S.it) : "") + flowHtml(S.flow);
+  } else if (S.view === "chunked" && S.it) { left = resultsHtml(S.it, S.results || []); right = previewHtml(items[S.hi]); }
+  else { left = rowsHtml(items); right = previewHtml(items[S.hi]); }
+  return `<div class="pal b" role="dialog" aria-modal="true" aria-label="Search and actions">${inputBar("Search, ask or run an action…")}<div class="split"><div class="pbody" role="listbox">${left}</div><div class="preview">${right}</div></div>${footHtml()}</div>`;
+}
+
+// C: thread
+function variantC() {
+  const turns = S.thread.map((t, i) => {
+    const last = i === S.thread.length - 1;
+    const q = `<div class="turn-q"><div class="chunks">${chunksHtml(t.segs, t.phase === "thinking", { pop: last && S.popped })}</div></div>`;
+    let a = "";
+    if (t.phase === "thinking") a = `<div class="turn-a">${thinkingHtml()}</div>`;
+    else if (t.flow) a = `<div class="turn-a${last ? "" : " past"}">${S.flow === t.flow ? (t.it ? notesHtml(t.it) : "") + flowHtml(t.flow) : `<div class="thinking">${t.doneText ? `<span style="color:var(--ok-fg)">${I.check}</span> ` : ""}${esc(t.doneText || "Closed")}</div>`}</div>`;
+    else if (t.it) a = `<div class="turn-a${last ? "" : " past"}"><div class="pbody">${last ? resultsHtml(t.it, t.results || [], { compact: true }) : `<div class="summary"><span><b>${plural((t.results || []).length, "document")}</b> · ${esc(describeCrit(t.it))}</span></div>`}</div></div>`;
+    return q + a;
+  }).join("");
+  const lastFind = [...S.thread].reverse().find((t) => t.it?.action === "find" && t.phase === "done");
+  const ta = S.q && !S.typing ? localItems(S.q).slice(0, 6) : [];
+  const empty = !S.thread.length ? `<div class="welcome"><h3>Search, ask or run an action</h3>Ask in a sentence. Follow-ups refine the last answer.<div class="chips">${EXAMPLES.slice(0, 5).map((e) => `<button class="chip" data-act="try-ex" data-v="${esc(e)}">${esc(e)}</button>`).join("")}</div><div class="chips" style="margin-top:8px">${["upload", "edit_template", "retry", "invite"].map((k) => `<button class="chip" data-act="start-action" data-v="${k}">${I.bolt} ${esc(ACTIONS[k].label)}</button>`).join("")}</div></div>` : "";
+  return `<div class="pal c" role="dialog" aria-modal="true" aria-label="Search and actions">
+    <div class="pbar" style="min-height:42px;padding:8px 14px"><span class="hint">${S.thread.length ? plural(S.thread.length, "request") : "New search"}</span><span style="margin-left:auto;display:flex;gap:10px;align-items:center">${S.thread.length ? `<button class="btn text" data-act="new-thread" style="font-size:12px">New search</button>` : ""}<kbd>Esc</kbd></span></div>
+    <div class="thread" data-thread>${empty}${turns}</div>
+    <div class="composer">${ta.length ? `<div class="typeahead" role="listbox">${rowsHtml(ta)}</div>` : ""}
+      ${lastFind && !S.flow ? `<div class="ctxchip">Follow-ups apply to <span class="badge">${plural(lastFind.results.length, "document")}</span></div>` : ""}
+      <div class="cbox">${I.search}<input class="pin" style="font-size:14px" data-focus="q" data-in="q" value="${esc(S.q)}" placeholder="${S.thread.length ? "Ask a follow-up, e.g. only the unpaid ones" : "Search, ask or run an action…"}" aria-label="Search or ask" autocomplete="off"><kbd>↵</kbd></div></div></div>`;
+}
+
+// D: live sentence with editable slots
+function liveUpdate() { S.segs = lex(S.q); S.it = S.q.trim() ? interpret(S.segs, { model: false }) : null; S.results = S.it?.action === "find" ? findDocs(S.it) : null; S.phase = S.it ? "live" : "idle"; S.hi = 0; }
+function mirrorHtml(segs) {
+  return segs.map((s) => {
+    if (s.type === "plain") return s.text.split(/(\s+)/).map((w) => { if (!w) return ""; if (!w.trim()) return esc(w); const word = w.replace(/[^\w-]/g, ""); if (s.resolved?.includes(w)) return `<span class="hl hl-value">${esc(w)}</span>`; return `<span class="${s.unknown?.includes(w) && !s.ignored?.includes(word) ? "hl-unk" : "hl-plain"}">${esc(w)}</span>`; }).join("");
+    return `<span class="hl hl-${s.type}">${esc(s.text)}</span>`;
+  }).join("") + "​";
+}
+function sentence(it) {
+  const parts = [{ find: "Find", export: "Export", retry: "Retry", delete: "Delete" }[it.action] || "Find"];
+  parts.push(it.quantity?.n ? (it.quantity.n === 1 ? "the latest" : `latest ${it.quantity.n}`) : "all");
+  if (it.crit.statuses.length) parts.push(it.crit.statuses.map((s) => STATUS[s][0].toLowerCase()).join(" "));
+  if (it.crit.conds.some((c) => c.field === "paid" && c.op === "no")) parts.push("unpaid");
+  const tpl = it.crit.templates[0]; parts.push(tpl === "invoice" ? "invoices" : tpl === "receipt" ? "receipts" : tpl === "po" ? "purchase orders" : "documents");
+  const conds = it.crit.conds.filter((c) => !(c.field === "paid" && c.op === "no"));
+  if (conds.length) parts.push("where " + conds.map((c) => { const f = field(c.tpl, c.field); return `the ${f.label.toLowerCase()} ${OP_WORD[c.op]}${NO_VALUE.includes(c.op) ? "" : f.type === "text" ? ` "${c.value}"` : ` ${c.value}${c.op === "between" ? ` and ${c.value2}` : ""}`}`; }).join(" and "));
+  const tk = Object.keys(TIME).find((k) => TIME[k][1] === it.crit.from && TIME[k][2] === it.crit.to); if (tk) parts.push(`from ${TIME[tk][0]}`);
+  if (it.fmt && it.action === "export") parts.push(`as ${it.fmt.toUpperCase()}`);
+  return parts.join(" ");
+}
+function slotHtml(id, type, label) { return `<button class="slot tk-${type}" data-act="slot" data-v="${id}" aria-haspopup="menu" aria-expanded="${S.menu?.id === id}">${esc(label)} ${I.chev}</button>`; }
+function slotsHtml(it) {
+  if (!it || !["find", "export", "retry", "delete"].includes(it.action)) return "";
+  const c = it.crit; const tpl = c.templates[0];
+  let h = `<span class="lab">Read as</span>${slotHtml("action", "action", { find: "Find", export: "Export", retry: "Retry", delete: "Delete" }[it.action])}${slotHtml("quantity", "quantity", it.quantity?.n ? `latest ${it.quantity.n}` : "all")}${slotHtml("subject", "subject", tpl ? `${TPL[tpl].name}s` : "documents")}`;
+  c.conds.forEach((x, i) => { const f = field(x.tpl, x.field); h += slotHtml(`field:${i}`, "field", `${TPL[x.tpl].name} › ${f.label}`) + slotHtml(`op:${i}`, "cond", `${OP_WORD[x.op]}${NO_VALUE.includes(x.op) ? "" : ` ${f.type === "text" ? `“${x.value}”` : x.value}`}`); });
+  c.statuses.forEach((s, i) => { h += slotHtml(`status:${i}`, "status", STATUS[s][0]); });
+  if (c.from) h += slotHtml("time", "time", fmtRange(c.from, c.to));
+  h += `<button class="slot add" data-act="slot" data-v="add">+ Condition</button>`;
+  return `<div class="slots">${h}${S.menu ? menuHtml() : ""}</div>`;
+}
+function menuOptions(id) {
+  const c = S.it.crit;
+  if (id === "action") return [["Find", (x) => (x.action = "find")], ["Export", (x) => (x.action = "export")], ["Retry", (x) => (x.action = "retry")], ["Delete", (x) => (x.action = "delete")]];
+  if (id === "quantity") return [["all", (x) => (x.quantity = { all: true })], ["the latest", (x) => (x.quantity = { n: 1 })], ["latest 5", (x) => (x.quantity = { n: 5 })], ["latest 10", (x) => (x.quantity = { n: 10 })]];
+  if (id === "subject") return [["documents", (x) => (x.crit.templates = [])], ...Object.keys(TPL).map((t) => [`${TPL[t].name}s`, (x) => (x.crit.templates = [t])])];
+  if (id === "time") return [...["today", "lastweek", "last7", "thismonth", "lastmonth"].map((k) => [`${TIME[k][0]} (${fmtRange(TIME[k][1], TIME[k][2])})`, (x) => { x.crit.from = TIME[k][1]; x.crit.to = TIME[k][2]; }]), ["Any time", (x) => { x.crit.from = x.crit.to = ""; }]];
+  if (id.startsWith("status:")) { const i = +id.split(":")[1]; return [...Object.keys(STATUS).map((s) => [STATUS[s][0], (x) => (x.crit.statuses[i] = s)]), ["Remove status", (x) => x.crit.statuses.splice(i, 1)]]; }
+  if (id.startsWith("field:") || id === "add") {
+    const i = id === "add" ? -1 : +id.split(":")[1];
+    return Object.keys(TPL).flatMap((t) => TPL[t].fields.map((f) => [`${TPL[t].name} › ${f.label}`, (x) => {
+      const nc = { tpl: t, field: f.key, op: f.type === "number" ? "gt" : f.type === "boolean" ? "yes" : f.type === "date" ? "gt" : "present", value: f.type === "number" ? "0" : f.type === "date" ? TODAY : "" };
+      if (i < 0) x.crit.conds.push(nc); else { const old = x.crit.conds[i]; x.crit.conds[i] = field(old.tpl, old.field).type === f.type ? { ...old, tpl: t, field: f.key } : nc; }
+    }, TPL[t].name]));
+  }
+  if (id.startsWith("op:")) { const i = +id.split(":")[1]; const f = field(c.conds[i].tpl, c.conds[i].field); const ops = { text: ["starts", "contains", "is", "not", "ends", "missing", "present"], number: ["gt", "gte", "lt", "lte", "eq", "missing"], date: ["gt", "lt", "missing"], boolean: ["yes", "no", "missing"] }[f.type]; return [...ops.map((o) => [OP_WORD[o], (x) => (x.crit.conds[i].op = o)]), ["Remove condition", (x) => x.crit.conds.splice(i, 1)]]; }
+  return [];
+}
+function menuHtml() {
+  const opts = menuOptions(S.menu.id); let lastG = null; const isOp = S.menu.id.startsWith("op:");
+  const cond = isOp ? S.it.crit.conds[+S.menu.id.split(":")[1]] : null;
+  return `<div class="menu" role="menu" style="left:${S.menu.x}px;top:${S.menu.y}px">${isOp && !NO_VALUE.includes(cond.op) ? `<div style="padding:4px"><input class="input" data-in="opval" data-focus="opval" value="${esc(cond.value ?? "")}" aria-label="Value" placeholder="Value"></div>` : ""}${opts.map(([l, , g], i) => `${g && g !== lastG ? ((lastG = g), `<div class="pgrp">${esc(g)}</div>`) : ""}<button class="row" role="menuitem" data-act="menu-pick" data-i="${i}">${esc(g ? l.split(" › ")[1] : l)}</button>`).join("")}</div>`;
+}
+function dEnter() {
+  if (!S.it) return;
+  if (S.it.unknown.length) { S.phase = "thinking"; render(); const it = S.it; setTimeout(() => { if (S.it !== it) return; modelResolve(it, S.segs); S.results = it.action === "find" ? findDocs(it) : null; S.phase = "live"; render(); }, 700); return; }
+  if (S.it.action === "find") { const d = S.results?.[S.hi]; if (d) runItem(docItem(d)); return; }
+  if (S.it.action === "find_templates") return;
+  startFlow(S.it.action, S.it); render();
+}
+function variantD() {
+  const it = S.it; let body;
+  if (S.flow) body = (it ? notesHtml(it) : "") + flowHtml(S.flow);
+  else if (!it) body = rowsHtml(localItems(""));
+  else if (it.action === "find") {
+    const unk = it.unknown.length ? `<button class="row hi" data-act="d-enter"><span class="ri ask">${I.spark}</span><span class="rt"><strong>${S.phase === "thinking" ? `Working out “${esc(it.unknown.join(" "))}”…` : `Work out “${esc(it.unknown.join(" "))}”`}</strong><span>Underlined words aren't a field, value or status yet</span></span><span class="rk"><kbd>↵</kbd></span></button>` : "";
+    body = unk + resultsHtml(it, S.results || []);
+  } else if (it.action === "find_templates") body = rowsHtml(resultItems());
+  else {
+    const n = (k) => findDocs(it).length;
+    const preview = { export: `Export ${plural(n(), "document")}${it.fmt ? ` as ${it.fmt.toUpperCase()}` : ""}`, retry: `Try ${plural(n(), "failed document")} again`, delete: `Delete ${plural(n(), "document")}`, edit_template: it.tpl ? `Edit ${TPL[it.tpl].name}${it.instruction ? `: “${it.instruction}”` : ""}` : "Edit a template", create_template: `Create a template${it.instruction ? `: “${it.instruction}”` : ""}`, upload: `Upload documents${it.tpl ? ` as ${TPL[it.tpl].name}` : ""}`, invite: `Invite ${it.email || "a member"}${it.role ? ` as ${it.role}` : ""}`, goto: `Go to ${PAGES.find(([p]) => p === it.page)?.[1] || "page"}`, switch: "Switch workspace", evaluate: "Run evaluation" }[it.action];
+    body = `<button class="row hi" data-act="d-enter"><span class="ri act">${I.bolt}</span><span class="rt"><strong>${esc(preview || "")}</strong><span>Press Enter to continue</span></span><span class="rk"><kbd>↵</kbd></span></button>`;
+  }
+  const crumbs = S.flow ? `<span class="crumbp">${esc(FLOW_TITLE[S.flow.kind])}</span>` : "";
+  return `<div class="pal d" role="dialog" aria-modal="true" aria-label="Search and actions">
+    <div class="pbar">${I.search}${crumbs}<div class="live"><div class="mirror" aria-hidden="true">${mirrorHtml(S.segs)}</div><textarea rows="1" data-focus="q" data-in="dq" placeholder="Search, ask or run an action…" aria-label="Search or ask" spellcheck="false">${esc(S.q)}</textarea></div><kbd>Esc</kbd></div>
+    ${!S.flow ? slotsHtml(it) : ""}<div class="pbody" role="listbox">${body}</div>${footHtml(it && it.action !== "find" ? "to continue" : "to open")}</div>`;
+}
+
+// =====================================================================
+// 8. App shell, reviewer chrome, render loop
+// =====================================================================
+function appHtml() {
+  const ws = WORKSPACES.find((w) => w.id === S.ws).name; const pageLabel = PAGES.find(([p]) => p === S.page)?.[1] || "Documents";
+  const nav = [["workspaces", "Workspaces"], ["templates", "Templates"], ["documents", "Documents"], ["evaluations", "Evaluations"], ["costs", "Costs"]];
+  const docTitle = S.openDoc && S.page === "documents" ? S.openDoc : null;
+  return `<nav class="nav" aria-label="Main"><div class="brand">Document extraction<b>Studio</b></div>
+      <button class="searchbtn" data-act="open-pal">${I.search} Search <kbd>⌘K</kbd></button>
+      ${nav.map(([id, l]) => `<div class="navitem${S.page === id ? " on" : ""}">${esc(l)}</div>`).join("")}</nav>
+    <div class="ctx"><h2>${esc(pageLabel)}</h2>${[1, 2, 3, 4, 5, 6, 7].map(() => `<div class="ghost-row"><i></i><i></i></div>`).join("")}</div>
+    <div class="bgmain"><div class="crumb">${esc(ws)} / ${esc(pageLabel)}${docTitle ? ` / ${esc(docTitle)}` : ""}</div><h1>${esc(docTitle || pageLabel)}</h1><p>Press ⌘K or Ctrl+K to search, ask or run an action.</p><div class="bgcard"></div><div class="bgcard" style="height:200px"></div></div>
+    ${S.open ? `<div class="scrim" data-act="close-pal"></div>${{ a: variantA, b: variantB, c: variantC, d: variantD }[S.variant]()}` : ""}
+    <div class="toasts" role="status" aria-live="polite">${S.toasts.map((t) => `<div class="toast"><span style="color:var(--ok-fg)">${I.check}</span>${esc(t.msg)}</div>`).join("")}</div>`;
+}
+const VARIANTS = {
+  a: { name: "A · Spotlight", sub: "One column; pills form in the box on Enter",
+    brief: "A single centred palette. Typing gives instant matches for actions, documents, templates and pages. Enter turns the sentence into pills inside the box: Action, Quantity, Subject, Field and Condition. The pills shimmer while the request is read, then each one shows what it matched. Actions carry on inside the palette. Edit template proposes changes you review and save there.",
+    pros: ["Familiar ⌘K pattern (Linear, Raycast, GitHub)", "Smallest surface; every flow fits the same frame", "Pills in the box show exactly what was understood"],
+    cons: ["Long flows such as template edits feel cramped in one column", "No preview before you open a document", "One request at a time; no follow-ups"] },
+  b: { name: "B · Split preview", sub: "List on the left, live preview on the right",
+    brief: "A wider palette with a preview pane. Matches are on the left. The right shows the highlighted document's fields with the matching value marked, a template's fields, or how your sentence is being read before you press Enter. Flows show their steps on the left and the form or proposal on the right.",
+    pros: ["See why a document matched without leaving the palette", "Read-as-you-type preview teaches the pill vocabulary", "Room for template proposals and their diffs"],
+    cons: ["Large; covers most of the page", "Preview needs one fetch per highlighted row", "Falls back to A on narrow screens"] },
+  c: { name: "C · Conversation", sub: "Each Enter is a turn; follow-ups refine",
+    brief: "The palette keeps a short thread. Each request appears as a pill bubble with an answer card under it. Follow-ups such as “only the unpaid ones” or “export them as CSV” act on the last answer. Actions run as cards in the thread, so an edit, its proposal and the save stay together. Closest to the existing template assistant.",
+    pros: ["Natural for refining a search step by step", "Matches the template assistant's back-and-forth", "The thread shows what was asked and done"],
+    cons: ["Heavier than a quick ⌘K jump", "Follow-up context must stay visible to be trustworthy", "Most model calls per session"] },
+  d: { name: "D · Live sentence", sub: "Highlights as you type; pills are editable",
+    brief: "Phrases light up as you type, with no Enter and no model call, and results update live. The Read as strip turns each part into a dropdown: change “starts with” to “contains” or pick another field, and the sentence rewrites itself. Enter only calls the model when words are underlined as unknown, or to start an action.",
+    pros: ["Instant and works without a model for most searches", "Every part can be corrected without retyping", "Teaches the grammar fastest"],
+    cons: ["Highlighting under a text box is fiddly (fonts, wrapping, IME)", "Slots only cover search-style requests", "Fuzzy questions take an extra Enter"] },
+};
+function renderChrome() {
+  document.getElementById("switcher").innerHTML = Object.entries(VARIANTS).map(([k, x]) => `<button role="tab" aria-selected="${S.variant === k}" data-variant="${k}"><b>${x.name}</b><span>${x.sub}</span></button>`).join("");
+  const x = VARIANTS[S.variant]; document.getElementById("brief").innerHTML = x.brief;
+  document.getElementById("tries").innerHTML = `<span>Try:</span>${EXAMPLES.map((e, i) => `<button data-try="${i}">${esc(e)}</button>`).join("")}${S.variant === "c" ? FOLLOWUPS.map((e, i) => `<button class="follow" data-follow="${i}">Follow-up: ${esc(e)}</button>`).join("") : ""}<button data-try="reset" style="border-style:dashed">Reset</button>`;
+  document.getElementById("tradeoffs").innerHTML = `<div><h4>Strengths</h4><ul>${x.pros.map((p) => `<li>${p}</li>`).join("")}</ul></div><div><h4>Costs</h4><ul>${x.cons.map((p) => `<li>${p}</li>`).join("")}</ul></div>`;
+}
+const app = document.getElementById("app");
+function render() {
+  const a = document.activeElement, fk = app.contains(a) ? a?.dataset?.focus : null, sel = fk && "selectionStart" in a ? [a.selectionStart, a.selectionEnd] : null;
+  const threadEl = app.querySelector("[data-thread]"); const nearBottom = threadEl ? threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 60 : true;
+  app.innerHTML = appHtml(); renderChrome();
+  if (S.anim) { app.querySelector(".pal")?.classList.add("anim"); S.anim = false; }
+  const t2 = app.querySelector("[data-thread]"); if (t2 && nearBottom) t2.scrollTop = t2.scrollHeight;
+  const ta = app.querySelector('textarea[data-in="dq"]'); if (ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
+  if (S.keyed) { app.querySelector(".row.hi")?.scrollIntoView({ block: "nearest" }); S.keyed = false; }
+  if (!S.open) return;
+  let el = fk && app.querySelector(`[data-focus="${fk}"]`);
+  if (!el) el = app.querySelector('[data-focus="instr"]') || app.querySelector('[data-focus="iemail"]') || app.querySelector('[data-focus="cancel-del"]') || app.querySelector('[data-focus="opval"]') || app.querySelector('[data-focus="q"]');
+  if (el && document.activeElement !== el && (fk || !app.contains(document.activeElement) || document.activeElement === app)) el.focus({ preventScroll: true });
+  if (el && sel && el.setSelectionRange && fk === el.dataset.focus) try { el.setSelectionRange(...sel); } catch {}
+}
+function resetAll() { typingRun++; Object.assign(S, { anim: true, open: true, q: "", view: "edit", phase: "idle", segs: [], it: null, results: null, hi: 0, flow: null, thread: [], menu: null, openDoc: null, typing: false }); }
+
+// =====================================================================
+// 9. Events
+// =====================================================================
+document.addEventListener("click", (e) => {
+  const vb = e.target.closest("[data-variant]");
+  if (vb) { S.variant = vb.dataset.variant; resetAll(); render(); return; }
+  const tb = e.target.closest("[data-try]");
+  if (tb) { if (tb.dataset.try === "reset") { resetAll(); S.page = "documents"; S.ws = "hnh"; render(); } else { if (S.variant !== "c") resetAll(); typeAndRun(EXAMPLES[+tb.dataset.try]); } return; }
+  const fb = e.target.closest("[data-follow]");
+  if (fb) { if (!S.thread.some((t) => t.it?.action === "find")) { typeAndRun(EXAMPLES[0]); setTimeout(() => typeAndRun(FOLLOWUPS[+fb.dataset.follow]), 2600); } else typeAndRun(FOLLOWUPS[+fb.dataset.follow]); return; }
+  const el = e.target.closest("[data-act]");
+  if (!el || !app.contains(el)) { if (S.menu && !e.target.closest(".menu")) { S.menu = null; render(); } return; }
+  const act = el.dataset.act, f = S.flow;
+  if (el.tagName === "LABEL" || (el.tagName === "INPUT" && el.type === "checkbox")) return;
+  if (S.menu && act !== "menu-pick" && act !== "slot") S.menu = null;
+  switch (act) {
+    case "open-pal": S.open = true; S.anim = true; break;
+    case "close-pal": closePalette(); break;
+    case "item": { const items = S.variant === "d" && S.it?.action === "find" && !S.flow ? (S.results || []).map((d) => docItem(d)) : currentItems(); S.hi = +el.dataset.i; runItem(items[+el.dataset.i]); return; }
+    case "open-doc": S.openDoc = DOCS.find((d) => d.id === el.dataset.v).name; navigate("documents"); return;
+    case "nav": navigate(el.dataset.v); return;
+    case "try-ex": if (S.variant !== "c") resetAll(); typeAndRun(el.dataset.v); return;
+    case "start-action": S.view = "edit"; S.segs = []; S.it = null; startFlow(el.dataset.v); if (S.variant === "c" && S.flow) S.thread.push({ q: ACTIONS[el.dataset.v].label, segs: [{ type: "action", text: ACTIONS[el.dataset.v].label.replace("…", "") }], phase: "done", flow: S.flow }); break;
+    case "start-find": startFlow("find"); break;
+    case "edit-this": S.view = "edit"; S.segs = []; startFlow("edit_template", { tpl: el.dataset.v, crit: emptyCrit() }); break;
+    case "new-thread": S.thread = []; S.flow = null; break;
+    case "flow-cancel": markDone("Cancelled"); S.flow = null; break;
+    case "flow-back": f.step = "describe"; break;
+    case "instr-chip": f.instruction = el.dataset.v; break;
+    case "propose": if (f.instruction.trim()) runThinking(f); return;
+    case "open-editor": markDone("Opened in the editor"); finish(`Changes applied to the ${TPL[f.tpl].name} draft`, "templates"); return;
+    case "save-template": { const T = TPL[f.tpl]; T.version += 1; markDone(`Saved as v${T.version}`); finish(`Template “${T.name}” saved as v${T.version}`); return; }
+    case "create-template": { const name = app.querySelector('[data-in="tname"]')?.value || f.proposal.name; markDone("Created"); finish(`Template “${name}” created`, "templates"); return; }
+    case "add-files": f.files.push({ name: "invoice-hnh-20601.pdf", size: "412 KB" }, { name: "receipt-fuel-1008.jpg", size: "1.2 MB" }, { name: "scan_0051.png", size: "880 KB" }); break;
+    case "rm-file": f.files.splice(+el.dataset.v, 1); break;
+    case "do-upload": markDone("Uploaded"); finish(`${plural(f.files.length, "document")} queued`); return;
+    case "do-retry": markDone("Queued again"); finish(`${plural(f.checked.size, "document")} queued again`); return;
+    case "fmt": f.fmt = el.dataset.v; break;
+    case "do-export": markDone("Exported"); finish(`Exported ${plural(f.targets.length, "document")} as ${f.fmt === "excel" ? "Excel" : f.fmt.toUpperCase()}`); return;
+    case "do-delete": markDone("Deleted"); finish(`Deleted ${plural(f.targets.length, "document")}`); return;
+    case "role": f.role = el.dataset.v; break;
+    case "do-invite": markDone("Invitation sent"); finish(`Invitation sent to ${f.email}`); return;
+    case "do-evaluate": markDone("Started"); finish("Evaluation started", "evaluations"); return;
+    case "bulk": case "bulk-one": {
+      const kind = el.dataset.v;
+      const src = S.variant === "c" ? [...S.thread].reverse().find((t) => t.results) : { results: S.results, it: S.it };
+      const targets = act === "bulk-one" ? DOCS.filter((d) => d.id === el.dataset.id) : src?.results || [];
+      if (kind === "open") return navigate("documents");
+      startFlow(kind, src?.it, targets);
+      if (S.variant === "c") S.thread.push({ q: kind, segs: [{ type: "action", text: { export: "Export", retry: "Try again", delete: "Delete" }[kind] }, { type: "plain", text: " " }, { type: "quantity", text: plural(targets.length, "document") }], phase: "done", flow: S.flow });
+      break;
+    }
+    case "alt-tpl": {
+      const it = S.variant === "c" ? [...S.thread].reverse().find((t) => t.it)?.it : S.it;
+      const cnd = it.crit.conds.find((x) => TPL[el.dataset.v].fields.some((ff) => ff.key === x.field)); if (cnd) cnd.tpl = el.dataset.v;
+      it.notes = it.notes.filter((n) => !n.alt); for (const s of S.segs) if (s.type === "field" && s.res) s.res = TPL[el.dataset.v].name;
+      S.results = findDocs(it); const t = S.thread.find((x) => x.it === it); if (t) t.results = S.results; break;
+    }
+    case "d-enter": dEnter(); return;
+    case "slot": { const r = el.getBoundingClientRect(), pr = el.closest(".slots").getBoundingClientRect(); S.menu = S.menu?.id === el.dataset.v ? null : { id: el.dataset.v, x: Math.max(0, Math.min(r.left - pr.left, pr.width - 230)), y: r.bottom - pr.top + 4 }; break; }
+    case "menu-pick": { const opt = menuOptions(S.menu.id)[+el.dataset.i]; opt[1](S.it); S.menu = null; S.q = sentence(S.it); liveUpdate(); break; }
+    default: return;
+  }
+  render();
+});
+function markDone(text) { if (S.variant === "c") { const t = S.thread.find((x) => x.flow && x.flow === S.flow); if (t && !t.doneText) t.doneText = text; } }
+document.addEventListener("input", (e) => {
+  const el = e.target; if (!app.contains(el)) return; const k = el.dataset.in, f = S.flow;
+  if (k === "q") { S.q = el.value; S.hi = 0; if (S.view === "chunked") { S.view = "edit"; S.phase = "idle"; } }
+  else if (k === "dq") { S.q = el.value; S.menu = null; S.flow = null; liveUpdate(); }
+  else if (k === "instr") { f.instruction = el.value; const b = app.querySelector('[data-act="propose"]'); if (b) b.disabled = !el.value.trim(); return; }
+  else if (k === "refine") { f.refine = el.value; return; }
+  else if (k === "iemail") { f.email = el.value; const b = app.querySelector('[data-act="do-invite"]'); if (b) b.disabled = !/^[\w.+-]+@[\w-]+\.[\w.]+$/.test(el.value); return; }
+  else if (k === "opval") { const i = +S.menu.id.split(":")[1]; S.it.crit.conds[i].value = el.value; S.q = sentence(S.it); const keep = S.menu; const conds = S.it.crit.conds; liveUpdate(); S.menu = keep; }
+  else return;
+  render();
+});
+document.addEventListener("change", (e) => {
+  const el = e.target; if (!app.contains(el)) return; const f = S.flow; const a = el.dataset.act;
+  if (el.dataset.in === "utpl" || el.dataset.in === "etpl") f.tpl = el.value;
+  if (a === "toggle-group") { const id = +el.dataset.v; el.checked ? f.proposal.selected.add(id) : f.proposal.selected.delete(id); render(); }
+  if (a === "toggle-field") { const i = +el.dataset.v; el.checked ? f.proposal.selected.add(i) : f.proposal.selected.delete(i); render(); }
+  if (a === "toggle-target") { el.checked ? f.checked.add(el.dataset.v) : f.checked.delete(el.dataset.v); render(); }
+  if (a === "toggle-model") { el.checked ? f.models.add(el.dataset.v) : f.models.delete(el.dataset.v); render(); }
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); if (S.open) closePalette(); else { S.open = true; S.anim = true; } render(); return; }
+  if (!S.open || (!app.contains(e.target) && e.target !== document.body)) return;
+  const el = e.target, f = S.flow;
+  if (e.key === "Escape") {
+    e.preventDefault(); typingRun++; S.typing = false;
+    if (S.menu) S.menu = null;
+    else if (f) { if (f.step === "proposal") f.step = "describe"; else { markDone("Cancelled"); S.flow = null; } }
+    else if (S.view === "chunked") { S.view = "edit"; S.phase = "idle"; }
+    else if (S.q) { S.q = ""; if (S.variant === "d") liveUpdate(); }
+    else closePalette();
+    render(); return;
+  }
+  // Pills view: arrows move through results; typing goes back to editing the text.
+  if (el.dataset?.chunks !== undefined) {
+    const items = resultItems();
+    if (e.key === "Enter") { e.preventDefault(); if (items[S.hi]) runItem(items[S.hi]); return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); S.hi = Math.max(0, Math.min(items.length - 1, S.hi + (e.key === "ArrowDown" ? 1 : -1))); S.keyed = true; render(); return; }
+    if ((e.key.length === 1 && !e.metaKey && !e.ctrlKey) || e.key === "Backspace") {
+      e.preventDefault(); S.view = "edit"; S.phase = "idle"; S.flow = null; S.q = e.key === "Backspace" ? S.q.slice(0, -1) : S.q + e.key;
+      render(); const inp = app.querySelector('[data-in="q"]'); if (inp) { inp.focus(); inp.setSelectionRange(S.q.length, S.q.length); } return;
+    }
+    return;
+  }
+  if (el.dataset?.in === "q" || el.dataset?.in === "dq") {
+    const items = S.variant === "d" ? (S.flow ? flowItems(S.flow) : S.it?.action === "find" ? (S.results || []).map((d) => docItem(d)) : []) : S.variant === "c" && !S.flow ? (S.q ? localItems(S.q).slice(0, 6) : []) : currentItems();
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); S.hi = Math.max(0, Math.min(items.length - 1, S.hi + (e.key === "ArrowDown" ? 1 : -1))); S.keyed = true; render(); return; }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (S.variant === "d") { if (S.flow) { if (items[S.hi]) runItem(items[S.hi]); } else dEnter(); return; }
+      if (e.metaKey || e.ctrlKey) return submit();
+      if (S.variant === "c" && !S.flow) return items[S.hi] && items[S.hi].kind !== "ask" ? runItem(items[S.hi]) : submit();
+      return runItem(items[S.hi]);
+    }
+    if (e.key === "Backspace" && !el.value && f) { S.flow = null; render(); return; }
+  }
+  if (el.dataset?.in === "instr" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (f.instruction.trim()) runThinking(f); }
+  if (el.dataset?.in === "refine" && e.key === "Enter" && f.refine?.trim()) { e.preventDefault(); f.instruction = `${f.instruction}; ${f.refine}`; f.refine = ""; runThinking(f); }
+  if (el.dataset?.in === "iemail" && e.key === "Enter") { e.preventDefault(); app.querySelector('[data-act="do-invite"]:not([disabled])')?.click(); }
+  if (el.dataset?.in === "opval" && e.key === "Enter") { e.preventDefault(); S.menu = null; render(); }
+});
+render();
+</script>
+</body>
+</html>
