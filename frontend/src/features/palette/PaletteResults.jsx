@@ -10,6 +10,7 @@ import {
   TemplateIcon,
   WorkspaceIcon,
 } from "../layout/Icons.jsx";
+import { conditionLeaves, isFieldCondition } from "../../../../shared/documentSearch.ts";
 import { Button } from "../ui/Button.jsx";
 import { Callout } from "../ui/Callout.jsx";
 import { LoadMore } from "../ui/Pager.jsx";
@@ -50,8 +51,10 @@ function MatchedValue({ job, filter }) {
 
   if (!match) return null;
 
-  const condition = filter?.conditions?.find(
-    (candidate) => candidate.template_id === match.template_id && candidate.field_id === match.field_id,
+  // A field may have several conditions ("total under 10 or over 100"); the first one marks the value.
+  const condition = conditionLeaves(filter?.conditions).find(
+    (candidate) =>
+      isFieldCondition(candidate) && candidate.template_id === match.template_id && candidate.field_id === match.field_id,
   );
 
   const value =

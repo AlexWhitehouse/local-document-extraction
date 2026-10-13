@@ -5,7 +5,9 @@ import {
   SearchContractError,
   validateCommandInterpretation,
   type CostCondition,
+  type FieldCondition,
   type SearchCatalog,
+  type SearchCondition,
 } from "../../../shared/documentSearch";
 
 const catalog: Pick<SearchCatalog, "templates"> = {
@@ -159,16 +161,64 @@ describe("validateCommandInterpretation", () => {
     ).toThrow("Only workspace owners and admins can search by cost.");
     expect(
       validateCommandInterpretation({ ...base, filter }, { ...catalog, capabilities: { cost: true } }).filter,
-    ).toEqual({ statuses: ["completed"], cost });
+    ).toEqual({ statuses: ["completed"], conditions: [{ cost }] });
+
+    // A cost condition inside a group is checked the same way.
+    expect(() => valid({ filter: { conditions: [{ any: [condition({ op: "has_value" }), { cost }] }] } })).toThrow(
+      "Only workspace owners and admins can search by cost.",
+    );
   });
 
-  test("cost filters are USD amounts of 0 or more with comparison operators", () => {
-    const read = (cost: JsonValue) => parseDocumentSearchFilter({ cost });
+  test("conditions nest in any and all groups, within the limits", () => {
+    const leaf: FieldCondition = { template_id: "tpl_invoice", field_id: "total", op: "has_value" };
+    const filterOf = (overrides: JsonObject) => valid(overrides).filter;
+    const nested = (depth: number): SearchCondition => (depth ? { all: [nested(depth - 1)] } : leaf);
+
+    expect(filterOf({ filter: { conditions: [{ any: [leaf, { all: [leaf, leaf] }] }, leaf] } })).toEqual({
+      conditions: [{ any: [leaf, { all: [leaf, leaf] }] }, leaf],
+    });
+    expect(filterOf({ filter: { conditions: [nested(3)] } })).toEqual({ conditions: [nested(3)] });
+    // Values are checked against the field inside groups too.
+    expect(filterOf({ filter: { conditions: [{ any: [{ ...leaf, op: "gt", value: "£1,000" }] }] } })).toEqual({
+      conditions: [{ any: [{ ...leaf, op: "gt", value: 1000 }] }],
+    });
+
+    rejects({ filter: { conditions: [nested(4)] } });
+    rejects({ filter: { conditions: [{ any: [] }] } });
+    rejects({ filter: { conditions: [{ any: [leaf], all: [leaf] }] } });
+    rejects({ filter: { conditions: [{ any: [leaf], extra: true }] } });
+    rejects({ filter: { conditions: [{ any: leaf }] } });
+    // The limit counts conditions at every depth.
+    rejects({ filter: { conditions: [{ any: Array.from({ length: 6 }, () => leaf) }, { all: Array.from({ length: 5 }, () => leaf) }] } });
+    rejects({ filter: { conditions: [{ any: [condition({ op: "contains", value: "12" })] }] } });
+  });
+
+  test("cost conditions are USD amounts of 0 or more with comparison operators", () => {
+    const read = (cost: JsonValue) => parseDocumentSearchFilter({ conditions: [{ cost }] });
     const invalid = (cost: JsonValue) => expect(() => read(cost)).toThrow(SearchContractError);
 
-    expect(read({ op: "gt", value: 0.03 })).toEqual({ cost: { op: "gt", value: 0.03 } });
-    expect(read({ op: "eq", value: 0 })).toEqual({ cost: { op: "eq", value: 0 } });
-    expect(read({ op: "between", value: 0.01, value2: 0.01 })).toEqual({ cost: { op: "between", value: 0.01, value2: 0.01 } });
+    expect(read({ op: "gt", value: 0.03 })).toEqual({ conditions: [{ cost: { op: "gt", value: 0.03 } }] });
+    expect(read({ op: "eq", value: 0 })).toEqual({ conditions: [{ cost: { op: "eq", value: 0 } }] });
+    expect(read({ op: "between", value: 0.01, value2: 0.01 })).toEqual({
+      conditions: [{ cost: { op: "between", value: 0.01, value2: 0.01 } }],
+    });
+    expect(() => parseDocumentSearchFilter({ conditions: [{ cost: { op: "gt", value: 1 }, field_id: "x" }] })).toThrow(
+      SearchContractError,
+    );
+
+    // The earlier form: one cost condition, or a list of them, beside the conditions.
+    const field: FieldCondition = { template_id: "tpl_invoice", field_id: "total", op: "has_value" };
+
+    expect(parseDocumentSearchFilter({ cost: { op: "gt", value: 0.03 } })).toEqual({
+      conditions: [{ cost: { op: "gt", value: 0.03 } }],
+    });
+    expect(
+      parseDocumentSearchFilter({ conditions: [field], cost: [{ op: "gt", value: 0.03 }, { op: "lt", value: 0.05 }] }),
+    ).toEqual({
+      conditions: [field, { cost: { op: "gt", value: 0.03 } }, { cost: { op: "lt", value: 0.05 } }],
+    });
+    expect(() => parseDocumentSearchFilter({ cost: [] })).toThrow(SearchContractError);
+    expect(() => parseDocumentSearchFilter({ cost: [{ op: "gt", value: -1 }] })).toThrow(SearchContractError);
 
     invalid({ op: "contains", value: 1 });
     invalid({ op: "has_value" });
