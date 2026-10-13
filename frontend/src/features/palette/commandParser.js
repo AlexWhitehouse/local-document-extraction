@@ -177,7 +177,7 @@ const NUMBER = "[£$€]?\\s?-?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?";
 const QUOTED =
   "\"[^\"]*(?:\"|$)|“[^”]*(?:”|$)|'(?:[^']|'(?=[\\p{L}\\p{N}]))*(?:'|$)|‘(?:[^’]|’(?=[\\p{L}\\p{N}]))*(?:’|$)";
 
-const BARE_VALUE = '[^\\s,;"“”()]*[^\\s,;"“”().?!:]';
+const BARE_VALUE = '[^\\s,;"“”()[\\]{}]*[^\\s,;"“”()[\\]{}.?!:]';
 
 const DATE_PATTERN = new RegExp(
   `^(?:(?:uploaded|added|created|received)\\s+)?(?:(${DATE_PREFIX})\\s+)?(?:the\\s+)?(${DATE_CORE})$`,
@@ -1566,7 +1566,7 @@ const LATER_RULES = [
         return null;
       const value = matchAt(STATIC_PATTERNS.bareValue, text, start);
 
-      return value && !RESERVED_VALUES.has(phraseKey(value)) ? text.slice(index, start + value.length) : null;
+      return value && isValueWord(value, text, start + value.length) ? text.slice(index, start + value.length) : null;
     },
   },
   {
@@ -1582,7 +1582,7 @@ const LATER_RULES = [
       const known = lookupPhrase(lexicon.index.values, text, start);
       const value = known ? text.slice(start, known.end) : matchAt(STATIC_PATTERNS.bareValue, text, start);
 
-      return value && !RESERVED_VALUES.has(phraseKey(value)) ? text.slice(index, start + value.length) : null;
+      return value && isValueWord(value, text, start + value.length) ? text.slice(index, start + value.length) : null;
     },
   },
   {
@@ -1606,6 +1606,29 @@ const LATER_RULES = [
     },
   },
 ];
+
+/**
+ * Whether a bare word after an operator is its value. Reserved words aren't, except "a" or "an" that ends
+ * the condition: in "starts with A" it is the letter, while in "is a supplier" it begins a longer phrase.
+ * @param {string} value
+ * @param {string} text
+ * @param {number} end where the value ends in `text`
+ */
+function isValueWord(value, text, end) {
+  const key = phraseKey(value);
+
+  if (!RESERVED_VALUES.has(key)) return true;
+
+  if (key !== "a" && key !== "an") return false;
+
+  if (/^\s*(?:$|[,;.?!)\]}”’"'])/u.test(text.slice(end))) return true;
+  const next = end + (matchAt(STATIC_PATTERNS.whitespace, text, end)?.length ?? 0);
+
+  return (
+    /^(?:and|or)\b/i.test(text.slice(next)) ||
+    Boolean(matchAt(STATIC_PATTERNS.date, text, next) || matchAt(STATIC_PATTERNS.status, text, next))
+  );
+}
 
 /** @type {LexRule[]} */
 const LEADING_RULES = [
@@ -1942,11 +1965,7 @@ function interpretWith(segments, lexicon, today, options, guardedOrs) {
 
   const filter = filterAction ? buildFilter(state, action, subjects, grouped) : null;
 
-  if (state.unused.length) {
-    const words = state.unused.map((word) => `“${word}”`).join(", ");
-
-    state.notes.push({ kind: "unrecognised", text: truncate(`Not used: ${words}.`, 300) });
-  }
+  if (state.unused.length) state.notes.push(notUsedNote(state.unused));
 
   /** @type {CommandInterpretation} */
   const interpretation = {
@@ -1971,6 +1990,17 @@ function interpretWith(segments, lexicon, today, options, guardedOrs) {
     loose,
   };
 }
+
+/**
+ * The note listing words a reading left unused.
+ * @param {string[]} words
+ * @returns {InterpretationNote}
+ */
+function notUsedNote(words) {
+  return { kind: "unrecognised", text: truncate(`${NOT_USED}${words.map((word) => `“${word}”`).join(", ")}.`, 300) };
+}
+
+const NOT_USED = "Not used: ";
 
 /**
  * Phrases the parser must not apply because a word it can't read changes their meaning: a negating
@@ -2164,9 +2194,16 @@ function readFilterSegments(state, consumed) {
       const { entry, index } = pendingField;
       const op = entry.field.type === "boolean" ? "is_true" : "has_value";
 
-      addTerm(state, { template_id: entry.template.id, field_id: entry.field.field_id, op }, index);
+      // "invoice number is A)" that the parser couldn't finish reading must not become "has a value",
+      // which matches far more: the field is left unused for the model.
+      if (startsComparison(state.segments[index + 1])) {
+        consumed.delete(index);
+        state.resolved[index] = null;
+      } else {
+        addTerm(state, { template_id: entry.template.id, field_id: entry.field.field_id, op }, index);
 
-      if (entry.field.type === "boolean") state.resolved[index] = `${entry.field.name}: yes`;
+        if (entry.field.type === "boolean") state.resolved[index] = `${entry.field.name}: yes`;
+      }
     }
 
     pendingField = null;
@@ -2351,6 +2388,33 @@ function readCost(state, index, consumed) {
   consumed.add(amountIndex);
 
   return amountIndex;
+}
+
+/**
+ * Words and symbols that begin a comparison after a field label, as in "vendor is", "total over",
+ * "number isn't", "name starts with", "date before" or "total >=". Contractions are written with "'".
+ */
+const COMPARISON_WORDS = new Set([
+  ..."is isnt isn't are arent aren't was wasnt wasn't were werent weren't".split(" "),
+  ..."does doesnt doesn't do dont don't has hasnt hasn't have not no".split(" "),
+  ..."equals equal equalling contains contain containing includes include including".split(" "),
+  ..."excludes exclude excluding except starts start starting begins begin beginning ends end ending".split(" "),
+  ..."matches match like over under above below before after between since until from".split(" "),
+  ..."more less greater fewer higher lower exactly at least most".split(" "),
+]);
+
+/**
+ * Whether unread text straight after a field label begins a comparison the parser couldn't read.
+ * @param {Segment|undefined} segment
+ */
+function startsComparison(segment) {
+  if (segment?.type !== "plain") return false;
+  const text = segment.text.trim().toLowerCase().replace(/’/g, "'");
+
+  if (/^[=<>!≠≤≥]/u.test(text)) return true;
+  const first = text.match(/^\p{L}+(?:'\p{L}+)?/u)?.[0];
+
+  return first !== undefined && COMPARISON_WORDS.has(first);
 }
 
 /**
@@ -2999,11 +3063,20 @@ function conditionTemplates(condition) {
   if (!isConditionGroup(condition)) return { templates: [condition.template_id], conflict: null };
   const { any, members } = groupMembers(condition);
   const read = members.map(conditionTemplates);
+
+  // An alternative that can't match is harmless while another can; the group only conflicts when none can.
+  if (any) {
+    const possible = read.filter((member) => !member.conflict);
+
+    if (!possible.length) return { templates: [], conflict: read[0].conflict };
+
+    return possible.some((member) => member.templates === null)
+      ? { templates: null, conflict: null }
+      : { templates: [...new Set(possible.flatMap((member) => member.templates ?? []))], conflict: null };
+  }
+
   const conflict = read.find((member) => member.conflict)?.conflict ?? null;
   const known = read.flatMap((member) => (member.templates ? [member.templates] : []));
-
-  if (any)
-    return { templates: known.length < read.length ? null : [...new Set(known.flat())], conflict };
 
   if (!known.length) return { templates: null, conflict };
   const shared = known.reduce((common, templates) => common.filter((id) => templates.includes(id)));
@@ -3257,8 +3330,11 @@ export function mergeInterpretations(local, model, segments) {
   const action = segments.some((segment) => segment.type === "action") ? local.action : model.action;
   const args = { ...model.args, ...local.args };
   const notes = [];
+  // The parser's list of unused words is from before the model read them; the model's list replaces it.
+  const localNotes = local.notes.filter((note) => !(note.kind === "unrecognised" && note.text.startsWith(NOT_USED)));
+  const unusedNotes = model.unrecognised.length ? [notUsedNote(model.unrecognised)] : [];
 
-  for (const note of [...local.notes, ...model.notes])
+  for (const note of [...unusedNotes, ...localNotes, ...model.notes])
     if (notes.length < SEARCH_LIMITS.notes && !notes.some((kept) => kept.text === note.text)) notes.push(note);
 
   const merged = { action, args, filter: null, unrecognised: model.unrecognised, notes };
@@ -3296,36 +3372,98 @@ export function mergeInterpretations(local, model, segments) {
   // member of the conditions list, a group included, is kept or added whole, keyed by the fields it uses.
   // When the parser left words unread, any of them could change a condition it did read ("bar Acme"),
   // so the model's conditions replace the parser's on each field the model also filtered. A locally
-  // recognised cost always stays as its pills show it.
-  const localKeys = new Set((mine.conditions ?? []).flatMap(conditionKeys));
-  const modelKeys = new Set((theirs.conditions ?? []).flatMap(conditionKeys));
+  // recognised cost always stays as its pills show it: a member holding one is only replaced when the
+  // model's conditions keep that same cost, so a correction can never drop it and widen the search.
   const replace = local.unrecognised.length > 0;
-
-  const conditions = (mine.conditions ?? []).filter(
-    (condition) => !(replace && conditionKeys(condition).some((key) => key !== "cost" && modelKeys.has(key))),
-  );
+  const localConditions = mine.conditions ?? [];
 
   const pinned = new Set([
     ...(templateIds ?? []),
-    ...conditionLeaves(mine.conditions).flatMap((leaf) => (isCostTerm(leaf) ? [] : [leaf.template_id])),
+    ...conditionLeaves(localConditions).flatMap((leaf) => (isCostTerm(leaf) ? [] : [leaf.template_id])),
   ]);
 
-  for (const condition of theirs.conditions ?? []) {
-    const keys = conditionKeys(condition);
+  // Model conditions on other Templates are never used, so they can't replace anything either.
+  const offered = (theirs.conditions ?? []).filter(
+    (condition) =>
+      !pinned.size || conditionLeaves([condition]).every((leaf) => isCostTerm(leaf) || pinned.has(leaf.template_id)),
+  );
 
-    if (keys.some((key) => localKeys.has(key) && (key === "cost" || !replace))) continue;
+  const offeredKeys = new Set(offered.flatMap(conditionKeys));
 
-    if (pinned.size && conditionLeaves([condition]).some((leaf) => !isCostTerm(leaf) && !pinned.has(leaf.template_id)))
-      continue;
+  // A parser condition is replaced when the model read one of its fields again and kept all of its costs.
+  let replaced = new Set(
+    localConditions.filter(
+      (condition) =>
+        replace &&
+        conditionKeys(condition).some((key) => key !== "cost" && offeredKeys.has(key)) &&
+        costsKept(condition, offered),
+    ),
+  );
 
-    if (conditionLeaves(conditions).length + conditionLeaves([condition]).length <= SEARCH_LIMITS.conditions)
-      conditions.push(condition);
+  /**
+   * The kept parser conditions and the model's additions, for a set of replaced parser conditions.
+   * @param {Set<SearchCondition>} without
+   */
+  const combine = (without) => {
+    const kept = localConditions.filter((condition) => !without.has(condition));
+    const localKeys = new Set(kept.flatMap(conditionKeys));
+    /** @type {SearchCondition[]} */
+    const added = [];
+
+    for (const condition of offered) {
+      if (conditionKeys(condition).some((key) => localKeys.has(key))) continue;
+
+      if (conditionLeaves([...kept, ...added, condition]).length <= SEARCH_LIMITS.conditions) added.push(condition);
+    }
+
+    return { kept, added };
+  };
+
+  // Replacing is only safe once the replacement is actually added: a parser condition whose fields or
+  // costs didn't make it into the result is restored, and the model's conditions are chosen again.
+  let combined = combine(replaced);
+
+  for (;;) {
+    const addedKeys = new Set(combined.added.flatMap(conditionKeys));
+
+    const lost = [...replaced].filter(
+      (condition) =>
+        !costsKept(condition, combined.added) ||
+        !conditionKeys(condition).some((key) => key !== "cost" && offeredKeys.has(key) && addedKeys.has(key)),
+    );
+
+    if (!lost.length) break;
+    replaced = new Set([...replaced].filter((condition) => !lost.includes(condition)));
+    combined = combine(replaced);
   }
+
+  const conditions = [...combined.kept, ...combined.added];
 
   if (conditions.length) filter.conditions = conditions;
   merged.filter = filter;
 
   return merged;
+}
+
+/**
+ * Whether every cost in a condition is also in `others`, exactly.
+ * @param {SearchCondition} condition
+ * @param {SearchCondition[]} others
+ */
+function costsKept(condition, others) {
+  const costs = conditionLeaves(others).filter(isCostTerm);
+
+  return conditionLeaves([condition])
+    .filter(isCostTerm)
+    .every((cost) => costs.some((candidate) => sameCost(candidate, cost)));
+}
+
+/**
+ * @param {CostTerm} a
+ * @param {CostTerm} b
+ */
+function sameCost(a, b) {
+  return a.cost.op === b.cost.op && a.cost.value === b.cost.value && a.cost.value2 === b.cost.value2;
 }
 
 /**

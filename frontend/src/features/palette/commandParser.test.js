@@ -1364,6 +1364,29 @@ describe("processing cost", () => {
     });
   });
 
+  it("never loses a recognised cost when the model corrects a field grouped with it", () => {
+    const local = costRun("delete invoices that cost over $0.03 or total under 5 billed to Leeds");
+    const cost = { cost: { op: "gt", value: 0.03 } };
+    const group = { any: [cost, condition("tpl_invoice", "total", "lt", 5)] };
+    const leeds = condition("tpl_invoice", "billing_address", "contains", "Leeds");
+    const model = (conditions) => ({ action: "delete", args: {}, filter: { conditions }, unrecognised: [], notes: [] });
+
+    const merge = (conditions) =>
+      mergeInterpretations(local.interpretation, model(conditions), local.segments).filter.conditions;
+
+    expect(local.interpretation.filter.conditions).toEqual([group]);
+    // A correction of the field alone can't replace the group, or the cost would be dropped.
+    expect(merge([condition("tpl_invoice", "total", "lt", 6), leeds])).toEqual([group, leeds]);
+    // A correction that keeps the same cost replaces the group.
+    const corrected = { any: [cost, condition("tpl_invoice", "total", "lt", 6)] };
+
+    expect(merge([corrected, leeds])).toEqual([corrected, leeds]);
+    // A replacement that can't be used (it names a Template the request didn't) replaces nothing.
+    const elsewhere = { any: [cost, condition("tpl_invoice", "total", "lt", 6), condition("tpl_receipt", "total", "lt", 6)] };
+
+    expect(merge([elsewhere, leeds])).toEqual([group, leeds]);
+  });
+
   it("describes the cost in the summary", () => {
     const describe = (cost) => describeFilter({ conditions: [{ cost }] }, costCatalog);
 
@@ -1546,6 +1569,61 @@ describe("date ranges", () => {
   });
 });
 
+describe("one-letter values", () => {
+  const number = (op, value) => condition("tpl_invoice", "invoice_number", op, value);
+
+  it.each([
+    ["invoices where the invoice number starts with A", [number("starts_with", "A")]],
+    ["invoices where invoice number is A", [number("is", "A")]],
+    ["invoices where invoice number contains a", [number("contains", "a")]],
+    ["invoices where invoice number starts with A or B", [{ any: [number("starts_with", "A"), number("starts_with", "B")] }]],
+    ["invoices where invoice number starts with an, uploaded last week", [number("starts_with", "an")]],
+  ])("reads %s", (text, conditions) => {
+    const { interpretation, complete } = run(text);
+
+    expect(interpretation.filter.conditions).toEqual(conditions);
+    expect(complete).toBe(true);
+  });
+
+  it.each([
+    ["delete invoices (where invoice number is A)", "is", "A"],
+    ["delete invoices where invoice number is “A”", "is", "A"],
+    ["delete invoices [invoice number starts with a]", "starts_with", "a"],
+  ])("ends a one-letter value at a closing bracket or quote: %s", (text, op, value) => {
+    const { interpretation, complete } = run(text);
+
+    expect(interpretation.filter.conditions).toEqual([number(op, value)]);
+    expect(complete).toBe(true);
+  });
+
+  it.each([
+    "delete invoices where invoice number is",
+    "delete invoices where invoice number is the",
+    "delete invoices where invoice number equals",
+    "delete invoices where the invoice number starts with the",
+    "delete invoices where invoice number isn't",
+    "delete invoices where invoice number isn’t",
+    "delete invoices where invoice number doesn't",
+    "delete invoices where invoice number is not",
+    "delete invoices where invoice number !=",
+    "delete invoices where invoice number >",
+  ])("never reads an unfinished comparison as has a value: %s", (text) => {
+    const { interpretation, complete, unused } = run(text);
+
+    expect(interpretation.filter.conditions).toBeUndefined();
+    expect(unused.some((word) => word.endsWith("invoice number"))).toBe(true);
+    expect(complete).toBe(false);
+  });
+
+  it("still reads an article before more words as the start of a phrase", () => {
+    const { interpretation, complete } = run("invoices where invoice number is a long one");
+
+    // Never "has a value": the parser leaves the phrase for the model.
+    expect(interpretation.filter.conditions).not.toEqual([number("is", "a")]);
+    expect(complete).toBe(false);
+  });
+});
+
 describe("and and or", () => {
   const vendor = (op, value) => condition("tpl_invoice", "vendor", op, value);
   const total = (op, value) => condition("tpl_invoice", "total", op, value);
@@ -1604,6 +1682,27 @@ describe("and and or", () => {
     });
     // Templates named together before the conditions are still ambiguous.
     expect(run("invoices and receipts with total over 100").complete).toBe(false);
+  });
+
+  it("only reports that nothing can match when no alternative can", () => {
+    const { interpretation, complete } = run(
+      "invoices where vendor is Acme and receipts where merchant is Acme or invoices with total over 5",
+    );
+
+    expect(interpretation.filter.conditions).toEqual([
+      {
+        any: [
+          { all: [vendor("is", "Acme"), condition("tpl_receipt", "merchant", "is", "Acme")] },
+          total("gt", 5),
+        ],
+      },
+    ]);
+    // The Receipt alternative needs two Templates at once, so only invoices can match. That is worth
+    // saying, but it isn't "no document can match".
+    expect(interpretation.notes).toEqual([
+      { kind: "unrecognised", text: "The conditions only apply to Invoice, so Receipt is left out." },
+    ]);
+    expect(complete).toBe(false);
   });
 
   it("asks when Templates must match together", () => {
@@ -1739,6 +1838,23 @@ describe("mergeInterpretations with words the parser didn't read", () => {
     expect(
       mergeInterpretations(either.interpretation, answer([one], ["or uploaded last week"]), either.segments).filter.conditions,
     ).toEqual([one]);
+  });
+
+  it("lists only the words the model left unused, not the ones the parser couldn't read", () => {
+    const { interpretation, segments } = local("delete invoices from Acme billed to Leeds");
+
+    expect(interpretation.notes).toContainEqual({ kind: "unrecognised", text: "Not used: “billed”, “Leeds”." });
+
+    const leeds = condition("tpl_invoice", "billing_address", "contains", "Leeds");
+    const read = mergeInterpretations(interpretation, answer([contains, leeds]), segments);
+
+    expect(read.notes.filter((note) => note.text.startsWith("Not used"))).toEqual([]);
+
+    const partly = mergeInterpretations(interpretation, answer([contains], ["billed to Leeds"]), segments);
+
+    expect(partly.notes.filter((note) => note.text.startsWith("Not used"))).toEqual([
+      { kind: "unrecognised", text: "Not used: “billed to Leeds”." },
+    ]);
   });
 
   it("keeps a group the parser read whole, and adds the model's groups on other fields", () => {
