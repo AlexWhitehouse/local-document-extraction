@@ -1381,6 +1381,10 @@ describe("processing cost", () => {
     const corrected = { any: [cost, condition("tpl_invoice", "total", "lt", 6)] };
 
     expect(merge([corrected, leeds])).toEqual([corrected, leeds]);
+    // A replacement that can't be used (it names a Template the request didn't) replaces nothing.
+    const elsewhere = { any: [cost, condition("tpl_invoice", "total", "lt", 6), condition("tpl_receipt", "total", "lt", 6)] };
+
+    expect(merge([elsewhere, leeds])).toEqual([group, leeds]);
   });
 
   it("describes the cost in the summary", () => {
@@ -1562,6 +1566,31 @@ describe("date ranges", () => {
     expect(run("purchase orders between 2000 and 2500").interpretation.filter).toEqual({
       conditions: [condition("tpl_po", "amount", "between", 2000, 2500)],
     });
+  });
+});
+
+describe("one-letter values", () => {
+  const number = (op, value) => condition("tpl_invoice", "invoice_number", op, value);
+
+  it.each([
+    ["invoices where the invoice number starts with A", [number("starts_with", "A")]],
+    ["invoices where invoice number is A", [number("is", "A")]],
+    ["invoices where invoice number contains a", [number("contains", "a")]],
+    ["invoices where invoice number starts with A or B", [{ any: [number("starts_with", "A"), number("starts_with", "B")] }]],
+    ["invoices where invoice number starts with an, uploaded last week", [number("starts_with", "an")]],
+  ])("reads %s", (text, conditions) => {
+    const { interpretation, complete } = run(text);
+
+    expect(interpretation.filter.conditions).toEqual(conditions);
+    expect(complete).toBe(true);
+  });
+
+  it("still reads an article before more words as the start of a phrase", () => {
+    const { interpretation, complete } = run("invoices where invoice number is a long one");
+
+    // Never "has a value": the parser leaves the phrase for the model.
+    expect(interpretation.filter.conditions).not.toEqual([number("is", "a")]);
+    expect(complete).toBe(false);
   });
 });
 
@@ -1779,6 +1808,23 @@ describe("mergeInterpretations with words the parser didn't read", () => {
     expect(
       mergeInterpretations(either.interpretation, answer([one], ["or uploaded last week"]), either.segments).filter.conditions,
     ).toEqual([one]);
+  });
+
+  it("lists only the words the model left unused, not the ones the parser couldn't read", () => {
+    const { interpretation, segments } = local("delete invoices from Acme billed to Leeds");
+
+    expect(interpretation.notes).toContainEqual({ kind: "unrecognised", text: "Not used: “billed”, “Leeds”." });
+
+    const leeds = condition("tpl_invoice", "billing_address", "contains", "Leeds");
+    const read = mergeInterpretations(interpretation, answer([contains, leeds]), segments);
+
+    expect(read.notes.filter((note) => note.text.startsWith("Not used"))).toEqual([]);
+
+    const partly = mergeInterpretations(interpretation, answer([contains], ["billed to Leeds"]), segments);
+
+    expect(partly.notes.filter((note) => note.text.startsWith("Not used"))).toEqual([
+      { kind: "unrecognised", text: "Not used: “billed to Leeds”." },
+    ]);
   });
 
   it("keeps a group the parser read whole, and adds the model's groups on other fields", () => {
