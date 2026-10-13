@@ -177,7 +177,7 @@ const NUMBER = "[£$€]?\\s?-?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?";
 const QUOTED =
   "\"[^\"]*(?:\"|$)|“[^”]*(?:”|$)|'(?:[^']|'(?=[\\p{L}\\p{N}]))*(?:'|$)|‘(?:[^’]|’(?=[\\p{L}\\p{N}]))*(?:’|$)";
 
-const BARE_VALUE = '[^\\s,;"“”()]*[^\\s,;"“”().?!:]';
+const BARE_VALUE = '[^\\s,;"“”()[\\]{}]*[^\\s,;"“”()[\\]{}.?!:]';
 
 const DATE_PATTERN = new RegExp(
   `^(?:(?:uploaded|added|created|received)\\s+)?(?:(${DATE_PREFIX})\\s+)?(?:the\\s+)?(${DATE_CORE})$`,
@@ -1621,7 +1621,7 @@ function isValueWord(value, text, end) {
 
   if (key !== "a" && key !== "an") return false;
 
-  if (/^\s*(?:$|[,;.?!])/u.test(text.slice(end))) return true;
+  if (/^\s*(?:$|[,;.?!)\]}”’"'])/u.test(text.slice(end))) return true;
   const next = end + (matchAt(STATIC_PATTERNS.whitespace, text, end)?.length ?? 0);
 
   return (
@@ -2194,9 +2194,16 @@ function readFilterSegments(state, consumed) {
       const { entry, index } = pendingField;
       const op = entry.field.type === "boolean" ? "is_true" : "has_value";
 
-      addTerm(state, { template_id: entry.template.id, field_id: entry.field.field_id, op }, index);
+      // "invoice number is A)" that the parser couldn't finish reading must not become "has a value",
+      // which matches far more: the field is left unused for the model.
+      if (startsComparison(state.segments[index + 1])) {
+        consumed.delete(index);
+        state.resolved[index] = null;
+      } else {
+        addTerm(state, { template_id: entry.template.id, field_id: entry.field.field_id, op }, index);
 
-      if (entry.field.type === "boolean") state.resolved[index] = `${entry.field.name}: yes`;
+        if (entry.field.type === "boolean") state.resolved[index] = `${entry.field.name}: yes`;
+      }
     }
 
     pendingField = null;
@@ -2381,6 +2388,36 @@ function readCost(state, index, consumed) {
   consumed.add(amountIndex);
 
   return amountIndex;
+}
+
+/** Words that begin a comparison after a field label, as in "vendor is", "total equals", "name starts with". */
+const COMPARISON_WORDS = new Set([
+  "is",
+  "are",
+  "was",
+  "were",
+  "equals",
+  "equal",
+  "contains",
+  "contain",
+  "includes",
+  "starts",
+  "start",
+  "begins",
+  "ends",
+  "matches",
+  "=",
+]);
+
+/**
+ * Whether unread text straight after a field label begins a comparison the parser couldn't read.
+ * @param {Segment|undefined} segment
+ */
+function startsComparison(segment) {
+  if (segment?.type !== "plain") return false;
+  const first = segment.text.trim().toLowerCase().match(/^(?:[\p{L}]+|=)/u)?.[0];
+
+  return first !== undefined && COMPARISON_WORDS.has(first);
 }
 
 /**

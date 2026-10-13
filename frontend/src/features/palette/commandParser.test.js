@@ -1585,6 +1585,30 @@ describe("one-letter values", () => {
     expect(complete).toBe(true);
   });
 
+  it.each([
+    ["delete invoices (where invoice number is A)", "is", "A"],
+    ["delete invoices where invoice number is “A”", "is", "A"],
+    ["delete invoices [invoice number starts with a]", "starts_with", "a"],
+  ])("ends a one-letter value at a closing bracket or quote: %s", (text, op, value) => {
+    const { interpretation, complete } = run(text);
+
+    expect(interpretation.filter.conditions).toEqual([number(op, value)]);
+    expect(complete).toBe(true);
+  });
+
+  it.each([
+    "delete invoices where invoice number is",
+    "delete invoices where invoice number is the",
+    "delete invoices where invoice number equals",
+    "delete invoices where the invoice number starts with the",
+  ])("never reads an unfinished comparison as has a value: %s", (text) => {
+    const { interpretation, complete, unused } = run(text);
+
+    expect(interpretation.filter.conditions).toBeUndefined();
+    expect(unused.some((word) => word.endsWith("invoice number"))).toBe(true);
+    expect(complete).toBe(false);
+  });
+
   it("still reads an article before more words as the start of a phrase", () => {
     const { interpretation, complete } = run("invoices where invoice number is a long one");
 
