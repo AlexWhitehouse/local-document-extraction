@@ -2999,11 +2999,20 @@ function conditionTemplates(condition) {
   if (!isConditionGroup(condition)) return { templates: [condition.template_id], conflict: null };
   const { any, members } = groupMembers(condition);
   const read = members.map(conditionTemplates);
+
+  // An alternative that can't match is harmless while another can; the group only conflicts when none can.
+  if (any) {
+    const possible = read.filter((member) => !member.conflict);
+
+    if (!possible.length) return { templates: [], conflict: read[0].conflict };
+
+    return possible.some((member) => member.templates === null)
+      ? { templates: null, conflict: null }
+      : { templates: [...new Set(possible.flatMap((member) => member.templates ?? []))], conflict: null };
+  }
+
   const conflict = read.find((member) => member.conflict)?.conflict ?? null;
   const known = read.flatMap((member) => (member.templates ? [member.templates] : []));
-
-  if (any)
-    return { templates: known.length < read.length ? null : [...new Set(known.flat())], conflict };
 
   if (!known.length) return { templates: null, conflict };
   const shared = known.reduce((common, templates) => common.filter((id) => templates.includes(id)));
@@ -3296,14 +3305,23 @@ export function mergeInterpretations(local, model, segments) {
   // member of the conditions list, a group included, is kept or added whole, keyed by the fields it uses.
   // When the parser left words unread, any of them could change a condition it did read ("bar Acme"),
   // so the model's conditions replace the parser's on each field the model also filtered. A locally
-  // recognised cost always stays as its pills show it.
-  const localKeys = new Set((mine.conditions ?? []).flatMap(conditionKeys));
+  // recognised cost always stays as its pills show it: a member holding one is only replaced when the
+  // model's conditions keep that same cost, so a correction can never drop it and widen the search.
   const modelKeys = new Set((theirs.conditions ?? []).flatMap(conditionKeys));
+  const modelCosts = conditionLeaves(theirs.conditions).filter(isCostTerm);
   const replace = local.unrecognised.length > 0;
 
-  const conditions = (mine.conditions ?? []).filter(
-    (condition) => !(replace && conditionKeys(condition).some((key) => key !== "cost" && modelKeys.has(key))),
-  );
+  const conditions = (mine.conditions ?? []).filter((condition) => {
+    const corrected = conditionKeys(condition).some((key) => key !== "cost" && modelKeys.has(key));
+
+    const costsKept = conditionLeaves([condition])
+      .filter(isCostTerm)
+      .every((cost) => modelCosts.some((candidate) => sameCost(candidate, cost)));
+
+    return !(replace && corrected && costsKept);
+  });
+
+  const localKeys = new Set(conditions.flatMap(conditionKeys));
 
   const pinned = new Set([
     ...(templateIds ?? []),
@@ -3313,7 +3331,7 @@ export function mergeInterpretations(local, model, segments) {
   for (const condition of theirs.conditions ?? []) {
     const keys = conditionKeys(condition);
 
-    if (keys.some((key) => localKeys.has(key) && (key === "cost" || !replace))) continue;
+    if (keys.some((key) => localKeys.has(key))) continue;
 
     if (pinned.size && conditionLeaves([condition]).some((leaf) => !isCostTerm(leaf) && !pinned.has(leaf.template_id)))
       continue;
@@ -3326,6 +3344,14 @@ export function mergeInterpretations(local, model, segments) {
   merged.filter = filter;
 
   return merged;
+}
+
+/**
+ * @param {CostTerm} a
+ * @param {CostTerm} b
+ */
+function sameCost(a, b) {
+  return a.cost.op === b.cost.op && a.cost.value === b.cost.value && a.cost.value2 === b.cost.value2;
 }
 
 /**

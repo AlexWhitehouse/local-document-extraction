@@ -1364,6 +1364,25 @@ describe("processing cost", () => {
     });
   });
 
+  it("never loses a recognised cost when the model corrects a field grouped with it", () => {
+    const local = costRun("delete invoices that cost over $0.03 or total under 5 billed to Leeds");
+    const cost = { cost: { op: "gt", value: 0.03 } };
+    const group = { any: [cost, condition("tpl_invoice", "total", "lt", 5)] };
+    const leeds = condition("tpl_invoice", "billing_address", "contains", "Leeds");
+    const model = (conditions) => ({ action: "delete", args: {}, filter: { conditions }, unrecognised: [], notes: [] });
+
+    const merge = (conditions) =>
+      mergeInterpretations(local.interpretation, model(conditions), local.segments).filter.conditions;
+
+    expect(local.interpretation.filter.conditions).toEqual([group]);
+    // A correction of the field alone can't replace the group, or the cost would be dropped.
+    expect(merge([condition("tpl_invoice", "total", "lt", 6), leeds])).toEqual([group, leeds]);
+    // A correction that keeps the same cost replaces the group.
+    const corrected = { any: [cost, condition("tpl_invoice", "total", "lt", 6)] };
+
+    expect(merge([corrected, leeds])).toEqual([corrected, leeds]);
+  });
+
   it("describes the cost in the summary", () => {
     const describe = (cost) => describeFilter({ conditions: [{ cost }] }, costCatalog);
 
@@ -1604,6 +1623,27 @@ describe("and and or", () => {
     });
     // Templates named together before the conditions are still ambiguous.
     expect(run("invoices and receipts with total over 100").complete).toBe(false);
+  });
+
+  it("only reports that nothing can match when no alternative can", () => {
+    const { interpretation, complete } = run(
+      "invoices where vendor is Acme and receipts where merchant is Acme or invoices with total over 5",
+    );
+
+    expect(interpretation.filter.conditions).toEqual([
+      {
+        any: [
+          { all: [vendor("is", "Acme"), condition("tpl_receipt", "merchant", "is", "Acme")] },
+          total("gt", 5),
+        ],
+      },
+    ]);
+    // The Receipt alternative needs two Templates at once, so only invoices can match. That is worth
+    // saying, but it isn't "no document can match".
+    expect(interpretation.notes).toEqual([
+      { kind: "unrecognised", text: "The conditions only apply to Invoice, so Receipt is left out." },
+    ]);
+    expect(complete).toBe(false);
   });
 
   it("asks when Templates must match together", () => {
