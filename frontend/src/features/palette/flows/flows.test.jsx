@@ -81,6 +81,7 @@ function makeContext(overrides = {}) {
     request: vi.fn(),
     notify: vi.fn(),
     navigate: vi.fn(() => true),
+    confirmNavigation: vi.fn(async () => true),
     appPath,
     catalog,
     refreshCatalog: vi.fn(),
@@ -183,6 +184,8 @@ describe("edit template flow", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Rename Total/ }));
     fireEvent.click(screen.getByRole("button", { name: "Open in editor" }));
 
+    await waitFor(() => expect(props.onFinish).toHaveBeenCalled());
+    expect(context.confirmNavigation).toHaveBeenCalledWith("/workspaces/ws/templates/tpl");
     expect(context.templateController.actions.prepareDraft).toHaveBeenCalledWith({
       templateId: "tpl",
       draft: expect.objectContaining({
@@ -194,9 +197,27 @@ describe("edit template flow", () => {
         ],
       }),
     });
-    expect(context.navigate).toHaveBeenCalledWith("/workspaces/ws/templates/tpl");
-    expect(props.onFinish).toHaveBeenCalled();
+    expect(context.navigate).toHaveBeenCalledWith("/workspaces/ws/templates/tpl", { force: true });
     expect(context.notify).not.toHaveBeenCalled();
+  });
+
+  it("prepares no draft when you keep editing another template, and stays on the proposal", async () => {
+    let keepEditing;
+    const answer = new Promise((resolve) => (keepEditing = () => resolve(false)));
+    const context = makeContext({ request: editRequest(), confirmNavigation: vi.fn(() => answer) });
+    const props = flowProps(context);
+    await reachProposal(props);
+    fireEvent.click(screen.getByRole("button", { name: "Open in editor" }));
+    expect(context.confirmNavigation).toHaveBeenCalledWith("/workspaces/ws/templates/tpl");
+
+    // "Discard changes?" is open: nothing is prepared until it's answered.
+    expect(context.templateController.actions.prepareDraft).not.toHaveBeenCalled();
+    await act(async () => keepEditing());
+
+    expect(context.templateController.actions.prepareDraft).not.toHaveBeenCalled();
+    expect(context.navigate).not.toHaveBeenCalled();
+    expect(props.onFinish).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Open in editor" })).toBeTruthy();
   });
 
   it("keeps request and save failures inline without a toast, and steps back inside the flow", async () => {

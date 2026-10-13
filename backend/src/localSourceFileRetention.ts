@@ -95,7 +95,8 @@ export function createLocalSourceFileRetention({
               cleanedAt: new Date(now()).toISOString(),
             };
 
-            // A failed job retried since this batch was listed needs its original again.
+            // A failed job retried since this batch was listed needs its original again. A claim
+            // records a deletion intent, so a sweep interrupted before the unlink is finished later.
             if (!lease.store.claimSourceFileCleanup(claim)) continue;
 
             try {
@@ -112,7 +113,7 @@ export function createLocalSourceFileRetention({
                 throw error;
               }
 
-              if (lease.store.markSourceFileCleaned(claim)) {
+              if (lease.store.markSourceFileCleaned({ ...claim, retainedObjectKey: source.retained_object_key })) {
                 snapshot.deleted += 1;
               }
             } catch (error) {

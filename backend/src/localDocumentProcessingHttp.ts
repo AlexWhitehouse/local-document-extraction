@@ -297,6 +297,7 @@ export async function handleDocumentProcessingRequest({
                   jobId: source.job_id,
                   sourceFileKey: source.source_file_key,
                   cleanedAt: nowIso(),
+                  retainedObjectKey: source.retained_object_key,
                 });
               } catch {
                 /* The durable deletion intent is retried by retention cleanup. */

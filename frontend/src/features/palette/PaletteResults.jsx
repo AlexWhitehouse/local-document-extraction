@@ -280,7 +280,8 @@ export function DocumentResults({ results, summary, limit, items, listboxId, hig
       ) : (
         <EmptyState message="No documents match. Try removing a condition." />
       )}
-      {results.hasMore && !limit ? (
+      {/* The search stops offering more once "the latest N" are shown. */}
+      {results.hasMore ? (
         <LoadMore
           onLoadMore={results.loadMore}
           pending={results.loadingMore}

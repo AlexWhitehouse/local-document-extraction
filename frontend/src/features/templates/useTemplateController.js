@@ -290,21 +290,20 @@ export function useTemplateController({
 
   // "Open in editor" from the command palette: { templateId, draft } replaces the editor draft once that
   // Template is open, leaving it unsaved. State, not a ref, so an already open Template applies at once.
-  // The intent remembers where it was prepared: while the route stays there, a guarded navigation may
-  // still be asking to discard edits. Any other destination drops it.
+  // Prepare it once navigation to the Template is approved and under way (with the navigation, or
+  // after it): a draft found on any other route is dropped, so a cancelled navigation leaves nothing
+  // for a later visit to apply.
   const [draftIntent, setDraftIntent] = useState(null);
   const draftIntentContextRef = useRef(null);
   const routeKey = activePage === "templates" ? `templates:${routeTemplateId ?? ""}` : String(activePage);
-  const routeKeyRef = useRef(routeKey);
-  routeKeyRef.current = routeKey;
 
-  const prepareDraft = useCallback((intent) => setDraftIntent({ ...intent, from: routeKeyRef.current }), []);
+  const prepareDraft = useCallback((intent) => setDraftIntent(intent), []);
 
   useEffect(() => {
     if (!draftIntent) return;
 
     if (routeKey !== `templates:${draftIntent.templateId}`) {
-      if (routeKey !== draftIntent.from) setDraftIntent(null);
+      setDraftIntent(null);
 
       return;
     }

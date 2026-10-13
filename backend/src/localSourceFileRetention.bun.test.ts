@@ -100,3 +100,67 @@ test("Source retention deletes completed and expired failed binaries but preserv
     await rm(stateDirectory, { recursive: true, force: true });
   }
 });
+
+test("a cleanup claim interrupted before the file is deleted is finished by the next sweep", async () => {
+  const stateDirectory = await mkdtemp(join(tmpdir(), "document-extraction-source-retention-crash-"));
+  const workspaceId = "workspace_retention_crash";
+  const sourceFiles = createLocalSourceFileStore({ stateDirectory });
+  const store = createLocalWorkspaceProductStore({ stateDirectory, workspaceId });
+  const jobId = "job_failed_interrupted";
+
+  const sourceFileKey = await sourceFiles.write({
+    workspaceId,
+    jobId,
+    mimeType: "application/pdf",
+    bytes: new Uint8Array([1, 2, 3]),
+  });
+
+  try {
+    store.createQueuedExtractionJob({
+      jobId,
+      templateId: "template_retention",
+      templateVersion: 1,
+      sourceFileKey,
+      sourceMimeType: "application/pdf",
+      sourceName: "interrupted.pdf",
+      sourceFilePageCount: 1,
+      submittedAt: "2026-01-01T00:00:00.000Z",
+    });
+    store.failQueuedExtractionJob({ jobId, failedAt: "2026-01-01T00:01:00.000Z", errorCode: "test", errorMessage: "old" });
+
+    // The process stops after the claim commits and before the file is deleted.
+    expect(store.claimSourceFileCleanup({ jobId, sourceFileKey, cleanedAt: "2026-01-12T00:00:00.000Z" })).toBe(true);
+  } finally {
+    store.close();
+  }
+
+  const registry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
+
+  const retention = createLocalSourceFileRetention({
+    now: () => Date.parse("2026-01-13T00:00:00.000Z"),
+    productStoreRegistry: registry,
+    sourceFileStore: sourceFiles,
+    stateDirectory,
+  });
+
+  try {
+    expect(await sourceFiles.read(sourceFileKey)).not.toBeNull();
+    await retention.run();
+    expect(await sourceFiles.read(sourceFileKey)).toBeNull();
+    expect(retention.snapshot()).toMatchObject({ deleted: 1, failures: 0 });
+  } finally {
+    registry.closeAll();
+  }
+
+  const database = new Database(join(stateDirectory, "data", "workspaces", `${workspaceId}.sqlite`));
+
+  try {
+    expect(database.query("SELECT COUNT(*) AS count FROM source_file_deletion_intents").get()).toEqual({ count: 0 });
+    expect(database.query("SELECT deleted_at FROM source_files WHERE job_id = ?").get(jobId)).toEqual({
+      deleted_at: "2026-01-12T00:00:00.000Z",
+    });
+  } finally {
+    database.close();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});

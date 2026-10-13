@@ -1147,7 +1147,12 @@ export function handleLocalJobRead({
           releasedRemote &&
           (await deleteLocalSourceFileQuietly(sourceFileStore, deleted.source_file_key))
         ) {
-          productStore.markSourceFileCleaned({ jobId, sourceFileKey: deleted.source_file_key, cleanedAt: nowIso() });
+          productStore.markSourceFileCleaned({
+            jobId,
+            sourceFileKey: deleted.source_file_key,
+            cleanedAt: nowIso(),
+            retainedObjectKey: deleted.retained_object_key,
+          });
         }
 
         operations.completeDocumentDeletion({ workspaceId, jobId });

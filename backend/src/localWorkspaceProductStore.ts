@@ -402,13 +402,27 @@ export type LocalWorkspaceProductStore = DocumentProcessingStore &
       status?: "completed";
     }): LocalWorkspaceExtractionJobSummary[];
     listRetainedTerminalSourceFiles(input: { failedBefore: string; limit?: number }): LocalRetainedTerminalSourceFile[];
-    markSourceFileCleaned(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): boolean;
+    /**
+     * Records a deleted local working copy and clears the deletion intent this cleanup handled: the
+     * local-only intent when `retainedObjectKey` is null, or the one naming that released remote original.
+     * An intent for a different remote original, such as one a concurrent Document deletion wrote, stays.
+     */
+    markSourceFileCleaned(input: {
+      jobId: string;
+      sourceFileKey: string;
+      cleanedAt: string;
+      retainedObjectKey: string | null;
+    }): boolean;
     /**
      * Marks a local working copy as removed before the sweep deletes it, so a retry can't queue a job
-     * whose original is about to go. Refuses while the job is queued or processing again.
+     * whose original is about to go. Refuses while the job is queued or processing again. The claim
+     * records a deletion intent, which `markSourceFileCleaned` clears once the file is gone.
      */
     claimSourceFileCleanup(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): boolean;
-    /** Undoes a claim whose file deletion failed, so a later sweep tries again. */
+    /**
+     * Undoes the claim made with the same `cleanedAt` when its file deletion failed, so a later sweep
+     * lists it again. A claim from an earlier, interrupted sweep stays committed.
+     */
     releaseSourceFileCleanup(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): void;
     /** Active Templates, their current fields and known text values, and the models used by jobs. */
     getSearchCatalog(): Omit<SearchCatalog, "interpretation" | "capabilities">;
@@ -1786,8 +1800,10 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
           .run(input.cleanedAt, input.jobId, input.sourceFileKey);
 
         const intent = database
-          .query("DELETE FROM source_file_deletion_intents WHERE job_id = ? AND source_file_key = ?")
-          .run(input.jobId, input.sourceFileKey);
+          .query(
+            "DELETE FROM source_file_deletion_intents WHERE job_id = ? AND source_file_key = ? AND retained_key IS ?",
+          )
+          .run(input.jobId, input.sourceFileKey, input.retainedObjectKey);
 
         return source.changes > 0 || intent.changes > 0;
       })(),
@@ -1799,18 +1815,36 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
             .get(input.jobId);
 
           if (job && job.status !== "completed" && job.status !== "failed") return false;
-          database
+
+          const claimed = database
             .query("UPDATE source_files SET deleted_at = COALESCE(deleted_at, ?) WHERE job_id = ? AND key = ?")
             .run(input.cleanedAt, input.jobId, input.sourceFileKey);
+
+          // The intent outlives a crash before the unlink, so the next sweep finishes the deletion.
+          // It names no retained object: only the local working copy goes. An existing intent wins.
+          if (claimed.changes > 0)
+            database
+              .query(
+                "INSERT OR IGNORE INTO source_file_deletion_intents (job_id, source_file_key, retained_key) VALUES (?, ?, NULL)",
+              )
+              .run(input.jobId, input.sourceFileKey);
 
           return true;
         })
         .immediate(),
-    releaseSourceFileCleanup: (input) => {
-      database
-        .query("UPDATE source_files SET deleted_at = NULL WHERE job_id = ? AND key = ? AND deleted_at = ?")
-        .run(input.jobId, input.sourceFileKey, input.cleanedAt);
-    },
+    releaseSourceFileCleanup: (input) =>
+      database.transaction(() => {
+        const released = database
+          .query("UPDATE source_files SET deleted_at = NULL WHERE job_id = ? AND key = ? AND deleted_at = ?")
+          .run(input.jobId, input.sourceFileKey, input.cleanedAt);
+
+        if (released.changes > 0)
+          database
+            .query(
+              "DELETE FROM source_file_deletion_intents WHERE job_id = ? AND source_file_key = ? AND retained_key IS NULL",
+            )
+            .run(input.jobId, input.sourceFileKey);
+      })(),
   };
 
   return store;

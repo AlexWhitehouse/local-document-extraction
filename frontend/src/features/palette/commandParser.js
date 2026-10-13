@@ -174,6 +174,36 @@ const DATE_PATTERN = new RegExp(
   "iu",
 );
 
+const UPLOAD_VERB = "(?:(?:uploaded|added|created|received)\\s+)?";
+
+const RANGE_TO = "to|until|till|through|thru";
+
+/** A dash between dates needs spaces around it, so ISO dates such as 2026-03-01 aren't split. */
+const RANGE_DASH = "\\s+[-–]\\s+|\\s*–\\s*";
+
+const DAY_OR_MONTH = `${EXPLICIT_DATE}|${MONTH_PERIOD}`;
+
+/** A range end other than a bare year, which after "between" or around a dash reads as a number. */
+const RANGE_CORE = `${RELATIVE_DATE}|${DAY_OR_MONTH}`;
+
+/**
+ * Two-ended date ranges: "from X to Y", "from X until Y", "between X and Y", "X – Y", and "X to Y"
+ * when both ends are explicit days or months. Bare years only form a range after "from".
+ */
+const DATE_RANGE =
+  `${UPLOAD_VERB}(?:` +
+  `from\\s+(?:the\\s+)?(?:${DATE_CORE})(?:\\s+(?:${RANGE_TO})\\s+|${RANGE_DASH})(?:the\\s+)?(?:${DATE_CORE})` +
+  `|between\\s+(?:the\\s+)?(?:${RANGE_CORE})(?:\\s+(?:and|to)\\s+|${RANGE_DASH})(?:the\\s+)?(?:${RANGE_CORE})` +
+  `|(?:${RANGE_CORE})(?:${RANGE_DASH})(?:${RANGE_CORE})` +
+  `|(?:${DAY_OR_MONTH})\\s+(?:${RANGE_TO})\\s+(?:${DAY_OR_MONTH}))`;
+
+const DATE_RANGE_PATTERN = new RegExp(
+  `^${UPLOAD_VERB}(?:(from|between)\\s+)?(?:the\\s+)?(${DATE_CORE})(?:\\s+(${RANGE_TO}|and)\\s+|${RANGE_DASH})(?:the\\s+)?(${DATE_CORE})$`,
+  "iu",
+);
+
+const RELATIVE_WHOLE = new RegExp(`^(?:the\\s+)?(?:${RELATIVE_DATE})$`, "iu");
+
 /** Condition phrases that test the stored state rather than a value. */
 const STATE_PHRASES = {
   not_found: [
@@ -246,6 +276,13 @@ const TEXT_BY_PHRASE = new Map(
   Object.entries(TEXT_PHRASES).flatMap(([op, phrases]) => phrases.map((phrase) => [phrase, op])),
 );
 
+/** Words before a value that leave it out: "excluding Acme", "not from Acme", "without Acme". */
+const NEGATION_LEAD =
+  "excluding|except\\s+for|except|other\\s+than|(?:(?:is|are|was|were)\\s+)?not\\s+(?:from|by)" +
+  "|(?:isn|aren|wasn|weren)['’]t\\s+(?:from|by)|without";
+
+const NEGATED_PATTERN = new RegExp(`^(${NEGATION_LEAD})(?:\\s+|(?=["“'‘]))([\\s\\S]+)$`, "iu");
+
 const COMPARE_PHRASES = {
   gt: ["over", "above", "more than", "greater than", "higher than", "after", ">"],
   gte: ["at least", "no less than", "since", "on or after", ">="],
@@ -313,6 +350,24 @@ const COST_LEAD = "(?:(?:is|are|was|were|of)\\s+)?";
 export const PROCESSING_COST_LABEL = "Processing cost";
 
 const COST_UNAVAILABLE = "Only owners and admins can search by cost.";
+
+/**
+ * Words that turn the phrases after them around ("except failed", "not from last week") when the parser
+ * can't read them as part of a phrase.
+ */
+const NEGATING_WORDS = new Set(
+  (
+    "not no never except excepting excluding exclude excludes without other besides apart but minus sans unless " +
+    "nor neither non isn't aren't wasn't weren't doesn't don't didn't instead rather omit omitting ignore ignoring " +
+    "skip skipping"
+  ).split(" "),
+);
+
+/** The same for the phrases before them: "Acme excluded". */
+const NEGATING_AFTER_WORDS = new Set(["excluded", "excepted", "omitted", "aside", "ignored", "skipped"]);
+
+/** Segment types that add to a document filter. */
+const PREDICATE_TYPES = new Set(["field", "value", "condition", "date", "status"]);
 
 /** Bare words that should keep their own meaning instead of becoming the value of "is". */
 const RESERVED_VALUES = new Set([
@@ -459,8 +514,11 @@ function isQuoted(value) {
   return /^["“'‘]/u.test(value.trim());
 }
 
-/** @param {string} text */
-function significantWords(text) {
+/**
+ * @param {string} text
+ * @param {boolean} [keepOr] keep "or", which is otherwise a filler word
+ */
+function significantWords(text, keepOr = false) {
   const words = text.match(/[\p{L}\p{N}][\p{L}\p{N}_'’.@/-]*/gu) ?? [];
   /** @type {string[]} */
   const kept = [];
@@ -468,7 +526,9 @@ function significantWords(text) {
   for (const raw of words) {
     const word = raw.replace(/[.'’-]+$/u, "");
 
-    if (word && !STOP_WORDS.has(word.toLowerCase().replace(/’/g, "'"))) kept.push(word);
+    const key = word.toLowerCase().replace(/’/g, "'");
+
+    if (word && (!STOP_WORDS.has(key) || (keepOr && key === "or"))) kept.push(word);
   }
 
   return kept;
@@ -697,6 +757,61 @@ function resolveDateCoreUnchecked(core, today, pastBias) {
   return null;
 }
 
+/** @param {string} core a day or month written without a year, such as "1 March" or "March" */
+function isYearless(core) {
+  return !/\d{4}/.test(core) && !RELATIVE_WHOLE.test(core.trim());
+}
+
+/**
+ * @param {string} core
+ * @param {number} year
+ */
+function resolveInYear(core, year) {
+  return resolveDateCore(core, isoDay(year, 1, 1), false);
+}
+
+/**
+ * Both ends of a range, inclusive. A day or month without a year takes its year from the other end,
+ * rolling over when needed, so "1 December to 5 January" crosses into the next year. Returns null
+ * when the range runs backwards rather than swapping the ends.
+ * @param {string} startCore
+ * @param {string} endCore
+ * @param {string} today
+ * @param {boolean} pastBias
+ * @returns {{ from: string, to: string } | null}
+ */
+function resolveDateRange(startCore, endCore, today, pastBias) {
+  let start;
+  let end;
+
+  if (isYearless(startCore) && !isYearless(endCore)) {
+    end = resolveDateCore(endCore, today, pastBias);
+
+    if (!end) return null;
+    const year = dayParts(end.to).year;
+
+    start = resolveInYear(startCore, year);
+
+    if (start && start.from > end.to) start = resolveInYear(startCore, year - 1);
+  } else {
+    start = resolveDateCore(startCore, today, pastBias);
+
+    if (!start) return null;
+
+    if (isYearless(endCore)) {
+      const year = dayParts(start.from).year;
+
+      end = resolveInYear(endCore, year);
+
+      if (end && end.to < start.from) end = resolveInYear(endCore, year + 1);
+    } else end = resolveDateCore(endCore, today, pastBias);
+  }
+
+  if (!start || !end || start.from > end.to) return null;
+
+  return { from: start.from, to: end.to };
+}
+
 /**
  * @param {string} phrase
  * @param {string} today
@@ -704,7 +819,23 @@ function resolveDateCoreUnchecked(core, today, pastBias) {
  * @returns {(DateRange & { prefix: string }) | null}
  */
 function parseDatePhrase(phrase, today, pastBias) {
-  const match = DATE_PATTERN.exec(phrase.trim().replace(/\s+/g, " "));
+  const text = phrase.trim().replace(/\s+/g, " ");
+  const range = DATE_RANGE_PATTERN.exec(text);
+
+  if (range) {
+    const [, prefix, start, connector, end] = range;
+    const lead = prefix?.toLowerCase();
+    const joiner = connector?.toLowerCase();
+    // "and" only joins a range after "between"; "between" takes "and", "to" or a dash.
+    const joined = joiner === "and" ? lead === "between" : lead !== "between" || !joiner || joiner === "to";
+    const years = /^\d{4}$/.test(start) || /^\d{4}$/.test(end);
+    const fits = joined && (!years || lead === "from");
+    const resolved = fits ? resolveDateRange(start, end, today, pastBias) : null;
+
+    return resolved ? { ...resolved, prefix: "range" } : null;
+  }
+
+  const match = DATE_PATTERN.exec(text);
 
   if (!match) return null;
   const prefix = match[1] ? phraseKey(match[1]) : "";
@@ -1116,7 +1247,9 @@ const STATIC_PATTERNS = {
   ),
   bareValue: stickyLoose(BARE_VALUE),
   negation: stickyLoose("(?:(?:is|are)\\s+)?(?:un|non-?|not\\s+)"),
+  negatedLead: stickyLoose(`(?:${NEGATION_LEAD})(?:\\s+|(?=["“'‘]))`),
   date: sticky(`(?:(?:uploaded|added|created|received)\\s+)?(?:(?:${DATE_PREFIX})\\s+)?(?:the\\s+)?(?:${DATE_CORE})`),
+  dateRange: sticky(DATE_RANGE),
   quoted: stickyLoose(QUOTED),
   instruction: stickyLoose("(?::|(?:so\\s+that|to|for|with|that|which|by)(?=\\s))\\s*"),
   word: stickyLoose("[\\p{L}\\p{N}_]+(?:['’.\\-/][\\p{L}\\p{N}_]+)*|\\S"),
@@ -1328,7 +1461,10 @@ const CONDITION_RULES = [
 const DATE_RULE = {
   type: "date",
   test: (text, index) => {
+    const range = matchAt(STATIC_PATTERNS.dateRange, text, index);
     const match = matchAt(STATIC_PATTERNS.date, text, index);
+
+    if (range && (!match || range.length > match.length)) return range;
 
     // "May" alone is too common a word; it needs a prefix ("in May") or a year.
     if (match && /^may$/i.test(match.trim())) return null;
@@ -1380,6 +1516,30 @@ const LATER_RULES = [
     type: "field",
     test: (text, index, { lexicon }) =>
       sliceMatch(text, index, lookupWithPrefix(lexicon.index.fields, text, index, STATIC_PATTERNS.the)),
+  },
+  {
+    type: "condition",
+    test: (text, index, { lexicon, afterField }) => {
+      const lead = matchAt(STATIC_PATTERNS.negatedLead, text, index);
+
+      if (!lead) return null;
+      const start = index + lead.length;
+      const quoted = matchAt(STATIC_PATTERNS.quoted, text, start);
+
+      if (quoted) return text.slice(index, start + quoted.length);
+      const known = lookupPhrase(lexicon.index.values, text, start);
+
+      if (known) return text.slice(index, known.end);
+
+      // Straight after a field any word is its value, except after "without", which usually names a field.
+      if (!afterField || /^without/i.test(lead)) return null;
+
+      if (lookupPhrase(lexicon.index.fields, text, start) || lookupPhrase(lexicon.index.subjects, text, start))
+        return null;
+      const value = matchAt(STATIC_PATTERNS.bareValue, text, start);
+
+      return value && !RESERVED_VALUES.has(phraseKey(value)) ? text.slice(index, start + value.length) : null;
+    },
   },
   {
     type: "condition",
@@ -1504,6 +1664,9 @@ function parseCondition(text, lexicon) {
   const state = STATE_BY_PHRASE.get(key);
 
   if (state) return { op: state, values: [], word: key, kind: "state" };
+  const excluded = NEGATED_PATTERN.exec(text.trim());
+
+  if (excluded) return { op: "is_not", values: [stripQuotes(excluded[2])], word: phraseKey(excluded[1]), kind: "text" };
 
   const negation = /^(?:(?:is|are) )?(?:un|non-?|not )(.+)$/.exec(key);
 
@@ -1652,6 +1815,7 @@ export function parseCostCondition(text) {
  *   text: string[],
  *   uploaded: DateRange,
  *   cost: CostCondition|null,
+ *   guarded: Set<number>,
  * }} InterpretState
  */
 
@@ -1674,6 +1838,8 @@ export function interpretLocally(segments, catalog, options = {}) {
   // Upload dates are UTC days, so callers pass today's UTC date.
   const today = options.today ?? utcToday();
 
+  const { guarded, disjunctions } = findGuards(segments, lexicon);
+
   /** @type {InterpretState} */
   const state = {
     lexicon,
@@ -1689,6 +1855,7 @@ export function interpretLocally(segments, catalog, options = {}) {
     text: [],
     uploaded: { from: null, to: null },
     cost: null,
+    guarded,
   };
 
   const subjects = readSubjects(state);
@@ -1709,8 +1876,11 @@ export function interpretLocally(segments, catalog, options = {}) {
   for (const [index, segment] of segments.entries()) {
     if (consumed.has(index)) continue;
 
-    if (segment.type === "plain") state.unused.push(...significantWords(segment.text));
-    else if (!["action", "subject", "template", "page"].includes(segment.type)) {
+    // "or" joins statuses or Templates into one list; anywhere else the filter can't express it.
+    const disjunction = disjunctions.has(index) && (disjunctions.get(index) === null || !filterAction);
+
+    if (segment.type === "plain") state.unused.push(...significantWords(segment.text, disjunction));
+    else if (guarded.has(index) || !["action", "subject", "template", "page"].includes(segment.type)) {
       state.unused.push(segment.text.trim());
       state.resolved[index] = null;
     }
@@ -1742,6 +1912,73 @@ export function interpretLocally(segments, catalog, options = {}) {
 }
 
 /**
+ * Phrases the parser must not apply because a word it can't read changes their meaning: a negating
+ * word ("except failed", "not from last week", "Acme excluded"), or "or" between conditions, which a
+ * filter can't express. A guard covers the run of filter phrases on that side of the word, up to an
+ * unread word or another kind of phrase, so a field goes with its value. Template names in the run are
+ * guarded after a negating word and passed over after "or". "or" between two statuses or two Templates
+ * is a list the filter holds, so it guards nothing.
+ * @param {Segment[]} segments
+ * @param {Lexicon} lexicon
+ * @returns {{ guarded: Set<number>, disjunctions: Map<number, "status"|"template"|null> }}
+ */
+function findGuards(segments, lexicon) {
+  /** @type {Set<number>} */
+  const guarded = new Set();
+  /** @type {Map<number, "status"|"template"|null>} */
+  const disjunctions = new Map();
+
+  /** @param {Segment|undefined} segment */
+  const namesTemplate = (segment) =>
+    segment?.type === "template" ||
+    (segment?.type === "subject" && Boolean(lexicon.subjects.get(phraseKey(segment.text))?.template));
+
+  /**
+   * @param {number} start
+   * @param {1|-1} step
+   * @param {boolean} templates
+   */
+  const guardRun = (start, step, templates) => {
+    for (let index = start; index >= 0 && index < segments.length; index += step) {
+      const segment = segments[index];
+
+      if (segment.type === "plain") {
+        if (significantWords(segment.text).length) return;
+        continue;
+      }
+
+      if (PREDICATE_TYPES.has(segment.type) || (templates && namesTemplate(segment))) guarded.add(index);
+      else if (segment.type !== "subject" && segment.type !== "template") return;
+    }
+  };
+
+  for (const [index, segment] of segments.entries()) {
+    if (segment.type !== "plain") continue;
+    const words = segment.text.toLowerCase().replace(/’/g, "'").match(/[\p{L}\p{N}']+/gu) ?? [];
+
+    if (words.includes("or")) {
+      const before = segments[index - 1];
+      const after = segments[index + 1];
+      const statuses = before?.type === "status" && after?.type === "status";
+      const kind = statuses ? "status" : namesTemplate(before) && namesTemplate(after) ? "template" : null;
+
+      disjunctions.set(index, kind);
+
+      if (!kind) {
+        guardRun(index - 1, -1, false);
+        guardRun(index + 1, 1, false);
+      }
+    }
+
+    if (words.some((word) => NEGATING_WORDS.has(word))) guardRun(index + 1, 1, true);
+
+    if (words.some((word) => NEGATING_AFTER_WORDS.has(word))) guardRun(index - 1, -1, true);
+  }
+
+  return { guarded, disjunctions };
+}
+
+/**
  * @typedef {{
  *   templateIds: string[],
  *   kind: "documents"|"templates"|null,
@@ -1766,7 +2003,7 @@ function readSubjects(state) {
       subjects.kind ??= entry.kind;
       subjects.singular ||= !entry.plural;
 
-      if (entry.template) {
+      if (entry.template && !state.guarded.has(index)) {
         if (!subjects.templateIds.includes(entry.template.id)) subjects.templateIds.push(entry.template.id);
         state.resolved[index] = entry.template.name;
         noteTemplateOrField(state, entry.template, phraseKey(segment.text));
@@ -1783,7 +2020,7 @@ function readSubjects(state) {
       subjects.templateSegment = true;
       subjects.kind ??= "templates";
 
-      if (template) {
+      if (template && !state.guarded.has(index)) {
         if (!subjects.templateIds.includes(template.id)) subjects.templateIds.push(template.id);
         state.resolved[index] = `v${template.current_version}`;
       }
@@ -1876,6 +2113,11 @@ function readFilterSegments(state, consumed) {
   for (const [index, segment] of state.segments.entries()) {
     if (costAmounts.has(index)) continue;
 
+    if (state.guarded.has(index)) {
+      settleField();
+      continue;
+    }
+
     switch (segment.type) {
       case "field": {
         settleField();
@@ -1931,7 +2173,10 @@ function readFilterSegments(state, consumed) {
         }
 
         if (parsed.kind === "state") pendingState = { index, op: parsed.op };
-        else if (applyLooseCondition(state, parsed, index)) consumed.add(index);
+        else if (parsed.kind === "text" && parsed.op === "is_not") {
+          // "excluding Acme" or "isn't Acme" without a field: a known value names its field.
+          if (applyKnownValue(state, parsed.values[0], index, "is_not")) consumed.add(index);
+        } else if (applyLooseCondition(state, parsed, index)) consumed.add(index);
 
         break;
       }
@@ -2181,15 +2426,15 @@ function fitCondition(entry, parsed, today) {
     return value2 !== null && value2 >= value ? { ...base, op, value, value2 } : null;
   }
 
+  if (op === "between") {
+    const span = second === undefined ? null : resolveDateRange(stripQuotes(first), second, today, false);
+
+    return span ? { ...base, op, value: span.from, value2: span.to } : null;
+  }
+
   const range = resolveDateCore(stripQuotes(first), today, false);
 
   if (!range) return null;
-
-  if (op === "between") {
-    const end = second === undefined ? null : resolveDateCore(second, today, false);
-
-    return end && end.to >= range.from ? { ...base, op, value: range.from, value2: end.to } : null;
-  }
 
   if (op === "eq")
     return range.from === range.to
@@ -2262,13 +2507,14 @@ function applyLooseCondition(state, parsed, index) {
   const isNumber = parseNumber(first) !== null && (second === undefined || parseNumber(second) !== null);
 
   if (!isNumber) {
-    const start = resolveDateCore(first, state.today, true);
-    const end = second === undefined ? start : resolveDateCore(second, state.today, true);
+    if (!["between", "eq"].includes(parsed.op)) return false;
 
-    if (!start || !end || !["between", "eq"].includes(parsed.op)) return false;
-    const range = { from: start.from, to: end.to };
+    const range =
+      second === undefined
+        ? resolveDateCore(first, state.today, true)
+        : resolveDateRange(first, second, state.today, true);
 
-    if (range.from > range.to || !mergeUploaded(state, range)) return false;
+    if (!range || !mergeUploaded(state, range)) return false;
     state.resolved[index] = formatRange(range, state.today);
 
     return true;
@@ -2315,6 +2561,18 @@ function applyValue(state, text, index, pendingField) {
     return true;
   }
 
+  return applyKnownValue(state, value, index, "contains");
+}
+
+/**
+ * A known value without a field takes the field it is known in: "Acme" is Vendor contains “Acme”,
+ * "excluding Acme" is Vendor is not “Acme”.
+ * @param {InterpretState} state
+ * @param {string} value
+ * @param {number} index
+ * @param {"contains"|"is_not"} op
+ */
+function applyKnownValue(state, value, index, op) {
   const candidates = state.lexicon.values.get(phraseKey(value)) ?? [];
 
   // With Templates named, only their fields count; a value from another Template would match nothing.
@@ -2325,13 +2583,19 @@ function applyValue(state, text, index, pendingField) {
   const chosen = pool[0];
 
   if (!chosen) return false;
-  state.conditions.push({
-    template_id: chosen.template.id,
-    field_id: chosen.field.field_id,
-    op: "contains",
-    value: chosen.value,
-  });
+  state.conditions.push({ template_id: chosen.template.id, field_id: chosen.field.field_id, op, value: chosen.value });
   state.resolved[index] = chosen.field.name;
+
+  // A condition limits the search to its Template, so "documents excluding Acme" would quietly leave out
+  // every other Template's documents.
+  if (op === "is_not" && !state.hints.length) {
+    state.incomplete = true;
+    state.notes.push({
+      kind: "unrecognised",
+      text: truncate(`Only ${chosen.template.name} documents can leave out “${chosen.value}”, so others aren't included.`, 300),
+    });
+  }
+
   /** @type {Array<{ template_id: string, field_id: string }>} */
   const alternatives = [];
 
@@ -2458,7 +2722,7 @@ function readArgs(state, action, subjects, args, consumed, workspaces) {
 
     if (segment.type === "action") consumed.add(index);
 
-    if (segment.type === "subject" || segment.type === "template") consumed.add(index);
+    if ((segment.type === "subject" || segment.type === "template") && !state.guarded.has(index)) consumed.add(index);
 
     if (segment.type === "quantity") {
       const limit = quantityLimit(key, subjects);
@@ -2589,7 +2853,10 @@ function markPlainConsumed(segments, consumed) {
  * The model only fills the gaps. Whatever the local parser recognised (the action verb, upload
  * dates, statuses, Templates, field conditions, cost and arguments) stays exactly as the pills show it,
  * so the same request can't change meaning between runs. The model adds what the parser couldn't
- * read: leftover words, plain search text and conditions on other fields.
+ * read: leftover words, plain search text and conditions on other fields. When words were left
+ * unread, the model's conditions on a field replace the parser's on that field, since an unread word
+ * may change a condition the parser did read. The parser itself leaves out phrases next to a
+ * negating word or an unsupported "or", so those never reach this merge.
  * @param {CommandInterpretation} local
  * @param {CommandInterpretation} model
  * @param {Segment[]} segments
@@ -2634,16 +2901,25 @@ export function mergeInterpretations(local, model, segments) {
 
   if (modelName) filter.model = modelName;
 
-  // Local conditions stay; model conditions are added for other fields, on the same Templates.
-  const conditions = [...(mine.conditions ?? [])];
-  const pinned = new Set([...(templateIds ?? []), ...conditions.map((condition) => condition.template_id)]);
+  // Local conditions stay and model conditions are added for other fields, on the same Templates.
+  // When the parser left words unread, any of them could change a condition it did read ("bar Acme"),
+  // so the model's conditions replace the parser's on each field the model also filtered.
+  /** @param {FieldCondition} condition */
+  const fieldKey = (condition) => `${condition.template_id}\u0000${condition.field_id}`;
+  const localFields = new Set((mine.conditions ?? []).map(fieldKey));
+  const modelFields = new Set((theirs.conditions ?? []).map(fieldKey));
+  const replace = local.unrecognised.length > 0;
+
+  const conditions = (mine.conditions ?? []).filter(
+    (condition) => !(replace && modelFields.has(fieldKey(condition))),
+  );
+
+  const pinned = new Set([...(templateIds ?? []), ...(mine.conditions ?? []).map((condition) => condition.template_id)]);
 
   for (const condition of theirs.conditions ?? []) {
-    const sameField = conditions.some(
-      (kept) => kept.template_id === condition.template_id && kept.field_id === condition.field_id,
-    );
+    if (localFields.has(fieldKey(condition)) && !replace) continue;
 
-    if (sameField || (pinned.size && !pinned.has(condition.template_id))) continue;
+    if (pinned.size && !pinned.has(condition.template_id)) continue;
 
     if (conditions.length < SEARCH_LIMITS.conditions) conditions.push(condition);
   }

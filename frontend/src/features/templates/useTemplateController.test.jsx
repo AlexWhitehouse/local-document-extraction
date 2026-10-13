@@ -213,9 +213,9 @@ describe("palette draft intent", () => {
   it("applies the draft as unsaved edits once the template opens", async () => {
     const props = { ...propsFor(request()), activePage: "documents", routeTemplateId: undefined };
     const { result, rerender } = renderHook(useTemplateController, { initialProps: props });
-    act(() => result.current.actions.prepareDraft({ templateId: "tpl", draft }));
-    expect(result.current.templatePage.templateFields).not.toEqual(draft.fields);
+    // The palette prepares the draft once navigation is under way; the Template is still loading.
     rerender({ ...props, activePage: "templates", routeTemplateId: "tpl" });
+    act(() => result.current.actions.prepareDraft({ templateId: "tpl", draft }));
     await waitFor(() => expect(result.current.templatePage.templateFields).toEqual(draft.fields));
     expect(result.current.toolbar.selectedTemplateId).toBe("tpl");
     expect(result.current.navigation.hasUnsavedChanges).toBe(true);
@@ -242,19 +242,37 @@ describe("palette draft intent", () => {
       path.startsWith("/templates/") ? savedById(path.slice("/templates/".length)) : { templates: [template("y")] },
     );
 
-  it("keeps the draft while a guarded navigation asks to discard edits, then applies it", async () => {
+  it("applies a draft prepared with the navigation to its template, after edits elsewhere were discarded", async () => {
     const props = { ...propsFor(routedRequest()), routeTemplateId: "y" };
     const { result, rerender } = renderHook(useTemplateController, { initialProps: props });
     await waitFor(() => expect(result.current.navigation.load.status).toBe("ready"));
     act(() => result.current.templatePage.onTemplateNameChange("Template y (edited)"));
-    act(() => result.current.actions.prepareDraft({ templateId: "x", draft }));
-    // "Discard changes?" is open: the route hasn't moved yet.
-    rerender({ ...props });
-    expect(result.current.templatePage.templateName).toBe("Template y (edited)");
-    rerender({ ...props, routeTemplateId: "x" });
+    // "Discard" was chosen: the route moves to x and the draft is prepared in the same update.
+    act(() => {
+      rerender({ ...props, routeTemplateId: "x" });
+      result.current.actions.prepareDraft({ templateId: "x", draft });
+    });
     await waitFor(() => expect(result.current.templatePage.templateFields).toEqual(draft.fields));
     expect(result.current.toolbar.selectedTemplateId).toBe("x");
     expect(props.showActionToast).toHaveBeenCalledWith("template.applyDraft", "success", { targetName: "Invoice" });
+  });
+
+  it("drops a draft whose navigation never happened, so a later visit opens the saved template", async () => {
+    const props = { ...propsFor(routedRequest()), routeTemplateId: "y" };
+    const { result, rerender } = renderHook(useTemplateController, { initialProps: props });
+    await waitFor(() => expect(result.current.navigation.load.status).toBe("ready"));
+    act(() => result.current.templatePage.onTemplateNameChange("Template y (edited)"));
+    // Prepared on y for x, but the route stays on y ("Keep editing").
+    act(() => result.current.actions.prepareDraft({ templateId: "x", draft }));
+    expect(result.current.templatePage.templateName).toBe("Template y (edited)");
+
+    act(() => result.current.templatePage.onTemplateNameChange("Template y"));
+    rerender({ ...props, routeTemplateId: "x" });
+    await waitFor(() => expect(result.current.toolbar.selectedTemplateId).toBe("x"));
+    await waitFor(() => expect(result.current.navigation.load.status).toBe("ready"));
+    expect(result.current.templatePage.templateName).toBe("Template x");
+    expect(result.current.templatePage.templateFields.map((field) => field.name)).toEqual(["Total"]);
+    expect(props.showActionToast).not.toHaveBeenCalledWith("template.applyDraft", "success", expect.anything());
   });
 
   it("drops the draft when you go somewhere else instead", async () => {

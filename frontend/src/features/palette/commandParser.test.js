@@ -1356,3 +1356,265 @@ describe("processing cost", () => {
     ).toEqual({ op: "lt", value: 1 });
   });
 });
+
+describe("negated values", () => {
+  const notAcme = condition("tpl_invoice", "vendor", "is_not", "Acme");
+
+  it.each([
+    "delete invoices excluding Acme",
+    "delete invoices except Acme",
+    "delete invoices except for Acme",
+    "delete invoices other than Acme",
+    "delete invoices not from Acme",
+    "delete invoices that aren't from Acme",
+    "delete invoices that are not by Acme",
+    "delete invoices without Acme",
+    "delete invoices that isn't Acme",
+    "delete invoices where vendor is not Acme",
+    "delete invoices where vendor excluding acme",
+  ])("reads %s as is not", (text) => {
+    const { interpretation, complete } = run(text);
+
+    expect(interpretation.filter.conditions).toEqual([
+      { ...notAcme, value: /acme$/.test(text) ? "acme" : "Acme" },
+    ]);
+    expect(complete).toBe(true);
+  });
+
+  it("negates a typed value straight after a field", () => {
+    expect(run("invoices where invoice number except HNH-1").interpretation.filter).toEqual({
+      conditions: [condition("tpl_invoice", "invoice_number", "is_not", "HNH-1")],
+    });
+    // "without" before a field label still means the field is missing.
+    expect(run("invoices without a vendor").interpretation.filter).toEqual({
+      conditions: [condition("tpl_invoice", "vendor", "not_found")],
+    });
+  });
+
+  it("asks when leaving a value out would also leave out other Templates", () => {
+    const { interpretation, complete } = run("delete documents excluding Acme");
+
+    expect(complete).toBe(false);
+    expect(interpretation.filter.conditions).toEqual([notAcme]);
+    expect(interpretation.notes).toContainEqual({
+      kind: "unrecognised",
+      text: "Only Invoice documents can leave out “Acme”, so others aren't included.",
+    });
+  });
+
+  it("never searches for text the request excludes", () => {
+    const { interpretation, complete, unused } = run('find documents without "draft"');
+
+    expect(interpretation.filter.text).not.toBe("draft");
+    expect(unused).toEqual(['without "draft"']);
+    expect(complete).toBe(false);
+  });
+
+  it.each([
+    ["delete documents except failed", ["except", "failed"]],
+    ["delete documents not from last week", ["not", "from last week"]],
+    ["delete documents except invoices from Acme", ["except", "invoices", "from Acme"]],
+    ["delete invoices with Acme excluded", ["invoices", "Acme", "excluded"]],
+    ["delete documents that aren't failed", ["aren't", "failed"]],
+  ])("leaves out phrases after an unread negating word: %s", (text, words) => {
+    const { interpretation, complete, unused } = run(text);
+    const { statuses, template_ids: templateIds, conditions, uploaded_from: from } = interpretation.filter;
+
+    expect({ statuses, templateIds, conditions, from }).toEqual({});
+    expect(unused).toEqual(words);
+    expect(complete).toBe(false);
+  });
+});
+
+describe("date ranges", () => {
+  it("keeps both ends of the review's example", () => {
+    const { interpretation, complete } = run("find documents uploaded from 1 March 2026 to 31 March 2026");
+
+    expect(interpretation.filter).toEqual({ uploaded_from: "2026-03-01", uploaded_to: "2026-03-31" });
+    expect(complete).toBe(true);
+    expect(resolveRelativeDate("from 1 March 2026 to 31 March 2026", TODAY)).toEqual({
+      from: "2026-03-01",
+      to: "2026-03-31",
+    });
+  });
+
+  it.each([
+    ["documents from 1 March 2026 until 31 March 2026", "2026-03-01", "2026-03-31"],
+    ["documents from 1 March 2026 through 31 March 2026", "2026-03-01", "2026-03-31"],
+    ["documents from 1 March 2026 till 31 March 2026", "2026-03-01", "2026-03-31"],
+    ["documents uploaded between 1 March and 31 March 2026", "2026-03-01", "2026-03-31"],
+    ["documents 1 March 2026 – 31 March 2026", "2026-03-01", "2026-03-31"],
+    ["documents 1 March 2026–31 March 2026", "2026-03-01", "2026-03-31"],
+    ["documents 2026-03-01 - 2026-03-31", "2026-03-01", "2026-03-31"],
+    ["documents 1 March 2026 to 31 March 2026", "2026-03-01", "2026-03-31"],
+    // Month and year boundaries
+    ["documents from 30 January 2028 to 2 March 2028", "2028-01-30", "2028-03-02"],
+    ["documents from February 2028 to March 2028", "2028-02-01", "2028-03-31"],
+    ["documents from 1 Oct through 31 Oct", "2026-10-01", "2026-10-31"],
+    ["documents from 1 December to 5 January", "2025-12-01", "2026-01-05"],
+    ["documents from 20 December 2025 to 3 January", "2025-12-20", "2026-01-03"],
+    ["documents from December 2025 to January 2026", "2025-12-01", "2026-01-31"],
+    ["documents from 2024 to 2025", "2024-01-01", "2025-12-31"],
+    ["documents from last week to today", "2026-10-05", TODAY],
+  ])("reads the upload range %s", (text, from, to) => {
+    const { interpretation, complete } = run(text);
+
+    expect(interpretation.filter).toEqual({ uploaded_from: from, uploaded_to: to });
+    expect(complete).toBe(true);
+  });
+
+  it("reads a range next to a date field as a field range", () => {
+    expect(run("invoices issued from 1 March 2026 to 31 March 2026").interpretation.filter).toEqual({
+      conditions: [condition("tpl_invoice", "issue_date", "between", "2026-03-01", "2026-03-31")],
+    });
+    expect(run("invoices issued 1 March 2026 – 31 March 2026").interpretation.filter).toEqual({
+      conditions: [condition("tpl_invoice", "issue_date", "between", "2026-03-01", "2026-03-31")],
+    });
+    // Extracted dates may be in the future, so a range without years runs forward from this year.
+    expect(run("invoices issued between 1 December and 5 January").interpretation.filter).toEqual({
+      conditions: [condition("tpl_invoice", "issue_date", "between", "2026-12-01", "2027-01-05")],
+    });
+  });
+
+  it.each([
+    "documents from 31 March 2026 to 1 March 2026",
+    "documents between 15 March 2026 and 1 March 2026",
+    "documents 31 March 2026 – 1 March 2026",
+    "invoices issued from 31 March 2026 to 1 March 2026",
+    "invoices issued between 31 March 2026 and 1 March 2026",
+  ])("leaves a reversed range unused instead of narrowing it to a day: %s", (text) => {
+    const { interpretation, complete } = run(text);
+
+    expect(complete).toBe(false);
+    expect(interpretation.filter.uploaded_from).toBeUndefined();
+    expect(interpretation.filter.uploaded_to).toBeUndefined();
+    expect(interpretation.filter.conditions).toBeUndefined();
+  });
+
+  it("keeps bare numbers after between as numbers", () => {
+    expect(run("purchase orders between 2000 and 2500").interpretation.filter).toEqual({
+      conditions: [condition("tpl_po", "amount", "between", 2000, 2500)],
+    });
+  });
+});
+
+describe("or", () => {
+  it.each([
+    ["find invoices with vendor Acme or vendor Globex Supplies", ["vendor", "Acme", "or", "vendor", "Globex Supplies"]],
+    ["find invoices from Acme or Globex Supplies", ["from Acme", "or", "Globex Supplies"]],
+    ["invoices where total is over 500 or vendor is Acme", ["total", "is over 500", "or", "vendor", "is Acme"]],
+    ["documents uploaded today or yesterday", ["uploaded today", "or", "yesterday"]],
+    ["find failed or Acme invoices", ["failed", "or", "Acme"]],
+  ])("never ANDs the two sides of %s", (text, words) => {
+    const { interpretation, complete, unused } = run(text);
+
+    expect(interpretation.filter.conditions).toBeUndefined();
+    expect(interpretation.filter.statuses).toBeUndefined();
+    expect(interpretation.filter.uploaded_from).toBeUndefined();
+    expect(unused).toEqual(words);
+    expect(complete).toBe(false);
+  });
+
+  it("lists statuses and Templates joined by or", () => {
+    const statuses = run("find failed or completed documents");
+
+    expect(statuses.interpretation.filter).toEqual({ statuses: ["failed", "completed"] });
+    expect(statuses.complete).toBe(true);
+
+    const templates = run("find invoices or receipts");
+
+    expect(templates.interpretation.filter).toEqual({ template_ids: ["tpl_invoice", "tpl_receipt"] });
+    expect(templates.complete).toBe(true);
+  });
+
+  it("asks about Templates joined by or when the action takes one Template", () => {
+    const { complete, unused } = run("upload invoices or receipts");
+
+    expect(complete).toBe(false);
+    expect(unused).toEqual(["or"]);
+  });
+});
+
+describe("mergeInterpretations with words the parser didn't read", () => {
+  function local(text) {
+    const segments = lexCommand(text, catalog, { workspaces });
+
+    return { segments, ...interpretLocally(segments, catalog, { today: TODAY, workspaces }) };
+  }
+
+  const answer = (conditions, unrecognised = []) => ({
+    action: "delete",
+    args: {},
+    filter: { conditions },
+    unrecognised,
+    notes: [],
+  });
+
+  const contains = condition("tpl_invoice", "vendor", "contains", "Acme");
+  const notAcme = condition("tpl_invoice", "vendor", "is_not", "Acme");
+
+  it("takes the model's correction of a condition next to an unread word", () => {
+    const segments = lexCommand("delete invoices excluding Acme", catalog);
+
+    // The parser's reading before it knew "excluding".
+    const incomplete = {
+      action: "delete",
+      args: {},
+      filter: { conditions: [contains] },
+      unrecognised: ["excluding"],
+      notes: [],
+    };
+
+    expect(mergeInterpretations(incomplete, answer([notAcme]), segments).filter.conditions).toEqual([notAcme]);
+
+    const unknownWord = local("delete invoices bar Acme");
+
+    expect(unknownWord.complete).toBe(false);
+    expect(unknownWord.interpretation.filter.conditions).toEqual([contains]);
+    expect(
+      mergeInterpretations(unknownWord.interpretation, answer([notAcme]), unknownWord.segments).filter.conditions,
+    ).toEqual([notAcme]);
+  });
+
+  it("never turns excluding Acme into contains Acme", () => {
+    const excluded = local("delete invoices excluding Acme");
+
+    expect(excluded.complete).toBe(true);
+    expect(excluded.interpretation.filter.conditions).toEqual([notAcme]);
+    // Even a model that misreads it can't override a fully recognised phrase.
+    expect(
+      mergeInterpretations(excluded.interpretation, answer([contains]), excluded.segments).filter.conditions,
+    ).toEqual([notAcme]);
+  });
+
+  it("keeps a fully recognised condition when nothing was left unread", () => {
+    const ambiguous = local("delete Acme");
+
+    expect(ambiguous.complete).toBe(false);
+    expect(ambiguous.interpretation.unrecognised).toEqual([]);
+
+    const merged = mergeInterpretations(
+      ambiguous.interpretation,
+      answer([condition("tpl_invoice", "vendor", "is", "Acme")]),
+      ambiguous.segments,
+    );
+
+    expect(merged.filter.conditions).toEqual([contains]);
+  });
+
+  it("only uses the model's conditions for an or the filter can't express", () => {
+    const either = local("delete invoices from Acme or Globex Supplies");
+
+    expect(either.interpretation.filter.conditions).toBeUndefined();
+
+    const one = condition("tpl_invoice", "vendor", "contains", "Globex Supplies");
+
+    expect(
+      mergeInterpretations(either.interpretation, answer([one], ["Acme or"]), either.segments).filter.conditions,
+    ).toEqual([one]);
+    expect(
+      mergeInterpretations(either.interpretation, answer([], ["from Acme or Globex Supplies"]), either.segments).filter
+        .conditions,
+    ).toBeUndefined();
+  });
+});

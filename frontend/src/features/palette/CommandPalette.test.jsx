@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App.jsx";
 import { appPath } from "../../lib/appRoutes";
-import { CommandPalette } from "./CommandPalette.jsx";
+import { CLOSE_FALLBACK_MS, CommandPalette } from "./CommandPalette.jsx";
 import { NO_MODEL_MESSAGE } from "./paletteState.js";
 import { SEARCH_LIMITS } from "../../../../shared/documentSearch.ts";
 
@@ -144,18 +144,32 @@ function createContext(overrides = {}) {
   };
 }
 
-function Harness({ context }) {
-  const [open, setOpen] = useState(false);
+// Hosts the palette the way App does: a closing palette stays mounted until its out animation
+// ends, and each opening is a new palette.
+function Harness({ context, flows, label = "Open palette", initiallyOpen = false }) {
+  const [palette, setPalette] = useState({ status: initiallyOpen ? "open" : "closed", key: 0 });
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)}>
-        Open palette
+      <button type="button" onClick={() => setPalette((current) => ({ status: "open", key: current.key + 1 }))}>
+        {label}
       </button>
-      {open ? <CommandPalette context={context} onClose={() => setOpen(false)} /> : null}
+      {palette.status !== "closed" ? (
+        <CommandPalette
+          key={palette.key}
+          context={context}
+          flows={flows}
+          closing={palette.status === "closing"}
+          onRequestClose={() => setPalette((current) => ({ ...current, status: "closing" }))}
+          onClose={() => setPalette((current) => ({ ...current, status: "closed" }))}
+        />
+      ) : null}
     </>
   );
 }
+
+const paletteClosed = () =>
+  waitFor(() => expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull());
 
 async function openPalette(context, user) {
   render(<Harness context={context} />);
@@ -203,8 +217,9 @@ describe("CommandPalette", () => {
     await user.keyboard("{Escape}");
     expect(input().value).toBe("");
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Open palette" }));
+    await paletteClosed();
+    // Focus returns in the effect cleanup that runs just after the palette leaves the page.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Open palette" })));
   });
 
   it("shows local matches as you type without waiting for the network", async () => {
@@ -364,7 +379,7 @@ describe("CommandPalette", () => {
     // Open goes to the document and closes the palette.
     await user.keyboard("{Enter}");
     expect(context.navigate).toHaveBeenCalledWith("/workspaces/w1/documents/job-1");
-    expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
+    await paletteClosed();
   });
 
   it("searches by processing cost when the catalogue allows it, and shows each document's cost", async () => {
@@ -417,7 +432,7 @@ describe("CommandPalette", () => {
     await user.click(screen.getByRole("button", { name: "Delete 2 documents" }));
     await waitFor(() => expect(context.notify).toHaveBeenCalledWith("document.bulkDelete", "success", { removed: 2 }));
     expect(context.request).toHaveBeenCalledWith("/jobs/job-1", { method: "DELETE" });
-    expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
+    await paletteClosed();
   });
 
   it("opens the Documents list with the request's dates and leaves out search text the list can't show", async () => {
@@ -455,7 +470,7 @@ describe("CommandPalette", () => {
       model: "",
     });
     expect(context.navigate).toHaveBeenCalledWith("/workspaces/w1/documents");
-    expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
+    await paletteClosed();
   });
 
   it("goes to a page straight away from a sentence", async () => {
@@ -582,7 +597,7 @@ describe("CommandPalette bulk actions", () => {
 
     await act(async () => pending.resolve({ deleted: true, job_id: "job-1" }));
     await waitFor(() => expect(context.notify).toHaveBeenCalledWith("document.bulkDelete", "success", { removed: 1 }));
-    expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
+    await paletteClosed();
   });
 });
 
@@ -639,27 +654,14 @@ describe("CommandPalette focus and lifecycle", () => {
   it("ignores a finish from a flow of a palette that has since closed", async () => {
     finishers.length = 0;
 
-    function Reopen() {
-      const [open, setOpen] = useState(true);
-
-      return (
-        <>
-          <button type="button" onClick={() => setOpen(true)}>
-            Reopen
-          </button>
-          {open ? <CommandPalette context={createContext()} onClose={() => setOpen(false)} flows={testFlows} /> : null}
-        </>
-      );
-    }
-
-    render(<Reopen />);
+    render(<Harness context={createContext()} flows={testFlows} label="Reopen" initiallyOpen />);
     await user.type(input(), "upload");
     await user.keyboard("{Enter}");
     await screen.findByRole("button", { name: "Next step" });
     const late = finishers.at(-1);
 
     await user.keyboard("{Escape}{Escape}{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
+    await paletteClosed();
     await user.click(screen.getByRole("button", { name: "Reopen" }));
     act(() => late());
     expect(screen.getByRole("dialog", { name: "Search and actions" })).toBeTruthy();
@@ -705,6 +707,230 @@ describe("CommandPalette focus and lifecycle", () => {
 
     await screen.findByText("hnh-inv-20517.pdf");
     expect(screen.queryByText("hnh-inv-20431.pdf")).toBeNull();
+  });
+});
+
+describe("CommandPalette closing", () => {
+  const dialog = () => screen.getByRole("dialog", { name: "Search and actions" });
+
+  // jsdom has no AnimationEvent, so the event carries its animationName by hand.
+  function endAnimation(element, animationName = "modal-card-out") {
+    const event = new Event("animationend", { bubbles: true });
+    Object.defineProperty(event, "animationName", { value: animationName });
+    fireEvent(element, event);
+  }
+
+  function renderClosing(context = createContext()) {
+    const onRequestClose = vi.fn();
+    const onClose = vi.fn();
+    render(<CommandPalette context={context} onRequestClose={onRequestClose} onClose={onClose} />);
+
+    return { onRequestClose, onClose };
+  }
+
+  it("fades out first and calls onClose when the animation ends", () => {
+    const { onRequestClose, onClose } = renderClosing();
+    fireEvent.keyDown(input(), { key: "Escape" });
+
+    expect(onRequestClose).toHaveBeenCalledTimes(1);
+    expect(dialog().classList.contains("is-closing")).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Neither a child's animation (a pill appearing) nor the entrance counts.
+    endAnimation(input());
+    endAnimation(dialog(), "modal-card-in");
+    expect(onClose).not.toHaveBeenCalled();
+    endAnimation(dialog());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("still closes when no animationend arrives", () => {
+    vi.useFakeTimers();
+    const { onClose } = renderClosing();
+    fireEvent.keyDown(input(), { key: "Escape" });
+
+    act(() => vi.advanceTimersByTime(CLOSE_FALLBACK_MS - 1));
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // The animation ending late doesn't close twice.
+    endAnimation(dialog());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes at once with reduced motion", () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+
+    const { onClose } = renderClosing();
+    fireEvent.keyDown(input(), { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("animates out when the app asks it to close", () => {
+    const context = createContext();
+    const onClose = vi.fn();
+    const view = render(<CommandPalette context={context} onClose={onClose} />);
+    view.rerender(<CommandPalette context={context} closing onClose={onClose} />);
+
+    expect(dialog().classList.contains("is-closing")).toBe(true);
+    endAnimation(dialog());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores typing, Enter and the backdrop while it fades out", () => {
+    const context = createContext();
+    const { onRequestClose } = renderClosing(context);
+    fireEvent.change(input(), { target: { value: "Go to costs" } });
+    fireEvent.click(screen.getByRole("option", { name: /Costs/ }));
+
+    expect(context.navigate).toHaveBeenCalledTimes(1);
+    expect(onRequestClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(input(), { target: { value: "Go to templates" } });
+    expect(input().value).toBe("Go to costs");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    fireEvent.pointerDown(document.querySelector(".modal-backdrop"));
+    fireEvent.pointerUp(document.querySelector(".modal-backdrop"));
+
+    expect(context.navigate).toHaveBeenCalledTimes(1);
+    expect(onRequestClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a request still waiting for the catalogue when the palette closes", async () => {
+    const user = userEvent.setup();
+    const pending = deferred();
+    const context = createContext({ catalog: null, catalogStatus: "loading", refreshCatalog: vi.fn(() => pending.promise) });
+    await openPalette(context, user);
+    await user.type(input(), "Go to costs");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(context.refreshCatalog).toHaveBeenCalled();
+
+    await user.keyboard("{Escape}{Escape}");
+    await paletteClosed();
+    await act(async () => pending.resolve(catalog));
+
+    expect(context.navigate).not.toHaveBeenCalled();
+  });
+
+  it("drops a request still waiting for the catalogue when the palette unmounts", async () => {
+    const user = userEvent.setup();
+    const pending = deferred();
+    const context = createContext({ catalog: null, catalogStatus: "loading", refreshCatalog: vi.fn(() => pending.promise) });
+    const view = render(<CommandPalette context={context} onClose={() => {}} />);
+    await user.type(input(), "Go to costs");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+
+    view.unmount();
+    await act(async () => pending.resolve(catalog));
+
+    expect(context.navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("CommandPalette review regressions", () => {
+  let user;
+
+  beforeEach(() => {
+    user = userEvent.setup();
+  });
+
+  const manyJobs = Array.from({ length: 130 }, (_, index) => ({
+    ...jobs[0],
+    job_id: `job-${index + 1}`,
+    source_name: `doc-${index + 1}.pdf`,
+  }));
+
+  it("pages “the latest N” within the search page size and stops loading more at N", async () => {
+    const bodies = [];
+
+    const request = createRequest({
+      search: (body) => {
+        bodies.push(body);
+
+        if (body.ids_only)
+          return {
+            job_ids: manyJobs.slice(0, body.limit).map((job) => job.job_id),
+            statuses: {},
+            total: manyJobs.length,
+            total_capped: false,
+            has_more: true,
+            next_cursor: null,
+          };
+
+        // The search route takes at most SEARCH_LIMITS.pageSize rows unless ids_only is set.
+        if (body.limit > SEARCH_LIMITS.pageSize) throw Object.assign(new Error("limit too large"), { status: 400 });
+        const start = Number(body.cursor || 0);
+        const end = start + body.limit;
+
+        return {
+          jobs: manyJobs.slice(start, end),
+          total: manyJobs.length,
+          total_capped: false,
+          next_cursor: end < manyJobs.length ? String(end) : null,
+          has_more: end < manyJobs.length,
+        };
+      },
+    });
+
+    const context = createContext({ request });
+    await openPalette(context, user);
+    await user.type(input(), "Find the latest 120 documents");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+
+    expect(await screen.findByText("doc-50.pdf")).toBeTruthy();
+    expect(screen.queryByText("doc-51.pdf")).toBeNull();
+    expect(bodies.find((body) => body.ids_only).limit).toBe(120);
+
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("doc-100.pdf")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("doc-120.pdf")).toBeTruthy();
+
+    expect(screen.queryByText("doc-121.pdf")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(bodies.flatMap((body) => (body.ids_only ? [] : [body.limit]))).toEqual([50, 50, 20]);
+  });
+
+  async function openInDocuments(filter) {
+    const request = createRequest({
+      interpret: () => ({ interpretation: { action: "find_documents", args: {}, filter, unrecognised: [], notes: [] } }),
+    });
+
+    const context = createContext({ request });
+    await openPalette(context, user);
+    // Unknown words, so the model reads the request.
+    await user.type(input(), "Find the paperwork from the usual supplier");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    await user.click(await screen.findByRole("button", { name: "Open in Documents" }));
+
+    return context;
+  }
+
+  it("carries the dates of a request over to the Documents list, even with criteria the list can't show", async () => {
+    const context = await openInDocuments({
+      statuses: ["failed"],
+      uploaded_from: "2026-10-01",
+      uploaded_to: "2026-10-10",
+    });
+
+    expect(context.documentController.contextList.onFiltersChange).toHaveBeenCalledWith({
+      dateFrom: "2026-10-01",
+      dateTo: "2026-10-10",
+      model: "",
+    });
+    expect(context.navigate).toHaveBeenCalledWith("/workspaces/w1/documents");
+  });
+
+  it("clears earlier list filters when nothing in the request carries over", async () => {
+    const context = await openInDocuments({ statuses: ["failed"], text: "hnh" });
+
+    expect(context.documentController.contextList.onFiltersChange).toHaveBeenCalledWith({ dateFrom: "", dateTo: "", model: "" });
   });
 });
 
@@ -761,8 +987,8 @@ describe("CommandPalette in the app", () => {
     );
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
-    expect(document.activeElement).toBe(search);
+    await paletteClosed();
+    await waitFor(() => expect(document.activeElement).toBe(search));
 
     // A field on the page: the shortcut works while typing.
     const field = document.createElement("input");
@@ -771,7 +997,7 @@ describe("CommandPalette in the app", () => {
     fireEvent.keyDown(field, { key: "k", ctrlKey: true });
     expect(screen.getByRole("dialog", { name: "Search and actions" })).toBeTruthy();
     fireEvent.keyDown(document.activeElement, { key: "k", metaKey: true });
-    expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
+    await paletteClosed();
     field.remove();
   });
 
@@ -796,6 +1022,46 @@ describe("CommandPalette in the app", () => {
     });
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull());
+  });
+
+  it("fades out with the workspace it was opened in when the workspace changes", async () => {
+    const user = userEvent.setup();
+    await user.click(await openApp());
+    await user.type(input(), "Workspace a");
+
+    act(() => {
+      window.history.pushState(null, "", "/workspaces/b/documents");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    const dialog = screen.getByRole("dialog", { name: "Search and actions" });
+    expect(dialog.classList.contains("is-closing")).toBe(true);
+    expect(within(dialog).getByRole("option", { name: /Workspace a.*Current workspace/ })).toBeTruthy();
+    await paletteClosed();
+  });
+
+  it("reopens fresh when ⌘K is pressed while it fades out", async () => {
+    const user = userEvent.setup();
+    const search = await openApp();
+    await user.click(search);
+    await user.type(input(), "export");
+
+    fireEvent.keyDown(document.activeElement, { key: "k", metaKey: true });
+    expect(screen.getByRole("dialog", { name: "Search and actions" }).classList.contains("is-closing")).toBe(true);
+    fireEvent.keyDown(document.activeElement, { key: "k", metaKey: true });
+
+    const dialog = screen.getByRole("dialog", { name: "Search and actions" });
+    expect(dialog.classList.contains("is-closing")).toBe(false);
+    expect(input().value).toBe("");
+    await waitFor(() => expect(document.activeElement).toBe(input()));
+
+    // The earlier palette's close finishing doesn't take the new one with it.
+    await new Promise((resolve) => setTimeout(resolve, CLOSE_FALLBACK_MS + 50));
+    expect(screen.getByRole("dialog", { name: "Search and actions" })).toBe(dialog);
+
+    await user.keyboard("{Escape}");
+    await paletteClosed();
+    await waitFor(() => expect(document.activeElement).toBe(search));
   });
 
   it("doesn't open over another dialog such as the onboarding tour", async () => {

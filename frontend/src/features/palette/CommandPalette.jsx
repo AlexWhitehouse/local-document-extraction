@@ -39,6 +39,17 @@ const DOCUMENT_MATCH_DELAY_MS = 200;
 
 const REFRESH_DELAY_MS = 400;
 
+// The closing animation (modal-card-out, 120ms, in CommandPalette.css). If animationend never
+// arrives (a hidden tab, or styles that didn't load), the fallback finishes the close anyway. It
+// leaves room for a busy page starting the animation a few frames late.
+const CLOSE_ANIMATION = "modal-card-out";
+
+export const CLOSE_FALLBACK_MS = 300;
+
+function prefersReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+}
+
 const IDLE_RESULTS = Object.freeze({
   status: "idle",
   jobs: [],
@@ -63,6 +74,18 @@ function useDebounced(value, delay) {
   }, [value, delay]);
 
   return debounced;
+}
+
+// "The latest N" can ask for more documents than one page holds: rows load a page at a time and
+// stop at N, while the bulk targets take all N at once.
+function pageLimit(limit, shown = 0) {
+  return limit ? Math.min(RESULT_PAGE_SIZE, limit - shown) : RESULT_PAGE_SIZE;
+}
+
+function withinLimit(jobs, hasMore, limit) {
+  if (!limit) return { jobs, hasMore };
+
+  return { jobs: jobs.slice(0, limit), hasMore: hasMore && jobs.length < limit };
 }
 
 /**
@@ -95,7 +118,7 @@ function useDocumentSearch(request, queryKey, refreshKey) {
     if (shownKey.current !== queryKey) setState({ ...IDLE_RESULTS, status: "loading" });
 
     Promise.all([
-      searchDocuments(request, { filter, limit: limit || RESULT_PAGE_SIZE, signal }),
+      searchDocuments(request, { filter, limit: pageLimit(limit), signal }),
       // The bulk actions are offered only once the IDs are known; a failure here leaves them off.
       searchTargets(request, filter, { limit: Math.min(limit || SEARCH_LIMITS.idsPageSize, SEARCH_LIMITS.idsPageSize), signal }).catch(
         () => null,
@@ -104,7 +127,7 @@ function useDocumentSearch(request, queryKey, refreshKey) {
       .then(([page, targets]) => {
         if (signal.aborted) return;
         shownKey.current = queryKey;
-        setState({ ...IDLE_RESULTS, ...page, status: "ready", targets, key: queryKey });
+        setState({ ...IDLE_RESULTS, ...page, ...withinLimit(page.jobs, page.hasMore, limit), status: "ready", targets, key: queryKey });
       })
       .catch((error) => {
         if (signal.aborted) return;
@@ -121,15 +144,20 @@ function useDocumentSearch(request, queryKey, refreshKey) {
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
 
   const loadMore = useCallback(async () => {
-    if (!queryKey || state.key !== queryKey || !state.nextCursor || state.loadingMore) return;
-    const { filter } = JSON.parse(queryKey);
+    if (!queryKey || state.key !== queryKey || !state.nextCursor || !state.hasMore || state.loadingMore) return;
+    const { filter, limit } = JSON.parse(queryKey);
     const requested = generation.current;
     const controller = new AbortController();
     moreAbort.current = controller;
     setState((current) => ({ ...current, loadingMore: true, loadMoreError: null }));
 
     try {
-      const page = await searchDocuments(request, { filter, cursor: state.nextCursor, signal: controller.signal });
+      const page = await searchDocuments(request, {
+        filter,
+        cursor: state.nextCursor,
+        limit: pageLimit(limit, state.jobs.length),
+        signal: controller.signal,
+      });
 
       if (controller.signal.aborted || requested !== generation.current) return;
 
@@ -137,19 +165,15 @@ function useDocumentSearch(request, queryKey, refreshKey) {
         if (current.key !== queryKey) return current;
         const seen = new Set(current.jobs.map((job) => job.job_id));
 
-        return {
-          ...current,
-          jobs: current.jobs.concat(page.jobs.filter((job) => !seen.has(job.job_id))),
-          nextCursor: page.nextCursor,
-          hasMore: page.hasMore,
-          loadingMore: false,
-        };
+        const jobs = current.jobs.concat(page.jobs.filter((job) => !seen.has(job.job_id)));
+
+        return { ...current, ...withinLimit(jobs, page.hasMore, limit), nextCursor: page.nextCursor, loadingMore: false };
       });
     } catch (error) {
       if (controller.signal.aborted || requested !== generation.current) return;
       setState((current) => ({ ...current, loadingMore: false, loadMoreError: error }));
     }
-  }, [request, queryKey, state.key, state.nextCursor, state.loadingMore]);
+  }, [request, queryKey, state.key, state.nextCursor, state.hasMore, state.loadingMore, state.jobs.length]);
 
   return { ...state, retry, loadMore };
 }
@@ -193,8 +217,12 @@ function mergedInterpretation(local, answered, segments, catalog) {
  * The command palette: a centred spotlight over the dimmed page. Typing shows instant local
  * matches; Enter turns the sentence into pills, interprets it (locally when it can, otherwise with
  * one model call) and shows results or continues the chosen action inside the palette.
+ *
+ * Closing animates out. The palette starts a close itself through `onRequestClose`, or the app asks
+ * with `closing`; either way input is ignored from then on and `onClose` runs once the card has
+ * faded, when the app unmounts it.
  */
-export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
+export function CommandPalette({ context, closing: closeRequested = false, onRequestClose, onClose, flows = FLOW_REGISTRY }) {
   const catalog = context.catalog || EMPTY_CATALOG;
   // Until the catalogue arrives, Ask is offered; it explains itself once the catalogue says no model.
   const interpretationAvailable = context.catalog ? catalog.interpretation?.available === true : true;
@@ -223,6 +251,7 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
   const inputRef = useRef(null);
   const pillsRef = useRef(null);
   const flowRef = useRef(null);
+  const frameRef = useRef(null);
   const backRef = useRef(null);
   const runRef = useRef(0);
   const interpretAbort = useRef(null);
@@ -230,6 +259,13 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
   const flowToken = useRef(0);
   // True while a flow's action (a delete, export or retry) is running: the palette stays open.
   const [flowBusy, setFlowBusy] = useState(false);
+  const [closingSelf, setClosingSelf] = useState(false);
+  const closing = closeRequested || closingSelf;
+  const closingRef = useRef(closing);
+  closingRef.current = closing;
+  const closed = useRef(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   const trimmed = text.trim();
 
@@ -381,14 +417,54 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
     else inputRef.current?.focus();
   }, [mode, flow]);
 
+  // Drops whatever is still on its way: an interpretation, or a submission waiting for the
+  // catalogue, can't navigate or open a flow once the palette is closing or gone.
+  const dropPending = useCallback(() => {
+    runRef.current += 1;
+    flowToken.current += 1;
+    interpretAbort.current?.abort();
+  }, []);
+
   useEffect(() => {
     mounted.current = true;
 
     return () => {
       mounted.current = false;
-      interpretAbort.current?.abort();
+      dropPending();
     };
+  }, [dropPending]);
+
+  const finishClose = useCallback(() => {
+    if (closed.current) return;
+    closed.current = true;
+    onCloseRef.current();
   }, []);
+
+  // The close finishes when the card's out animation ends; with reduced motion, at once.
+  useEffect(() => {
+    if (!closing) return undefined;
+    dropPending();
+
+    if (prefersReducedMotion()) {
+      finishClose();
+
+      return undefined;
+    }
+
+    const card = frameRef.current?.closest(".command-palette");
+
+    const onAnimationEnd = (event) => {
+      if (event.target === card && event.animationName === CLOSE_ANIMATION) finishClose();
+    };
+
+    card?.addEventListener("animationend", onAnimationEnd);
+    const timer = window.setTimeout(finishClose, CLOSE_FALLBACK_MS);
+
+    return () => {
+      card?.removeEventListener("animationend", onAnimationEnd);
+      window.clearTimeout(timer);
+    };
+  }, [closing, dropPending, finishClose]);
 
   // A flow that changes step can unmount the focused control; focus then returns to the flow so
   // Esc and Tab keep working inside the palette.
@@ -408,8 +484,17 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
     return () => observer.disconnect();
   }, [flow]);
 
+  const beginClose = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    dropPending();
+    setClosingSelf(true);
+    onRequestClose?.();
+  };
+
+  // Navigation runs straight away; the palette fades out over the new page.
   const close = (effect) => {
-    onClose();
+    beginClose();
     effect?.();
   };
 
@@ -428,10 +513,7 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
 
   const openInDocuments = (filter) =>
     close(() => {
-      const listFilters = documentsListFilters(filter);
-
-      if (listFilters) documentController?.contextList?.onFiltersChange?.(listFilters);
-
+      documentController?.contextList?.onFiltersChange?.(documentsListFilters(filter));
       navigateTo({ page: "documents" });
     });
 
@@ -494,7 +576,7 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
     if (context.catalogStatus === "loading" && context.refreshCatalog) {
       activeCatalog = (await context.refreshCatalog()) || catalog;
 
-      if (run !== runRef.current) return;
+      if (run !== runRef.current || closingRef.current) return;
     }
 
     const segments = lexCommand(value, activeCatalog, { workspaces });
@@ -591,7 +673,7 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
   // a palette that has closed) is ignored, so it can't close a palette opened since.
   const finishFlow = (token) => () => {
     if (!mounted.current || token !== flowToken.current) return;
-    onClose();
+    beginClose();
   };
 
   const onBusyChange = useCallback((busy) => {
@@ -611,7 +693,7 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
 
     if (mode === "pills") toEdit(text);
     else if (text) setText("");
-    else onClose();
+    else beginClose();
   };
 
   const registerBack = useCallback((handler) => {
@@ -677,6 +759,14 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
   // Captured on the dialog card, before ModalDialog's own Escape (which closes everything) and
   // wherever focus is inside the card.
   const onPaletteKeyDown = (event) => {
+    // While the palette fades out, keys do nothing (⌘K is handled before this, on the window).
+    if (closing) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      return;
+    }
+
     if (event.key !== "Escape" || event.nativeEvent?.isComposing) return;
     event.preventDefault();
     event.stopPropagation();
@@ -720,15 +810,15 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
   return (
     <ModalDialog
       label="Search and actions"
-      className="command-palette"
+      className={closing ? "command-palette is-closing" : "command-palette"}
       initialFocus=".command-palette-input"
       data-command-palette=""
       data-command-palette-busy={flowBusy ? "true" : undefined}
       closeDisabled={flowBusy}
       onKeyDownCapture={onPaletteKeyDown}
-      onClose={onClose}
+      onClose={beginClose}
     >
-      <div className="command-palette-frame">
+      <div ref={frameRef} className="command-palette-frame">
         <div className="command-palette-bar">
           <span className="command-palette-bar-icon" aria-hidden="true">
             <SearchIcon />
@@ -771,9 +861,10 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
                 maxLength={SEARCH_LIMITS.interpretationTextCharacters}
                 placeholder="Search, ask or run an action…"
                 value={text}
-                readOnly={Boolean(flow)}
+                readOnly={Boolean(flow) || closing}
                 tabIndex={flow ? -1 : 0}
                 onChange={(event) => {
+                  if (closing) return;
                   setText(event.target.value);
                   setHighlight(0);
                 }}

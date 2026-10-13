@@ -56,7 +56,7 @@ function cleanSource(store: LocalWorkspaceProductStore, jobId: string) {
   const claim = { jobId, sourceFileKey: `${jobId}/source.pdf`, cleanedAt: at(3) };
 
   expect(store.claimSourceFileCleanup(claim)).toBe(true);
-  store.markSourceFileCleaned(claim);
+  store.markSourceFileCleaned({ ...claim, retainedObjectKey: null });
 }
 
 /** A packet with one materialized, queued child per page. */
@@ -247,4 +247,129 @@ test("a child of a packet that failed for its own reasons is skipped", async () 
     reopened_packet_ids: [],
   });
   expect(store.getExtractionJobSummary(first!)?.status).toBe("failed");
+});
+
+function cleanupIntents(path: string) {
+  const database = new Database(path, { readonly: true });
+
+  try {
+    return database
+      .query<{ job_id: string; retained_key: string | null }, SQLQueryBindings[]>(
+        "SELECT job_id, retained_key FROM source_file_deletion_intents ORDER BY job_id",
+      )
+      .all();
+  } finally {
+    database.close();
+  }
+}
+
+async function sweep(stateDirectory: string, released: string[] = []) {
+  const registry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
+  const deleted: string[] = [];
+
+  const retention = createLocalSourceFileRetention({
+    failedSourceRetentionMs: 0,
+    now: () => Date.parse("2026-10-03T00:00:00.000Z"),
+    productStoreRegistry: registry,
+    releaseRetainedObject: ({ objectKey }) => released.push(objectKey),
+    sourceFileStore: {
+      delete: async (key) => {
+        deleted.push(key);
+      },
+    },
+    stateDirectory,
+  });
+
+  try {
+    await retention.run();
+  } finally {
+    registry.closeAll();
+  }
+
+  return deleted;
+}
+
+test("a claim interrupted before the unlink keeps the original unavailable until a later sweep deletes it", async () => {
+  const { store, stateDirectory, path } = await harness();
+
+  failedJob(store, "job_interrupted");
+  const claim = { jobId: "job_interrupted", sourceFileKey: "job_interrupted/source.pdf", cleanedAt: at(5) };
+
+  // The sweep stops after its claim commits; the deletion is committed to, so a retry can't use the file.
+  expect(store.claimSourceFileCleanup(claim)).toBe(true);
+  expect(cleanupIntents(path)).toEqual([{ job_id: "job_interrupted", retained_key: null }]);
+  expect(store.retryFailedExtractionJobs({ jobIds: ["job_interrupted"], retriedAt: at(6) }).skipped).toEqual([
+    { job_id: "job_interrupted", reason: "source_unavailable" },
+  ]);
+
+  // A later sweep whose unlink fails releases only its own claim, so the interrupted one stays.
+  const laterClaim = { ...claim, cleanedAt: at(7) };
+
+  expect(store.claimSourceFileCleanup(laterClaim)).toBe(true);
+  store.releaseSourceFileCleanup(laterClaim);
+  expect(cleanupIntents(path)).toHaveLength(1);
+  expect(store.retryFailedExtractionJobs({ jobIds: ["job_interrupted"], retriedAt: at(8) }).skipped).toEqual([
+    { job_id: "job_interrupted", reason: "source_unavailable" },
+  ]);
+
+  expect(await sweep(stateDirectory)).toEqual(["job_interrupted/source.pdf"]);
+  expect(cleanupIntents(path)).toEqual([]);
+  expect(await sweep(stateDirectory)).toEqual([]);
+  expect(store.getExtractionJobSummary("job_interrupted")?.status).toBe("failed");
+});
+
+test("a refused or released claim leaves no cleanup intent behind", async () => {
+  const { store, path } = await harness();
+
+  failedJob(store, "job_retried_first");
+  failedJob(store, "job_released");
+  store.retryFailedExtractionJobs({ jobIds: ["job_retried_first"], retriedAt: at(4) });
+  expect(
+    store.claimSourceFileCleanup({ jobId: "job_retried_first", sourceFileKey: "job_retried_first/source.pdf", cleanedAt: at(5) }),
+  ).toBe(false);
+
+  const claim = { jobId: "job_released", sourceFileKey: "job_released/source.pdf", cleanedAt: at(5) };
+
+  expect(store.claimSourceFileCleanup(claim)).toBe(true);
+  store.releaseSourceFileCleanup(claim);
+  expect(cleanupIntents(path)).toEqual([]);
+});
+
+test("an interrupted claim on a retained original removes only the local working copy", async () => {
+  const { store, stateDirectory, path } = await harness();
+  const released: string[] = [];
+
+  failedJob(store, "job_remote", "retained/job_remote");
+  expect(
+    store.claimSourceFileCleanup({ jobId: "job_remote", sourceFileKey: "job_remote/source.pdf", cleanedAt: at(5) }),
+  ).toBe(true);
+
+  expect(await sweep(stateDirectory, released)).toEqual(["job_remote/source.pdf"]);
+  expect(released).toEqual([]);
+  expect(cleanupIntents(path)).toEqual([]);
+  // Processing restores the retained copy, so the job can still be retried.
+  expect(store.retryFailedExtractionJobs({ jobIds: ["job_remote"], retriedAt: at(6) }).retried).toHaveLength(1);
+});
+
+test("finishing a local cleanup keeps a remote original's intent written by a concurrent Document deletion", async () => {
+  const { store, stateDirectory, path } = await harness();
+  const released: string[] = [];
+
+  failedJob(store, "job_deleted_mid_sweep", "retained/job_deleted_mid_sweep");
+  const claim = { jobId: "job_deleted_mid_sweep", sourceFileKey: "job_deleted_mid_sweep/source.pdf", cleanedAt: at(5) };
+
+  expect(store.claimSourceFileCleanup(claim)).toBe(true);
+  // The user deletes the Document after the claim and before the sweep records its unlink.
+  expect(store.deleteExtractionJob({ jobId: "job_deleted_mid_sweep" })?.retained_object_key).toBe(
+    "retained/job_deleted_mid_sweep",
+  );
+  store.markSourceFileCleaned({ ...claim, retainedObjectKey: null });
+  expect(cleanupIntents(path)).toEqual([
+    { job_id: "job_deleted_mid_sweep", retained_key: "retained/job_deleted_mid_sweep" },
+  ]);
+
+  // The next sweep hands the remote original to object cleanup, then clears the intent.
+  expect(await sweep(stateDirectory, released)).toEqual(["job_deleted_mid_sweep/source.pdf"]);
+  expect(released).toEqual(["retained/job_deleted_mid_sweep"]);
+  expect(cleanupIntents(path)).toEqual([]);
 });

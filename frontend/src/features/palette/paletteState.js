@@ -270,18 +270,12 @@ export function highlightParts(display, { condition, text } = {}) {
   ].filter((part) => part.text);
 }
 
-// The Documents list filters can take upload dates and a model. Field conditions, statuses,
-// Templates and cost have no equivalent there, so those requests open the list unchanged.
+// The Documents list filters can take upload dates and a model, so those parts of a request carry
+// over. Field conditions, statuses, Templates and cost have no equivalent there and are left out.
 // The list has no text filter, so search text is left out rather than applied where it can't be seen.
+// Every list filter is set, so one the request doesn't name is cleared rather than left over from before.
 export function documentsListFilters(filter) {
-  if (!filter) return null;
-
-  const representable =
-    !filter.conditions?.length && !filter.statuses?.length && !filter.template_ids?.length && !filter.cost;
-
-  if (!representable) return null;
-
-  return { dateFrom: filter.uploaded_from || "", dateTo: filter.uploaded_to || "", model: filter.model || "" };
+  return { dateFrom: filter?.uploaded_from || "", dateTo: filter?.uploaded_to || "", model: filter?.model || "" };
 }
 
 /**

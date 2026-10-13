@@ -157,10 +157,17 @@ export function EditTemplateFlow({ interpretation, context, onFinish, onBack, re
     finish();
   });
 
+  // Edits open elsewhere in the editor are only discarded on request. The draft is prepared once
+  // the editor is on its way, so "Keep editing" leaves nothing behind and returns to the proposal.
   function openInEditor() {
-    context.templateController.actions.prepareDraft({ templateId, draft: selection.result });
-    context.navigate(context.appPath({ workspaceId: context.workspaceId, page: "templates", templateId }));
-    finish();
+    const intent = { templateId, draft: selection.result };
+    const path = context.appPath({ workspaceId: context.workspaceId, page: "templates", templateId });
+
+    void context.confirmNavigation(path).then((allowed) => {
+      if (!allowed || !context.navigate(path, { force: true })) return;
+      context.templateController.actions.prepareDraft(intent);
+      finish();
+    });
   }
 
   if (step === "pick")
