@@ -124,10 +124,12 @@
   color: var(--text-2);
 }
 
+/* Inside a pill the phrase and its smaller label are centred on each other. The pill's own
+   baseline still comes from the phrase, so it lines up with the words around it. */
 .palette-pill {
   position: relative;
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   padding: 0 8px;
   overflow: hidden;
@@ -164,7 +166,7 @@
 }
 
 /* What the pill matched, after a divider: "invoice number │ Invoice". */
-/* The divider is centred in the pill; the label shares the pill's baseline. */
+/* The divider and the label are centred in the pill. */
 .palette-pill-divider {
   align-self: center;
   width: 1px;
@@ -174,6 +176,10 @@
 }
 
 .palette-pill-match {
+  position: relative;
+  /* The mono face carries more space above its letters than the phrase's face, so centred boxes
+     leave the label riding high. This optical nudge centres the letters themselves. */
+  top: 0.14em;
   font-family: var(--font-mono);
   font-size: var(--font-size-3);
   line-height: 1;
