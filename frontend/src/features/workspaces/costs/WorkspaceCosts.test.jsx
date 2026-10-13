@@ -552,3 +552,21 @@ it("refreshes only visible pages and clears previously loaded costs after access
     vi.useRealTimers();
   }
 });
+
+it("shows search spend for the range apart from document spend, and nothing when there were no searches", () => {
+  const { rerender } = render(
+    <OverviewTab
+      data={{
+        ...overview,
+        searches: { calls: 12, costs: costAmount(0.03, 12, 0) },
+        previous_searches: { calls: 0, costs: costAmount() },
+      }}
+    />,
+  );
+
+  expect(screen.getByText(/^Search:/).textContent).toBe("Search: $0.0300 across 12 requests. Not included in total spend.");
+  rerender(<OverviewTab data={{ ...overview, searches: { calls: 2, costs: costAmount(null, 0, 2) } }} />);
+  expect(screen.getByText(/^Search:/).textContent).toBe("Search: 2 requests without a reported cost. Not included in total spend.");
+  rerender(<OverviewTab data={{ ...overview, searches: { calls: 0, costs: costAmount() } }} />);
+  expect(screen.queryByText(/^Search:/)).toBeNull();
+});

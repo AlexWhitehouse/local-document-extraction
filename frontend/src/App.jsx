@@ -28,6 +28,8 @@ import { useEvaluations } from "./features/evaluations/useEvaluations.js";
 import { MainLayout } from "./features/layout/MainLayout.jsx";
 import { WorkspacePageHeader } from "./features/layout/WorkspacePageHeader.jsx";
 import { OnboardingTour } from "./features/onboarding/OnboardingTour.jsx";
+import { CommandPalette } from "./features/palette/CommandPalette.jsx";
+import { parseSearchCatalog, usePaletteShortcut, utcToday } from "./features/palette/paletteState.js";
 import { ProfileMenu } from "./features/profile/ProfileMenu.jsx";
 import { TemplateContextList } from "./features/templates/TemplateContextList.jsx";
 import { TemplateGenerationModal } from "./features/templates/TemplateGenerationModal.jsx";
@@ -298,6 +300,80 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
 
   evaluationRef.current = evaluation;
   const documentToolbar = documentController.toolbar;
+
+  // The command palette (⌘K / Ctrl+K and the sidebar Search button). Its catalogue of Templates
+  // and fields loads when it opens, and again on each open.
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [paletteCatalog, setPaletteCatalog] = useState({ status: "idle", catalog: null, workspaceId: "" });
+  const catalogRequest = useRef(null);
+  const catalogWorkspaceRef = useRef(workspaceId);
+  catalogWorkspaceRef.current = workspaceId;
+  const workspaceRequest = documentRequests.request;
+
+  const loadCatalog = useCallback(() => {
+    if (catalogRequest.current?.workspaceId === workspaceId) return catalogRequest.current.promise;
+    const requestedFor = workspaceId;
+
+    setPaletteCatalog((current) =>
+      current.workspaceId === requestedFor && current.catalog
+        ? current
+        : { status: "loading", catalog: null, workspaceId: requestedFor },
+    );
+
+    const promise = workspaceRequest("/search/catalog", { method: "GET" })
+      .then((value) => {
+        const catalog = parseSearchCatalog(value);
+
+        if (catalogWorkspaceRef.current === requestedFor)
+          setPaletteCatalog({ status: "ready", catalog, workspaceId: requestedFor });
+
+        return catalog;
+      })
+      .catch(() => {
+        if (catalogWorkspaceRef.current === requestedFor)
+          setPaletteCatalog((current) =>
+            current.workspaceId === requestedFor && current.catalog
+              ? current
+              : { status: "error", catalog: null, workspaceId: requestedFor },
+          );
+
+        return null;
+      })
+      .finally(() => {
+        if (catalogRequest.current?.promise === promise) catalogRequest.current = null;
+      });
+
+    catalogRequest.current = { workspaceId: requestedFor, promise };
+
+    return promise;
+  }, [workspaceRequest, workspaceId]);
+
+  const togglePalette = useCallback(() => {
+    if (!isPaletteOpen) void loadCatalog();
+    setIsPaletteOpen(!isPaletteOpen);
+  }, [isPaletteOpen, loadCatalog]);
+
+  const closePalette = useCallback(() => setIsPaletteOpen(false), []);
+  const canUsePalette = hasSession && hasWorkspaceApiAccess;
+
+  usePaletteShortcut({ enabled: canUsePalette, onToggle: togglePalette });
+
+  // The palette's results, targets and flows belong to one workspace: changing workspace closes it.
+  useEffect(() => {
+    if (!canUsePalette) setIsPaletteOpen(false);
+  }, [canUsePalette]);
+
+  useEffect(() => {
+    setIsPaletteOpen(false);
+  }, [workspaceId]);
+
+  const acceptedWorkspaces = useMemo(
+    () =>
+      workspaceContext.availableWorkspaces.flatMap((workspace) =>
+        workspace.type === "workspace" ? [{ id: workspace.id, name: workspace.name }] : [],
+      ),
+    [workspaceContext.availableWorkspaces],
+  );
 
   function pagePath(page) {
     const target = { page, workspaceId: hasApiAccess ? workspaceId : route.workspaceId };
@@ -745,6 +821,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         onNavigate={handleSidebarNavigation}
         navigationHref={pagePath}
         onUploadDocument={documentToolbar.onUploadDocument}
+        onOpenSearch={togglePalette}
+        isSearchDisabled={!canUsePalette}
         profileSlot={
           isImpersonating ? (
             <ProfileMenu ref={profileMenu.panelRef} {...profileMenuProps} />
@@ -803,6 +881,31 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             {activePage === "templates" ? <TemplateGenerationModal {...templateController.generationModal} /> : null}
             {activePage === "templates" ? <TemplateJsonModal {...templateController.jsonModal} /> : null}
             <DocumentUploadModal {...documentController.uploadModal} />
+            {isPaletteOpen && canUsePalette ? (
+              <CommandPalette
+                key={workspaceId}
+                context={{
+                  workspaceId,
+                  workspaceName,
+                  role: workspaceContext.selectedWorkspaceRole,
+                  workspaces: acceptedWorkspaces,
+                  request: workspaceRequest,
+                  notify: showActionToast,
+                  navigate,
+                  appPath,
+                  catalog: paletteCatalog.workspaceId === workspaceId ? paletteCatalog.catalog : null,
+                  catalogStatus: paletteCatalog.workspaceId === workspaceId ? paletteCatalog.status : "loading",
+                  refreshCatalog: loadCatalog,
+                  today: utcToday(),
+                  templateController,
+                  documentController,
+                  workspaceController,
+                  evaluation,
+                  modelReady: workspaceModel.ready,
+                }}
+                onClose={closePalette}
+              />
+            ) : null}
           </>
         }
       >

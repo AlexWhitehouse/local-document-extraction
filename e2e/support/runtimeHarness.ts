@@ -107,6 +107,25 @@ try {
         return Response.json({ choices: [{ message: { content: JSON.stringify(value) } }] });
       }
 
+      if (String(messages[0]?.content ?? "").startsWith("You translate one request")) {
+        // The command palette's interpretation: a text search that reports the words it couldn't use.
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: "find_documents",
+                  args: {},
+                  filter: { text: "palette-" },
+                  unrecognised: ["billed"],
+                  notes: [],
+                }),
+              },
+            },
+          ],
+        });
+      }
+
       if (
         input.model === "browser/template-assistant" &&
         String(messages[0]?.content ?? "").startsWith("You suggest requests")

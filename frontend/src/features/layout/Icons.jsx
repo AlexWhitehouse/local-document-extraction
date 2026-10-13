@@ -242,3 +242,12 @@ export function AdminIcon(props) {
     </Icon>
   );
 }
+
+export function SearchIcon(props) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="11" r="6" />
+      <path d="m20 20-4.5-4.5" />
+    </Icon>
+  );
+}

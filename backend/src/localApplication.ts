@@ -5,6 +5,7 @@ import { handleWorkspaceDocumentProcessingSettings } from "./workspaceDocumentPr
 import { handleDocumentProcessingRequest, publicDocumentPacket } from "./localDocumentProcessingHttp";
 import { materializePdfPages, validatePdfPageSelection, PdfPageSelectionError } from "./lib/pdfPageOperations";
 import { handleTemplateAssistance, handleTemplateSuggestions } from "./localTemplateAssistance";
+import { handleSearchInterpretation } from "./searchInterpretationHttp";
 import { generateTemplate } from "./consumer/templateGeneration";
 import { ExtractionCancelledError, ModelGatewayRequestError, RetryableError } from "./consumer/modelGateway";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -25,6 +26,8 @@ import { createLocalSubmissionAdmission } from "./localSubmissionAdmission";
 import { createWorkspaceTemplate, updateWorkspaceTemplate } from "./workspaceTemplateOperations";
 import { normalizeTemplateTagName } from "../../shared/templateTags";
 import { buildJobExportInWorker } from "./localJobExportWorker";
+import { buildTextJobExport, readJobExportFormat } from "./jobExportFormats";
+import { handleJobRetry, handleJobSearch, handleSearchCatalog } from "./jobSearchHttp";
 import { assertKnownDocumentRequestBodyLength } from "./localDocumentBodyLimit";
 import { boundLocalApiBody } from "./localApiBodyLimit";
 import { localRequestOriginFailure } from "./localRequestOrigin";
@@ -379,6 +382,17 @@ export function createLocalApplication({
       return handleTemplateSuggestions({ product, request, modelGatewayRequestTimeoutMs });
     }
 
+    if (request.method === "POST" && pathname === "/v1/search/interpret") {
+      if (!product) {
+        const unavailable = productStoreUnavailable();
+        unavailable.headers.set("cache-control", "no-store");
+
+        return unavailable;
+      }
+
+      return handleSearchInterpretation({ product, request, modelGatewayRequestTimeoutMs });
+    }
+
     const assistanceEvidenceMatch = pathname.match(/^\/v1\/templates\/assist\/evidence(?:\/([^/]+))?$/);
 
     if (
@@ -443,6 +457,24 @@ export function createLocalApplication({
       if (!product) return productStoreUnavailable();
 
       return handleLocalJobExport(product, request);
+    }
+
+    if (request.method === "POST" && pathname === "/v1/jobs/search") {
+      if (!product) return productStoreUnavailable();
+
+      return handleJobSearch({ product, request, jobCursorSecret });
+    }
+
+    if (request.method === "POST" && pathname === "/v1/jobs/retry") {
+      if (!product) return productStoreUnavailable();
+
+      return handleJobRetry({ product, request, scheduleQueuedJob, liveUpdateHub });
+    }
+
+    if (request.method === "GET" && pathname === "/v1/search/catalog") {
+      if (!product) return productStoreUnavailable();
+
+      return handleSearchCatalog({ product, request });
     }
 
     if (request.method === "GET" && pathname === "/v1/jobs/filter-options") {
@@ -1254,7 +1286,9 @@ async function handleLocalJobExport(product: ProductServices, request: Request):
   return product.access
     .run({ workspaceId: workspace.id, mode: "create" }, async ({ store: productStore, signal }) => {
       try {
-        const jobIds = validateJobExportPayload(parseJsonBody(await request.text()));
+        const payload = parseJsonBody(await request.text());
+        const jobIds = validateJobExportPayload(payload);
+        const format = readJobExportFormat(payload);
         let jobs;
 
         try {
@@ -1267,6 +1301,24 @@ async function handleLocalJobExport(product: ProductServices, request: Request):
         if (!jobs.length)
           throw new HttpError(409, "no_exportable_jobs", "None of the selected jobs are completed or failed");
 
+        const counts = {
+          "x-exported-job-count": String(jobs.length),
+          "x-skipped-job-count": String(jobIds.length - jobs.length),
+        };
+
+        if (format !== "xlsx") {
+          const exported = buildTextJobExport({ format, jobs, workspaceName: workspace.name });
+
+          return new Response(exported.body, {
+            headers: {
+              "cache-control": "no-store",
+              "content-disposition": `attachment; filename="${exported.filename}"`,
+              "content-type": exported.contentType,
+              ...counts,
+            },
+          });
+        }
+
         const exportWorkbook = await buildJobExportInWorker(
           { jobs, workspaceName: workspace.name },
           AbortSignal.any([signal, request.signal]),
@@ -1278,8 +1330,7 @@ async function handleLocalJobExport(product: ProductServices, request: Request):
             "cache-control": "no-store",
             "content-disposition": `attachment; filename="${exportWorkbook.filename}"`,
             "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "x-exported-job-count": String(jobs.length),
-            "x-skipped-job-count": String(jobIds.length - jobs.length),
+            ...counts,
           },
         });
       } catch (error) {

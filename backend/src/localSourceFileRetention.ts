@@ -89,6 +89,15 @@ export function createLocalSourceFileRetention({
           for (const source of due) {
             visited += 1;
 
+            const claim = {
+              jobId: source.job_id,
+              sourceFileKey: source.source_file_key,
+              cleanedAt: new Date(now()).toISOString(),
+            };
+
+            // A failed job retried since this batch was listed needs its original again.
+            if (!lease.store.claimSourceFileCleanup(claim)) continue;
+
             try {
               if (source.retained_object_key) {
                 if (!releaseRetainedObject)
@@ -96,15 +105,14 @@ export function createLocalSourceFileRetention({
                 releaseRetainedObject({ workspaceId, jobId: source.job_id, objectKey: source.retained_object_key });
               }
 
-              await sourceFileStore.delete(source.source_file_key);
+              try {
+                await sourceFileStore.delete(source.source_file_key);
+              } catch (error) {
+                lease.store.releaseSourceFileCleanup(claim);
+                throw error;
+              }
 
-              if (
-                lease.store.markSourceFileCleaned({
-                  jobId: source.job_id,
-                  sourceFileKey: source.source_file_key,
-                  cleanedAt: new Date(now()).toISOString(),
-                })
-              ) {
+              if (lease.store.markSourceFileCleaned(claim)) {
                 snapshot.deleted += 1;
               }
             } catch (error) {

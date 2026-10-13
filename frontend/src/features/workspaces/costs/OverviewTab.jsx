@@ -68,9 +68,29 @@ export function OverviewTab({ data }) {
   return (
     <div className="cp-tab-panel">
       <FigureStrip figures={figures} label="Headline figures" />
+      <SearchSpend searches={data.searches} />
       <SpendCharts buckets={buckets} unit={range.unit} totals={totals} />
       <CostSpread documents={samples} sampled={sampled} population={metrics.fullyCostedDocuments} />
     </div>
+  );
+}
+
+/** Model calls that turn palette requests into searches. Kept apart from document spend; absent when unused. */
+function SearchSpend({ searches }) {
+  if (!searches?.calls) return null;
+  const requests = plural(searches.calls, "request");
+
+  return (
+    <p className="cp-note cp-search-spend">
+      {searches.costs?.amount === null || searches.costs?.amount === undefined ? (
+        <>Search: {requests} without a reported cost.</>
+      ) : (
+        <>
+          Search: <strong>{costLabel(searches.costs)}</strong> across {requests}.
+        </>
+      )}{" "}
+      Not included in total spend.
+    </p>
   );
 }
 

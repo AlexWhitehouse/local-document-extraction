@@ -102,6 +102,36 @@
   --tone-danger-bg: rgba(255, 111, 143, 0.12);
   --tone-danger-border: rgba(255, 111, 143, 0.45);
 
+  /*
+   * Command palette pills, one family per part of a request. Pills always carry their
+   * text and type name, so colour is never the only signal. Template, page and workspace
+   * pills use subject; value uses condition; person, role and format use quantity.
+   */
+  --pill-action-fg: #9df4eb;
+  --pill-action-bg: rgba(25, 193, 180, 0.16);
+  --pill-action-border: rgba(25, 193, 180, 0.55);
+  --pill-quantity-fg: #dbe4f0;
+  --pill-quantity-bg: rgba(159, 176, 199, 0.14);
+  --pill-quantity-border: rgba(159, 176, 199, 0.5);
+  --pill-subject-fg: #c9d0ff;
+  --pill-subject-bg: rgba(148, 163, 255, 0.14);
+  --pill-subject-border: rgba(148, 163, 255, 0.5);
+  --pill-field-fg: #a9d2ff;
+  --pill-field-bg: rgba(79, 166, 255, 0.15);
+  --pill-field-border: rgba(79, 166, 255, 0.55);
+  --pill-condition-fg: #ffdca1;
+  --pill-condition-bg: rgba(244, 184, 79, 0.15);
+  --pill-condition-border: rgba(244, 184, 79, 0.55);
+  --pill-date-fg: #e8c8ff;
+  --pill-date-bg: rgba(206, 140, 255, 0.14);
+  --pill-date-border: rgba(206, 140, 255, 0.5);
+  --pill-status-fg: #ffc2d1;
+  --pill-status-bg: rgba(255, 111, 143, 0.14);
+  --pill-status-border: rgba(255, 111, 143, 0.5);
+  --pill-instruction-fg: #d6deea;
+  --pill-instruction-bg: rgba(255, 255, 255, 0.04);
+  --pill-instruction-border: #3a4a63;
+
   /* Neutral overlays. */
   --wash-1: rgba(255, 255, 255, 0.02);
   --wash-2: rgba(255, 255, 255, 0.04);
@@ -216,6 +246,31 @@
   --tone-danger-bg-subtle: rgba(201, 45, 84, 0.06);
   --tone-danger-bg: rgba(201, 45, 84, 0.1);
   --tone-danger-border: rgba(201, 45, 84, 0.4);
+
+  --pill-action-fg: #065a53;
+  --pill-action-bg: rgba(10, 127, 117, 0.1);
+  --pill-action-border: rgba(10, 127, 117, 0.45);
+  --pill-quantity-fg: #2b3849;
+  --pill-quantity-bg: rgba(71, 85, 105, 0.08);
+  --pill-quantity-border: rgba(71, 85, 105, 0.4);
+  --pill-subject-fg: #383c9e;
+  --pill-subject-bg: rgba(79, 84, 214, 0.08);
+  --pill-subject-border: rgba(79, 84, 214, 0.4);
+  --pill-field-fg: #154e95;
+  --pill-field-bg: rgba(29, 107, 204, 0.08);
+  --pill-field-border: rgba(29, 107, 204, 0.4);
+  --pill-condition-fg: #774705;
+  --pill-condition-bg: rgba(201, 128, 20, 0.1);
+  --pill-condition-border: rgba(201, 128, 20, 0.45);
+  --pill-date-fg: #6a2a9c;
+  --pill-date-bg: rgba(140, 60, 200, 0.08);
+  --pill-date-border: rgba(140, 60, 200, 0.4);
+  --pill-status-fg: #981e3d;
+  --pill-status-bg: rgba(201, 45, 84, 0.08);
+  --pill-status-border: rgba(201, 45, 84, 0.4);
+  --pill-instruction-fg: #2b3849;
+  --pill-instruction-bg: rgba(15, 23, 34, 0.03);
+  --pill-instruction-border: #a9b5c5;
 
   /* Overlays darken instead of lighten. */
   --wash-1: rgba(15, 23, 34, 0.02);
@@ -1199,6 +1254,49 @@ input[type="checkbox"]:disabled {
   line-height: 1;
 }
 
+/* Opens the command palette. Reads as a field, with the shortcut on the right. */
+.sidebar-search-button {
+  position: relative;
+  width: auto;
+  height: var(--control-h-sm);
+  margin: 10px 14px 4px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--field-bg);
+  border: 1px solid var(--rule-strong);
+  color: var(--text-3);
+  font-size: var(--font-size-4);
+  font-weight: 400;
+  text-align: left;
+}
+
+.sidebar-search-button:hover:not(:disabled) {
+  background: var(--field-bg);
+  border-color: var(--text-3);
+  color: var(--text-2);
+}
+
+.sidebar-search-icon {
+  display: inline-grid;
+  line-height: 1;
+}
+
+.sidebar-search-label {
+  flex: 1 1 auto;
+}
+
+.sidebar-search-button kbd {
+  padding: 0 4px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  background: var(--pane-raised);
+  color: var(--text-2);
+  font: var(--font-size-1)/14px var(--font-mono);
+  white-space: nowrap;
+}
+
 .sidebar-spacer {
   flex: 1 1 auto;
 }
@@ -1345,7 +1443,7 @@ input[type="checkbox"]:disabled {
   }
 
   /* The label stays in the DOM for the accessible name; the rail shows it as a Tooltip (MainLayout). */
-  .sidebar-collapsed :is(.sidebar-link-label, .sidebar-upload-label) {
+  .sidebar-collapsed :is(.sidebar-link-label, .sidebar-upload-label, .sidebar-search-label) {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1397,6 +1495,25 @@ input[type="checkbox"]:disabled {
     height: 18px;
   }
 
+  .sidebar-collapsed .sidebar-search-button {
+    justify-self: center;
+    align-self: center;
+    width: 40px;
+    height: 36px;
+    margin: 8px auto 2px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .sidebar-collapsed .sidebar-search-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .sidebar-collapsed .sidebar-search-button kbd {
+    display: none;
+  }
+
   .sidebar-collapsed .sidebar-profile-trigger {
     min-height: 52px;
     padding: 0;
@@ -1421,12 +1538,13 @@ input[type="checkbox"]:disabled {
     .sidebar-link-label,
     .sidebar-link-count,
     .sidebar-upload-label,
+    .sidebar-search-label,
     .sidebar-profile-meta
   ) {
     animation: sidebar-content-in 160ms ease-out 90ms both;
   }
 
-  .sidebar-collapsed :is(.sidebar-brand-mark, .sidebar-link-icon, .sidebar-upload-icon) {
+  .sidebar-collapsed :is(.sidebar-brand-mark, .sidebar-link-icon, .sidebar-upload-icon, .sidebar-search-icon) {
     animation: sidebar-content-in 140ms ease-out 60ms both;
   }
 }
@@ -2914,6 +3032,13 @@ input.upload-input-hidden {
     height: var(--control-h-sm);
     margin: 0 8px;
     padding: 0 10px;
+    white-space: nowrap;
+  }
+
+  .left-sidebar .sidebar-search-button {
+    flex: 0 0 auto;
+    align-self: center;
+    margin: 0 0 0 8px;
     white-space: nowrap;
   }
 

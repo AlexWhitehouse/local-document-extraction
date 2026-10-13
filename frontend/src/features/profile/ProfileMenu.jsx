@@ -7,6 +7,7 @@ import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { Field, TextInput } from "../ui/Field.jsx";
 import { Segmented } from "../ui/Tabs.jsx";
 import { useThemePreference } from "../../lib/theme.js";
+import { paletteShortcutLabel } from "../palette/paletteState.js";
 
 const THEME_OPTIONS = [
   { value: "system", label: "System" },
@@ -185,6 +186,17 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                         <h4 id="settings-shortcuts-title">Keyboard shortcuts</h4>
                       </div>
                       <dl className="settings-shortcut-list">
+                        <div>
+                          <dt>
+                            {paletteShortcutLabel().keys.map((key, index) => (
+                              <React.Fragment key={key}>
+                                {index ? " " : null}
+                                <kbd>{key}</kbd>
+                              </React.Fragment>
+                            ))}
+                          </dt>
+                          <dd>Search, ask or run an action, from anywhere</dd>
+                        </div>
                         <div>
                           <dt>
                             <kbd>[</kbd>

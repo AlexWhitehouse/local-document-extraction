@@ -72,7 +72,11 @@ All endpoints below except health require a Workspace API key. The health endpoi
 | `GET` | `/v1/jobs/counts` | Read Workspace-wide job totals | `200` |
 | `GET` | `/v1/jobs/filter-options` | List model names available for filtering | `200` |
 | `DELETE` | `/v1/jobs/{job_id}` | Delete a job and its results | `200` |
-| `POST` | `/v1/jobs/export` | Download selected jobs as an Excel workbook | `200` |
+| `POST` | `/v1/jobs/export` | Download selected jobs as Excel, CSV or JSON | `200` |
+| `POST` | `/v1/jobs/search` | Search jobs by metadata and extracted values | `200` |
+| `POST` | `/v1/jobs/retry` | Queue failed jobs again | `200` |
+| `GET` | `/v1/search/catalog` | List searchable templates, fields and models | `200` |
+| `POST` | `/v1/search/interpret` | Turn a plain-language request into an action and filter | `200` |
 | `GET` | `/v1/health` | Check runtime health | `200` |
 
 ## Quickstart: document to structured data
@@ -735,15 +739,21 @@ Later reads or deletions return `404 not_found`. Deletion is permanent. Concurre
 
 `POST /v1/jobs/export`
 
-Send a JSON object containing `job_ids`, a non-empty array of at most 500 non-empty strings:
+Send a JSON object containing `job_ids`, a non-empty array of at most 500 non-empty strings, and an optional `format`: `xlsx` (the default), `csv` or `json`:
 
 ```json
-{"job_ids":["job_example","job_another"]}
+{"job_ids":["job_example","job_another"],"format":"csv"}
 ```
+
+- `xlsx` returns a workbook with one sheet per template version.
+- `csv` returns one row per job with `Document`, `Template`, `Version`, `Status` and `Uploaded` columns, then one column per field. Column names include the template name when the export spans several templates. Tables are written as JSON text, and cells that a spreadsheet would read as a formula are prefixed with `'`.
+- `json` returns `{"generated_at", "documents": [{"job_id", "source_name", "template_id", "template_name", "template_version", "status", "created_at", "results": {"<field_id>": {"name", "data_type", "status", "answer"}}}]}`.
+
+An unknown format returns `400 invalid_job_export`.
 
 The app removes duplicate IDs and includes only completed or failed jobs from the authenticated Workspace. It skips missing, queued, and processing jobs. If no jobs are exportable, it returns `409 no_exportable_jobs`. Selected stored results must fit the 32 MiB export limit. Larger selections return `413 export_too_large`.
 
-Success is a binary `200` response with these headers:
+Success is a binary `200` response. For `xlsx` it has these headers; `csv` and `json` use `text/csv` and `application/json` with a matching filename extension:
 
 ```http
 Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
@@ -763,6 +773,132 @@ curl --fail-with-body --silent --show-error \
 ```
 
 The runtime permits two concurrent exports. Additional exports return `503 export_capacity_unavailable` with `Retry-After: 2`. Use job detail JSON for direct programmatic access to results.
+
+### Search jobs
+
+`POST /v1/jobs/search`
+
+Searches job metadata and extracted values. Every filter member narrows the result, and all members combine with AND.
+
+```json
+{
+  "filter": {
+    "text": "acme",
+    "statuses": ["completed", "failed"],
+    "template_ids": ["tpl_example"],
+    "uploaded_from": "2026-10-05",
+    "uploaded_to": "2026-10-11",
+    "model": "provider/model",
+    "conditions": [
+      {"template_id": "tpl_example", "field_id": "total", "op": "between", "value": 100, "value2": 500}
+    ]
+  },
+  "limit": 50
+}
+```
+
+- `text` matches the document name, the job ID and extracted text values. Matching is literal and case-insensitive. A term of one or two characters matches only the document name and job ID. In document names, only unaccented Latin letters (A–Z) match regardless of case, as in `GET /v1/jobs`.
+- `uploaded_from` and `uploaded_to` are inclusive UTC days.
+- `conditions` hold at most 10 field conditions. A condition names one template and one field of that template's current version. It only matches jobs of that template whose stored value has the field's current type, so fields with the same ID on other templates never match.
+- Only scalar fields can be searched: text, number, date and yes/no. Tables and nested fields can't be searched yet.
+
+| Field type | Operators | Value |
+| --- | --- | --- |
+| Text | `contains`, `starts_with`, `ends_with`, `is`, `is_not` | Text |
+| Number | `eq`, `gt`, `gte`, `lt`, `lte`, `between` | Number; `between` also takes `value2` |
+| Date | `eq`, `gt`, `gte`, `lt`, `lte`, `between` | `YYYY-MM-DD`; `between` also takes `value2` |
+| Yes/no | `is_true`, `is_false` | None |
+| Any | `has_value`, `not_found`, `invalid`, `empty` | None |
+
+`not_found`, `invalid` and `empty` stay distinct from zero and false. `not_found` also matches completed jobs processed before the field existed.
+
+`limit` is 1–100 (default 50). Results are ordered newest first by upload time, then job ID. The response is:
+
+```json
+{
+  "jobs": [{"job_id": "job_example", "status": "completed", "template_name": "Invoice", "matches": [
+    {"template_id": "tpl_example", "field_id": "total", "field_name": "Total", "type": "number", "value_state": "value", "display": "250"}
+  ]}],
+  "total": 1,
+  "total_capped": false,
+  "next_cursor": null,
+  "has_more": false
+}
+```
+
+Each job has the same summary fields as `GET /v1/jobs`, plus `template_name` and `matches`, the stored values of the fields the conditions used and the first text field that matched `text`. `total` is capped at 10,000; `total_capped` is `true` above that. Pass `next_cursor` back as `cursor` with the same filter to read the next page. A cursor is only valid for the filter it was issued for and until the runtime restarts.
+
+With `"ids_only": true`, `limit` may be up to 500 and the response is `{"job_ids", "statuses", "total", "total_capped", "next_cursor", "has_more"}`.
+
+Invalid filters, unknown templates or fields, and operators that don't suit the field type return `400 invalid_search_filter`. A bad cursor returns `400 invalid_cursor`.
+
+### Read the search catalogue
+
+`GET /v1/search/catalog`
+
+Lists the active templates with their current fields, the models used by jobs, and whether a model can interpret plain-language requests:
+
+```json
+{
+  "templates": [{"id": "tpl_example", "name": "Invoice", "current_version": 3, "fields": [
+    {"field_id": "supplier", "name": "Supplier", "data_type": "string", "type": "text", "known_values": ["Acme"]}
+  ]}],
+  "models": ["provider/model"],
+  "interpretation": {"available": true}
+}
+```
+
+`type` is `null` for fields that can't be searched. `known_values` lists frequent short values of text fields. Without a model configuration, `interpretation` is `{"available": false, "reason": "model_not_configured"}`.
+
+### Try failed jobs again
+
+`POST /v1/jobs/retry`
+
+Send `{"job_ids": [...]}` with 1–500 job IDs. Each failed job returns to the queue on its template's current version. The response lists what happened:
+
+```json
+{"retried": ["job_example"], "skipped": [{"job_id": "job_another", "reason": "not_failed"}]}
+```
+
+`reason` is one of:
+
+- `not_found`: the job doesn't exist in this Workspace.
+- `not_failed`: the job isn't failed.
+- `template_unavailable`: the template was deleted.
+- `source_unavailable`: the original was removed after the failed-document retention period and no retained copy exists.
+- `packet_unavailable`: the job came from a packet that failed for a reason other than its documents. If the packet failed only because of its documents, it goes back to extracting and finishes when the retried job finishes.
+
+A bad body returns `400 invalid_job_retry`.
+
+### Interpret a request
+
+`POST /v1/search/interpret`
+
+Turns a plain-language request into one action from a fixed list, its arguments and a search filter. It makes one text-only call to the Workspace's assistant model, and a second call only when the first answer fails validation. The model never decides which documents match: run the returned filter with `POST /v1/jobs/search`.
+
+```json
+{"text": "Export Acme invoices over 500 as CSV", "segments": [], "today": "2026-10-13", "time_zone": "Europe/London"}
+```
+
+- `text` is 1–1,000 characters.
+- `segments` is an optional reading of the request as up to 60 `{"type", "text"}` phrases, used as hints.
+- `today` and `time_zone` resolve relative dates. Relative dates such as "last week" refer to the upload date, and weeks start on Monday.
+
+The response is `{"interpretation": {"action", "args", "filter", "unrecognised", "notes"}}`:
+
+- `action` is one of `find_documents`, `find_templates`, `edit_template`, `create_template`, `upload`, `retry`, `export`, `delete`, `invite`, `switch_workspace`, `go_to` or `run_evaluation`.
+- `filter` uses the search filter above, checked against the catalogue.
+- `unrecognised` lists words the model couldn't use.
+- `notes` explain ambiguous fields and give alternatives.
+
+Each call's cost appears on the Workspace costs overview as search spend.
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| `400` | `invalid_search_interpretation_request` | Correct the request body. |
+| `409` | `workspace_model_not_configured` | Configure the Workspace model gateway. |
+| `422` | `search_interpretation_invalid` | The model's answer failed validation twice. Rephrase the request. |
+| `502` | `search_interpretation_failed` | The model gateway failed. Try again. |
 
 ## Service endpoints
 
@@ -798,6 +934,7 @@ Use both HTTP status and `error.code` in application logic. Treat `message` as h
 | `400` | `source_file_too_large` | Reduce the file/request size or ask the operator about limits. |
 | `400` | `submission_aborted` | The upload was interrupted. |
 | `400` | `invalid_job_filters`, `invalid_cursor` | Correct filters or restart pagination. |
+| `400` | `invalid_search_filter`, `invalid_job_retry`, `invalid_job_export` | Correct the search filter, retry list or export format. |
 | `400` | `invalid_job_export` | Supply a non-empty array of job IDs. |
 | `401` | `unauthorized` | Supply authentication. |
 | `403` | `forbidden` | Check the API key or Workspace access. |

@@ -187,3 +187,87 @@ describe("template deletion", () => {
     expect(result.current.templatePage.assistant.isOpen).toBe(false);
   });
 });
+
+describe("palette draft intent", () => {
+  const saved = {
+    id: "tpl",
+    name: "Invoice",
+    description: "Invoices",
+    current_version: 2,
+    tags: [],
+    fields: [{ name: "Total", description: "Amount due", data_type: "number" }],
+  };
+
+  const draft = {
+    name: "Invoice",
+    description: "Invoices",
+    fields: [
+      { id: "total", name: "Total", description: "Amount due", data_type: "number" },
+      { id: "vat_number", name: "VAT number", description: "Supplier VAT number", data_type: "string" },
+    ],
+  };
+
+  const request = () =>
+    vi.fn(async (path) => (path === "/templates/tpl" ? structuredClone(saved) : { templates: [template("tpl")] }));
+
+  it("applies the draft as unsaved edits once the template opens", async () => {
+    const props = { ...propsFor(request()), activePage: "documents", routeTemplateId: undefined };
+    const { result, rerender } = renderHook(useTemplateController, { initialProps: props });
+    act(() => result.current.actions.prepareDraft({ templateId: "tpl", draft }));
+    expect(result.current.templatePage.templateFields).not.toEqual(draft.fields);
+    rerender({ ...props, activePage: "templates", routeTemplateId: "tpl" });
+    await waitFor(() => expect(result.current.templatePage.templateFields).toEqual(draft.fields));
+    expect(result.current.toolbar.selectedTemplateId).toBe("tpl");
+    expect(result.current.navigation.hasUnsavedChanges).toBe(true);
+    expect(props.showActionToast).toHaveBeenCalledWith("template.applyDraft", "success", { targetName: "Invoice" });
+  });
+
+  it("asks before replacing unsaved edits on the open template", async () => {
+    const props = { ...propsFor(request()), routeTemplateId: "tpl" };
+    const { result } = renderHook(useTemplateController, { initialProps: props });
+    await waitFor(() => expect(result.current.navigation.load.status).toBe("ready"));
+    act(() => result.current.templatePage.onTemplateNameChange("Invoice (edited)"));
+    act(() => result.current.actions.prepareDraft({ templateId: "tpl", draft }));
+    await answerDialog("Keep editing");
+    expect(result.current.templatePage.templateName).toBe("Invoice (edited)");
+    act(() => result.current.actions.prepareDraft({ templateId: "tpl", draft }));
+    await answerDialog("Discard");
+    expect(result.current.templatePage.templateFields).toEqual(draft.fields);
+  });
+
+  const savedById = (id) => ({ ...structuredClone(saved), id, name: `Template ${id}` });
+
+  const routedRequest = () =>
+    vi.fn(async (path) =>
+      path.startsWith("/templates/") ? savedById(path.slice("/templates/".length)) : { templates: [template("y")] },
+    );
+
+  it("keeps the draft while a guarded navigation asks to discard edits, then applies it", async () => {
+    const props = { ...propsFor(routedRequest()), routeTemplateId: "y" };
+    const { result, rerender } = renderHook(useTemplateController, { initialProps: props });
+    await waitFor(() => expect(result.current.navigation.load.status).toBe("ready"));
+    act(() => result.current.templatePage.onTemplateNameChange("Template y (edited)"));
+    act(() => result.current.actions.prepareDraft({ templateId: "x", draft }));
+    // "Discard changes?" is open: the route hasn't moved yet.
+    rerender({ ...props });
+    expect(result.current.templatePage.templateName).toBe("Template y (edited)");
+    rerender({ ...props, routeTemplateId: "x" });
+    await waitFor(() => expect(result.current.templatePage.templateFields).toEqual(draft.fields));
+    expect(result.current.toolbar.selectedTemplateId).toBe("x");
+    expect(props.showActionToast).toHaveBeenCalledWith("template.applyDraft", "success", { targetName: "Invoice" });
+  });
+
+  it("drops the draft when you go somewhere else instead", async () => {
+    const props = { ...propsFor(routedRequest()), routeTemplateId: "y" };
+    const { result, rerender } = renderHook(useTemplateController, { initialProps: props });
+    await waitFor(() => expect(result.current.navigation.load.status).toBe("ready"));
+    act(() => result.current.actions.prepareDraft({ templateId: "x", draft }));
+    rerender({ ...props, routeTemplateId: "z" });
+    await waitFor(() => expect(result.current.toolbar.selectedTemplateId).toBe("z"));
+    rerender({ ...props, routeTemplateId: "x" });
+    await waitFor(() => expect(result.current.toolbar.selectedTemplateId).toBe("x"));
+    expect(result.current.templatePage.templateName).toBe("Template x");
+    expect(result.current.templatePage.templateFields.map((field) => field.name)).toEqual(["Total"]);
+    expect(props.showActionToast).not.toHaveBeenCalledWith("template.applyDraft", "success", expect.anything());
+  });
+});

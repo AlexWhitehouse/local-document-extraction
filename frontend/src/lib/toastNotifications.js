@@ -16,6 +16,9 @@ const successMessages = {
   "workspace.delete": () => "Workspace deleted",
   "template.save": ({ target }) => withTarget("Template saved", target),
   "template.delete": ({ target }) => withTarget("Template deleted", target),
+  "template.create": ({ target }) => withTarget("Template created", target),
+  "template.applyDraft": ({ target }) =>
+    `Changes applied to ${target || "the draft"}. Save the template to keep them.`,
   "workspaceInvitation.create": ({ target }) => withTarget("Invitation sent", target),
   "workspaceInvitation.cancel": ({ target }) => withTarget("Invitation cancelled", target),
   "workspaceInvitation.accept": () => "Invitation accepted",
@@ -34,6 +37,12 @@ const successMessages = {
     const exported = `Exported ${pluralize(exportedCount, "document")}`;
 
     return skippedCount ? `${exported}. Skipped ${skippedCount} that can't be exported.` : exported;
+  },
+  "document.bulkAlreadyDeleted": ({ count = 0 }) => `${pluralize(count, "document")} already deleted`,
+  "document.retry": ({ retried = 0, skipped = 0 }) => {
+    const queued = `Trying ${pluralize(retried, "document")} again`;
+
+    return skipped ? `${queued}. Skipped ${skipped} that can't be tried again.` : queued;
   },
   "costs.export": ({ label = "" }) => (label ? `Exported costs for ${label.charAt(0).toLowerCase()}${label.slice(1)}` : "Exported costs"),
   "workspace.documentProcessing": ({ setting, enabled }) => `${setting} turned ${enabled ? "on" : "off"}`,
@@ -68,6 +77,8 @@ const successMessages = {
   "evaluation.removeCandidate": ({ target }) => withTarget("Candidate removed", target),
   "evaluation.testChanges": ({ target }) => withTarget("Copy created to test changes", target),
   "evaluation.applyAssistant": ({ target }) => withTarget("Changes applied. Run again to test them", target),
+  "evaluation.setUp": ({ target }) =>
+    `Evaluation set up${target ? ` for ${target}` : ""}. Add documents to run it.`,
   "evaluation.removeDocument": ({ target }) => withTarget("Document removed", target),
   "evaluation.discardChanges": () => "Changes discarded",
   "evaluation.acceptAnswers": ({ count = 0, target }) =>
@@ -102,6 +113,10 @@ const failureMessages = {
   "document.delete": ({ target }) => (target ? `Couldn't delete ${target}.` : "Couldn't delete document."),
   "document.bulkDelete": ({ removed = 0, total = 0 }) => `Deleted ${removed} of ${total}. Couldn't delete ${total - removed}.`,
   "document.export": () => "Couldn't export selected documents.",
+  "document.retry": ({ skipped = 0 }) =>
+    skipped
+      ? `Couldn't try ${pluralize(skipped, "document")} again. They're no longer failed, or their template or original is gone.`
+      : "Couldn't try these documents again.",
   "document.downloadOriginal": () => "Couldn't download the original.",
   "costs.export": () => "Couldn't export costs.",
   "document.downloadOriginalMissing": () => "Couldn't download the original. The original file is no longer available.",

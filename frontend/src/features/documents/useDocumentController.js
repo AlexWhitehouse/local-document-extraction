@@ -378,6 +378,37 @@ export function useDocumentController({
     });
   }
 
+  // Uploads entries ({ id, file }) picked outside the modal, e.g. in the command palette. Reports and
+  // navigates like the modal. Resolves with { queued, failed }; { interrupted: true } when the batch was
+  // cancelled, e.g. by a workspace change; or null when it couldn't start because another upload is running.
+  async function uploadEntries({ entries, templateId = "", templateTags, onProgress }) {
+    if (!modelReady || isUploadingDocuments || !entries.length) return null;
+    let lastSelection;
+    let outcome = { interrupted: true };
+    await reconciliation.submitBatch({
+      templateId,
+      templateTags,
+      entries,
+      onPacket: (packet) => {
+        lastSelection = { packetId: packet.packet_id };
+        packetController.admitted(packet);
+      },
+      onDocument: (documentId) => {
+        lastSelection = { documentId };
+      },
+      onProgress,
+      onComplete: (result) => {
+        outcome = result;
+        showDocumentUploadToast(result);
+
+        if (lastSelection && onDocumentNavigation) onDocumentNavigation(lastSelection);
+        else onActivePageChange("documents");
+      },
+    });
+
+    return outcome;
+  }
+
   async function resolveTemplate(documentId, templateId) {
     if (isResolvingTemplate) return;
     const scope = actionScopeRef.current;
@@ -1065,6 +1096,7 @@ export function useDocumentController({
     actions: {
       cancelPendingSubmissions: reconciliation.cancelPendingSubmissions,
       clearWorkspaceScopedDocuments,
+      uploadEntries,
     },
   };
 }
