@@ -132,7 +132,7 @@ Use these before writing new markup. Most live in `frontend/src/features/ui/`.
 ## Accessibility baseline
 
 - Modals use `ModalDialog`. Tabs and segmented controls use a roving tabindex with Arrow, Home and End.
-- Every interactive element shows a 2px `:focus-visible` ring.
+- Every interactive element shows a 2px `:focus-visible` ring. One exception: the command palette's request field is always focused while the palette is open, so its bar shows a 1px ring at reduced opacity instead.
 - Never convey status by colour alone.
 - Icon buttons have a label, used for both `aria-label` and the tooltip. Labels name their target ("Remove invoice.pdf").
 - Use `role="status"` only for content that changes. Static text never gets a live region.

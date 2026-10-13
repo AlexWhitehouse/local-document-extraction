@@ -21,6 +21,7 @@
 /* The request bar: a search field, or the request as pills after Enter. */
 .command-palette-bar {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
   min-height: 52px;
@@ -28,8 +29,14 @@
   border-bottom: 1px solid var(--rule);
 }
 
+/* The request is always focused while the palette is open, so the bar shows a quiet 1px ring
+   instead of the app-wide 2px ring on the field itself. */
 .command-palette-bar:has(> :is(input, [role="combobox"]):focus-visible) {
-  box-shadow: inset 0 -2px 0 0 var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.command-palette .command-palette-bar > :is(input, [role="combobox"]):is(:focus, :focus-visible) {
+  outline: none;
 }
 
 .command-palette-bar-icon {
@@ -65,15 +72,13 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+  /* Long requests scroll inside the bar rather than pushing it past the card. */
+  max-height: 136px;
+  overflow-y: auto;
   padding: 2px 0;
   font-size: var(--font-size-6);
   line-height: 26px;
   cursor: text;
-}
-
-.command-palette-pills:focus,
-.command-palette-pills:focus-visible {
-  outline: none;
 }
 
 .command-palette-crumb {
@@ -383,6 +388,7 @@
 /* Footer: keys while typing; the pill legend after Enter. */
 .command-palette-foot {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: 14px;
