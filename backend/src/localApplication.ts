@@ -20,7 +20,7 @@ import {
   countPdfSourceFilePages,
 } from "./lib/sourceFilePageCount";
 import { parseJsonBody, validateExtractRequest } from "./lib/validation";
-import { commitDelegatedProductMutation, authorizeWorkspaceActor, type WorkspaceActor, type DelegatedProductAccess } from "./localActor";
+import { actorCanReadCosts, commitDelegatedProductMutation, authorizeWorkspaceActor, type WorkspaceActor, type DelegatedProductAccess } from "./localActor";
 import { createMcpApplication } from "./mcp/server";
 import { createLocalSubmissionAdmission } from "./localSubmissionAdmission";
 import { createWorkspaceTemplate, updateWorkspaceTemplate } from "./workspaceTemplateOperations";
@@ -520,6 +520,8 @@ export async function withAuthorizedProductStore(
     signal: AbortSignal;
     workspace: AuthorizedWorkspace;
     assertAuthorized(): void;
+    /** Whether the caller may read costs now, by the Costs page rule. */
+    canReadCosts(): boolean;
   }) => Response | Promise<Response>,
   { sessionOnly = false }: { sessionOnly?: boolean } = {},
 ): Promise<Response> {
@@ -544,7 +546,15 @@ export async function withAuthorizedProductStore(
 
       assertAuthorized();
 
-      return work({ ...context, workspace, assertAuthorized });
+      const canReadCosts = () =>
+        actorCanReadCosts({
+          actor,
+          workspaceId: workspace.id,
+          workspaceControl: product.workspaceControl,
+          delegation: product.delegation,
+        });
+
+      return work({ ...context, workspace, assertAuthorized, canReadCosts });
     })
     .catch(workspaceProductDataAccessErrorResponse);
 }

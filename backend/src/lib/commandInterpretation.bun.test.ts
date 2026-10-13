@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { JsonObject, JsonValue } from "../../../shared/json";
-import { SearchContractError, validateCommandInterpretation, type SearchCatalog } from "../../../shared/documentSearch";
+import {
+  parseDocumentSearchFilter,
+  SearchContractError,
+  validateCommandInterpretation,
+  type CostCondition,
+  type SearchCatalog,
+} from "../../../shared/documentSearch";
 
 const catalog: Pick<SearchCatalog, "templates"> = {
   templates: [
@@ -140,6 +146,40 @@ describe("validateCommandInterpretation", () => {
     rejects({ filter: { uploaded_from: "last week" } });
     rejects({ filter: { text: "x".repeat(201) } });
     rejects({ filter: [] });
+  });
+
+  test("a cost filter is accepted only when the catalogue says the caller may read costs", () => {
+    const cost: CostCondition = { op: "between", value: 0.01, value2: 0.05 };
+    const filter = { cost, statuses: ["completed"] };
+
+    // A catalogue without capabilities, or with cost off, can't use cost.
+    expect(() => valid({ filter })).toThrow("Only workspace owners and admins can search by cost.");
+    expect(() =>
+      validateCommandInterpretation({ ...base, filter }, { ...catalog, capabilities: { cost: false } }),
+    ).toThrow("Only workspace owners and admins can search by cost.");
+    expect(
+      validateCommandInterpretation({ ...base, filter }, { ...catalog, capabilities: { cost: true } }).filter,
+    ).toEqual({ statuses: ["completed"], cost });
+  });
+
+  test("cost filters are USD amounts of 0 or more with comparison operators", () => {
+    const read = (cost: JsonValue) => parseDocumentSearchFilter({ cost });
+    const invalid = (cost: JsonValue) => expect(() => read(cost)).toThrow(SearchContractError);
+
+    expect(read({ op: "gt", value: 0.03 })).toEqual({ cost: { op: "gt", value: 0.03 } });
+    expect(read({ op: "eq", value: 0 })).toEqual({ cost: { op: "eq", value: 0 } });
+    expect(read({ op: "between", value: 0.01, value2: 0.01 })).toEqual({ cost: { op: "between", value: 0.01, value2: 0.01 } });
+
+    invalid({ op: "contains", value: 1 });
+    invalid({ op: "has_value" });
+    invalid({ op: "gt" });
+    invalid({ op: "gt", value: "0.03" });
+    invalid({ op: "gt", value: -0.01 });
+    invalid({ op: "gt", value: 0.01, value2: 0.02 });
+    invalid({ op: "between", value: 0.01 });
+    invalid({ op: "between", value: 0.05, value2: 0.01 });
+    invalid({ op: "gt", value: 1, currency: "GBP" });
+    invalid([]);
   });
 
   test("rejects invalid arguments", () => {

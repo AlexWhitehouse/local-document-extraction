@@ -1209,3 +1209,150 @@ describe("mergeInterpretations", () => {
     expect(merged.args.format).toBe("csv");
   });
 });
+
+describe("processing cost", () => {
+  const costCatalog = { ...catalog, capabilities: { cost: true } };
+
+  // Invoice has its own "Cost" field; Receipt and Purchase order don't.
+  const costFieldCatalog = {
+    ...costCatalog,
+    templates: costCatalog.templates.map((template) =>
+      template.id === "tpl_invoice"
+        ? { ...template, fields: [...template.fields, { field_id: "cost", name: "Cost", data_type: "number", type: "number" }] }
+        : template,
+    ),
+  };
+
+  function costRun(text, source = costCatalog) {
+    const segments = lexCommand(text, source, { workspaces });
+    const result = interpretLocally(segments, source, { today: TODAY, workspaces });
+
+    expect(validateCommandInterpretation(result.interpretation, source)).toEqual(result.interpretation);
+
+    return { segments, ...result };
+  }
+
+  it("reads the issue's example as a cost condition, with a Processing cost pill", () => {
+    const { segments, interpretation, complete, resolved } = costRun("Show me documents with a cost greater than $0.03");
+
+    expect(kinds(segments)).toEqual([
+      ["action", "Show me"],
+      ["subject", "documents"],
+      ["field", "cost"],
+      ["condition", "greater than $0.03"],
+    ]);
+    expect(resolved[segments.findIndex((segment) => segment.type === "field")]).toBe("Processing cost");
+    expect(interpretation).toMatchObject({ action: "find_documents", filter: { cost: { op: "gt", value: 0.03 } } });
+    expect(complete).toBe(true);
+  });
+
+  it.each([
+    ["documents with a processing cost over 3 cents", { op: "gt", value: 0.03 }],
+    ["documents costing between $0.01 and $0.05", { op: "between", value: 0.01, value2: 0.05 }],
+    ["docs with a cost between 1 and 5 cents", { op: "between", value: 0.01, value2: 0.05 }],
+    ["documents where the total cost is under 0.1", { op: "lt", value: 0.1 }],
+    ["documents with spend >= $1", { op: "gte", value: 1 }],
+    ["documents that cost at most 50c", { op: "lte", value: 0.5 }],
+    ["documents we spent more than 2 dollars on", { op: "gt", value: 2 }],
+    ["documents with costs of exactly $0.25", { op: "eq", value: 0.25 }],
+    ["documents with a cost of $0.25", { op: "eq", value: 0.25 }],
+    ["documents costing $0.05", { op: "eq", value: 0.05 }],
+    ["documents with a total cost above $1,200.50", { op: "gt", value: 1200.5 }],
+    ["documents with a cost over 0.3 cents", { op: "gt", value: 0.003 }],
+    ["documents with a cost over 0", { op: "gt", value: 0 }],
+  ])("%s", (text, cost) => {
+    const { interpretation, complete } = costRun(text);
+
+    expect(interpretation.filter).toEqual({ cost });
+    expect(complete).toBe(true);
+  });
+
+  it("needs an amount after the cost words, and a range in order", () => {
+    // A bare number without a comparison or currency isn't an amount.
+    expect(costRun("documents costing 3").interpretation.filter.cost).toBeUndefined();
+    expect(costRun("documents with a cost between $0.05 and $0.01").interpretation.filter.cost).toBeUndefined();
+    // Negative amounts aren't costs.
+    expect(costRun("documents with a cost under -1").interpretation.filter.cost).toBeUndefined();
+  });
+
+  it("combines with Templates, statuses, upload dates and field conditions", () => {
+    const { interpretation, complete } = costRun("failed invoices with a cost of more than 2c uploaded last week");
+
+    expect(interpretation.filter).toEqual({
+      statuses: ["failed"],
+      template_ids: ["tpl_invoice"],
+      uploaded_from: "2026-10-05",
+      uploaded_to: "2026-10-11",
+      cost: { op: "gt", value: 0.02 },
+    });
+    expect(complete).toBe(true);
+    expect(costRun("invoices where total is over 500 and the cost is under $0.10").interpretation.filter).toEqual({
+      conditions: [condition("tpl_invoice", "total", "gt", 500)],
+      cost: { op: "lt", value: 0.1 },
+    });
+  });
+
+  it("still goes to the Costs page", () => {
+    for (const text of ["Go to costs", "costs page", "open the costs page", "costs", "go to spend"]) {
+      expect(costRun(text).interpretation).toMatchObject({ action: "go_to", args: { page: "costs" } });
+    }
+  });
+
+  it("uses a named Template's field of that name, and the processing cost otherwise", () => {
+    expect(costRun("invoices with a cost over 5", costFieldCatalog).interpretation.filter).toEqual({
+      conditions: [condition("tpl_invoice", "cost", "gt", 5)],
+    });
+    expect(costRun("documents with a cost over 5", costFieldCatalog).interpretation.filter).toEqual({
+      cost: { op: "gt", value: 5 },
+    });
+    expect(costRun("receipts with a cost over $5", costFieldCatalog).interpretation.filter).toEqual({
+      template_ids: ["tpl_receipt"],
+      cost: { op: "gt", value: 5 },
+    });
+  });
+
+  it("leaves cost words unused, with a note, when the caller can't read costs", () => {
+    for (const source of [catalog, { ...catalog, capabilities: { cost: false } }]) {
+      const { interpretation, complete, unused } = costRun("Show me documents with a cost greater than $0.03", source);
+
+      expect(interpretation.filter.cost).toBeUndefined();
+      expect(unused).toEqual(["cost", "greater than $0.03"]);
+      expect(complete).toBe(false);
+      expect(interpretation.notes).toContainEqual({ kind: "unrecognised", text: "Only owners and admins can search by cost." });
+    }
+
+    // A catalogue field called "Cost" is still searchable.
+    const withField = { ...costFieldCatalog, capabilities: { cost: false } };
+
+    expect(costRun("documents with a cost over 5", withField).interpretation.filter).toEqual({
+      conditions: [condition("tpl_invoice", "cost", "gt", 5)],
+    });
+  });
+
+  it("describes the cost in the summary", () => {
+    expect(describeFilter({ cost: { op: "gt", value: 0.03 } }, costCatalog)).toBe("cost over $0.03");
+    expect(describeFilter({ cost: { op: "lte", value: 1 } }, costCatalog)).toBe("cost at most $1.00");
+    expect(describeFilter({ cost: { op: "eq", value: 0.0025 } }, costCatalog)).toBe("cost of $0.0025");
+    expect(describeFilter({ cost: { op: "between", value: 0.01, value2: 0.05 } }, costCatalog)).toBe(
+      "cost between $0.01 and $0.05",
+    );
+    expect(
+      describeFilter({ template_ids: ["tpl_invoice"], statuses: ["failed"], cost: { op: "gte", value: 0.5 } }, costCatalog),
+    ).toBe("Invoice · cost at least $0.50 · failed");
+  });
+
+  it("keeps a locally recognised cost over the model's, and takes the model's otherwise", () => {
+    const model = (cost) => ({ action: "find_documents", args: {}, filter: { cost }, unrecognised: [], notes: [] });
+    const recognised = costRun("documents with a cost over $0.03 billed to Leeds");
+
+    expect(
+      mergeInterpretations(recognised.interpretation, model({ op: "gt", value: 3 }), recognised.segments).filter.cost,
+    ).toEqual({ op: "gt", value: 0.03 });
+
+    const unread = costRun("documents billed to Leeds");
+
+    expect(
+      mergeInterpretations(unread.interpretation, model({ op: "lt", value: 1 }), unread.segments).filter.cost,
+    ).toEqual({ op: "lt", value: 1 });
+  });
+});

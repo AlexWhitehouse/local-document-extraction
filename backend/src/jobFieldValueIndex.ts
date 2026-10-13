@@ -260,7 +260,7 @@ function readKnownValues(database: Database): Map<string, string[]> {
 }
 
 /** Active Templates with their current-version fields and frequent short text values. */
-export function readSearchCatalog(database: Database, models: string[]): Omit<SearchCatalog, "interpretation"> {
+export function readSearchCatalog(database: Database, models: string[]): Omit<SearchCatalog, "interpretation" | "capabilities"> {
   const templates = readSearchFields(database);
   const known = readKnownValues(database);
   let remaining = KNOWN_VALUES_TOTAL;

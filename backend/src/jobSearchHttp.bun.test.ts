@@ -4,8 +4,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { isJsonObject, isString, parseJson, type JsonObject, type JsonValue } from "../../shared/json";
-import type { DocumentSearchFilter, FieldCondition, SearchOperator } from "../../shared/documentSearch";
+import { isJsonObject, isNumber, isString, parseJson, type JsonObject, type JsonValue } from "../../shared/json";
+import type { CostCondition, DocumentSearchFilter, FieldCondition, SearchOperator } from "../../shared/documentSearch";
+import { readModelCallUsage } from "./consumer/modelUsage";
 import type { FieldDefinition } from "./lib/types";
 import { createLocalApplication } from "./localApplication";
 import { createLocalAuth } from "./localAuth";
@@ -170,6 +171,102 @@ function seedOtherWorkspace(store: LocalWorkspaceProductStore) {
   });
 }
 
+const COST_FIELDS: FieldDefinition[] = [
+  { id: "total", name: "Total", description: "Total", data_type: "number" },
+  { id: "vendor", name: "Vendor", description: "Vendor", data_type: "string" },
+];
+
+type Stage = "split" | "auto_template" | "extraction";
+
+/** Records one finished model call, as the gateway observer does. A null amount is an unreported cost. */
+function charge(store: LocalWorkspaceProductStore, ownerId: string, amount: number | null, stage: Stage = "extraction") {
+  const call = store.modelCallObserver({
+    ownerId,
+    stage,
+    model: "test-model",
+    configurationRevision: 1,
+    now: () => "2026-04-08T00:00:00.000Z",
+  });
+
+  call.finished(call.started(), readModelCallUsage({ usage: { cost: amount } }));
+}
+
+/**
+ * Totals, newest first: child_two 0.02 (packet share), child_one 0.061 (0.06 share + 0.001), c_failed 0.1,
+ * c_unknown 0 (unreported only), c_partial 0.04 (+ an unreported call), c_mid 0.05, c_low 0.005 + 0.025, c_none 0.
+ */
+function seedCostWorkspace(store: LocalWorkspaceProductStore): string[] {
+  store.createTemplate({ templateId: "tpl_cost", name: "Invoice", description: null, fields: COST_FIELDS, createdAt: "2026-04-01T00:00:00.000Z" });
+
+  const completed = (jobId: string, day: string, total: number, vendor: string) =>
+    seed(store, {
+      jobId,
+      templateId: "tpl_cost",
+      version: 1,
+      createdAt: `2026-04-${day}T09:00:00.000Z`,
+      results: [
+        ["total", "ok", total, String(total)],
+        ["vendor", "ok", vendor, vendor],
+      ],
+    });
+
+  completed("c_none", "01", 10, "Acme");
+  completed("c_low", "02", 100, "Acme");
+  // Added in stage order, 0.005 + 0.025 is 0.030000000000000002.
+  charge(store, "c_low", 0.005, "auto_template");
+  charge(store, "c_low", 0.025);
+  completed("c_mid", "03", 200, "Beta");
+  charge(store, "c_mid", 0.05);
+  completed("c_partial", "04", 300, "Acme");
+  charge(store, "c_partial", 0.04);
+  charge(store, "c_partial", null);
+  completed("c_unknown", "05", 400, "Beta");
+  charge(store, "c_unknown", null);
+  seed(store, { jobId: "c_failed", templateId: "tpl_cost", version: 1, createdAt: "2026-04-06T09:00:00.000Z", fail: true });
+  charge(store, "c_failed", 0.1);
+
+  store.createDocumentPacket({
+    packetId: "packet",
+    templateId: "tpl_cost",
+    templateVersion: 1,
+    templateTags: [],
+    selectedPages: [1, 2, 3, 4],
+    processingPolicy: { enable_smart_splitting: true, exclude_blank_pages: true },
+    sourceFileKey: "packet/source.pdf",
+    sourceMimeType: "application/pdf",
+    sourceName: "packet.pdf",
+    sourceFilePageCount: 4,
+    submittedAt: "2026-04-07T08:00:00.000Z",
+  });
+  store.claimPacketRound({ packetId: "packet", updatedAt: "2026-04-07T08:00:00.000Z", configurationSnapshot: {} });
+  charge(store, "packet", 0.08, "split");
+
+  const planned = store.acceptDocumentPacketPlan({
+    packetId: "packet",
+    revision: 1,
+    expectedRound: 1,
+    groups: [[1, 2, 3], [4]],
+    exclusions: [],
+    updatedAt: "2026-04-07T08:00:00.000Z",
+  })!;
+
+  const children = planned.child_slots.map((slot, index) => {
+    store.materializePacketChild({
+      packetId: "packet",
+      jobId: slot.job_id,
+      sourceFileKey: `${slot.job_id}/source.pdf`,
+      sourceFilePageCount: slot.pages.length,
+      updatedAt: `2026-04-07T1${index}:00:00.000Z`,
+    });
+
+    return slot.job_id;
+  });
+
+  charge(store, children[0]!, 0.001);
+
+  return children;
+}
+
 type Fixture = {
   stateDirectory: string;
   database: Database;
@@ -177,8 +274,14 @@ type Fixture = {
   apiKey: string;
   ownerCookie: string;
   strangerCookie: string;
+  adminCookie: string;
+  memberCookie: string;
   workspaceId: string;
   otherWorkspaceId: string;
+  costWorkspaceId: string;
+  costApiKey: string;
+  /** The packet's two documents: three pages, then one. */
+  packetChildren: string[];
   scheduled: LocalQueuedExtractionJob[];
   liveMessages: string[];
 };
@@ -190,8 +293,13 @@ const fixture: Fixture = {
   apiKey: "",
   ownerCookie: "",
   strangerCookie: "",
+  adminCookie: "",
+  memberCookie: "",
   workspaceId: "",
   otherWorkspaceId: "",
+  costWorkspaceId: "",
+  costApiKey: "",
+  packetChildren: [],
   scheduled: [],
   liveMessages: [],
 };
@@ -235,6 +343,32 @@ beforeAll(async () => {
   fixture.workspaceId = workspaceControl.listAcceptedWorkspaces({ userId: owner.session.id, userName: owner.session.name })[0]!.id;
   fixture.otherWorkspaceId = workspaceControl.createWorkspace({ userId: owner.session.id, name: "Other" }).workspace_id;
   fixture.apiKey = workspaceControl.rotateApiKey({ workspaceId: fixture.workspaceId, userId: owner.session.id }).api_key;
+
+  // A workspace with recorded costs, where Ada is the owner, Lin an admin and Grace a member.
+  // Grace stays a stranger to the primary workspace. Sign-ins are rate limited, so no more users are added.
+  fixture.costWorkspaceId = workspaceControl.createWorkspace({ userId: owner.session.id, name: "Costs" }).workspace_id;
+  fixture.costApiKey = workspaceControl.rotateApiKey({ workspaceId: fixture.costWorkspaceId, userId: owner.session.id }).api_key;
+  const admin = await createSignedInUser({ application, auth, email: "lin@example.com", name: "Lin", verificationLinks });
+
+  for (const [user, email, role] of [
+    [admin, "lin@example.com", "admin"],
+    [stranger, "grace@example.com", "member"],
+  ] as const) {
+    const invitation = workspaceControl.createInvitation({ workspaceId: fixture.costWorkspaceId, inviterUserId: owner.session.id, email, role });
+
+    workspaceControl.acceptInvitation({ invitationId: invitation.id, userId: user.session.id, userEmail: email });
+  }
+
+  fixture.adminCookie = admin.cookie;
+  fixture.memberCookie = stranger.cookie;
+
+  const costStore = createLocalWorkspaceProductStore({ stateDirectory: fixture.stateDirectory, workspaceId: fixture.costWorkspaceId });
+
+  try {
+    fixture.packetChildren = seedCostWorkspace(costStore);
+  } finally {
+    costStore.close();
+  }
 
   for (const [workspaceId, populate] of [
     [fixture.workspaceId, seedPrimaryWorkspace],
@@ -514,6 +648,163 @@ describe("POST /v1/jobs/search", () => {
     expect(await found({ text: "hnh" }, { cookie: fixture.ownerCookie, workspaceId: fixture.workspaceId })).toEqual(["job_c", "job_b", "job_a"]);
     expect(await found({ text: "hnh" }, { cookie: fixture.ownerCookie, workspaceId: fixture.otherWorkspaceId })).toEqual(["job_z"]);
     expect((await search({ filter: { text: "hnh" } }, { cookie: fixture.strangerCookie, workspaceId: fixture.workspaceId })).status).toBe(403);
+  });
+});
+
+describe("searching by processing cost", () => {
+  const owner = (): Credentials => ({ cookie: fixture.ownerCookie, workspaceId: fixture.costWorkspaceId });
+  const admin = (): Credentials => ({ cookie: fixture.adminCookie, workspaceId: fixture.costWorkspaceId });
+  const member = (): Credentials => ({ cookie: fixture.memberCookie, workspaceId: fixture.costWorkspaceId });
+  const costKey = (): Credentials => ({ apiKey: fixture.costApiKey });
+
+  const cost = (op: CostCondition["op"], value: number, value2?: number): CostCondition =>
+    value2 === undefined ? { op, value } : { op, value, value2 };
+
+  const byCost = (filter: DocumentSearchFilter) => found(filter, owner());
+
+  const children = () => {
+    const [three, one] = fixture.packetChildren;
+
+    return { three: three!, one: one! };
+  };
+
+  test("comparisons are on the total reported cost, with exact boundaries", async () => {
+    const { three, one } = children();
+
+    expect(await byCost({ cost: cost("gt", 0.03) })).toEqual([three, "c_failed", "c_partial", "c_mid"]);
+    // c_low's 0.005 + 0.025 is 0.030000000000000002 in floating point; it still equals $0.03.
+    expect(await byCost({ cost: cost("gte", 0.03) })).toEqual([three, "c_failed", "c_partial", "c_mid", "c_low"]);
+    expect(await byCost({ cost: cost("eq", 0.03) })).toEqual(["c_low"]);
+    expect(await byCost({ cost: cost("lt", 0.03) })).toEqual([one, "c_unknown", "c_none"]);
+    expect(await byCost({ cost: cost("lte", 0.02) })).toEqual([one, "c_unknown", "c_none"]);
+    expect(await byCost({ cost: cost("lt", 0.02) })).toEqual(["c_unknown", "c_none"]);
+    expect(await byCost({ cost: cost("between", 0.02, 0.04) })).toEqual([one, "c_partial", "c_low"]);
+    expect(await byCost({ cost: cost("between", 0.05, 0.05) })).toEqual(["c_mid"]);
+    expect(await byCost({ cost: cost("gt", 1) })).toEqual([]);
+  });
+
+  test("a packet document counts its page share of the split; unreported calls add nothing", async () => {
+    const { three, one } = children();
+
+    // 0.08 split over four pages: three pages is 0.06, plus the document's own 0.001; one page is 0.02.
+    expect(await byCost({ cost: cost("eq", 0.061) })).toEqual([three]);
+    expect(await byCost({ cost: cost("eq", 0.02) })).toEqual([one]);
+    expect(await byCost({ cost: cost("eq", 0.04) })).toEqual(["c_partial"]);
+    expect(await byCost({ cost: cost("eq", 0) })).toEqual(["c_unknown", "c_none"]);
+  });
+
+  test("each result lists its cost as the document page shows it, and the search agrees with it", async () => {
+    const { body } = await search({ filter: { cost: cost("gte", 0) } }, owner());
+    const jobs = jsonArray(body.jobs).map((job) => jsonObject(job));
+    const matches = Object.fromEntries(jobs.map((job) => [jsonText(job.job_id), jsonArray(job.matches)]));
+
+    expect(jsonObject(jsonObject(jobs.find((job) => job.job_id === "c_low")!.costs).total).amount).toBe(0.030000000000000002);
+    expect(matches.c_partial).toEqual([{ kind: "cost", amount: 0.04, currency: "USD", complete: false, display: "$0.0400+" }]);
+    expect(matches.c_unknown).toEqual([{ kind: "cost", amount: null, currency: "USD", complete: false, display: null }]);
+    expect(matches.c_none).toEqual([{ kind: "cost", amount: 0, currency: "USD", complete: true, display: "$0.00" }]);
+    expect(matches[children().three]).toEqual([
+      { kind: "cost", amount: expect.closeTo(0.061, 12), currency: "USD", complete: true, display: "$0.0610" },
+    ]);
+
+    // Every document's own total, rounded as the search rounds it, finds that document.
+    for (const job of jobs) {
+      const costs = jsonObject(jsonObject(job.costs).total);
+      const amount = isNumber(costs.amount) ? costs.amount : 0;
+      const same = await byCost({ cost: cost("eq", Number(amount.toFixed(10))) });
+
+      expect(same).toContain(jsonText(job.job_id));
+    }
+  });
+
+  test("combines with statuses, Templates, field conditions and plain words", async () => {
+    const { three } = children();
+
+    expect(await byCost({ statuses: ["completed"], cost: cost("gt", 0.03) })).toEqual(["c_partial", "c_mid"]);
+    expect(await byCost({ statuses: ["failed"], cost: cost("gt", 0.03) })).toEqual(["c_failed"]);
+    expect(await byCost({ template_ids: ["tpl_cost"], cost: cost("gt", 0.03) })).toEqual([three, "c_failed", "c_partial", "c_mid"]);
+    expect(
+      await byCost({ conditions: [condition("total", "gte", 200, undefined, "tpl_cost")], cost: cost("lt", 0.045) }),
+    ).toEqual(["c_unknown", "c_partial"]);
+    expect(await byCost({ text: "acme", cost: cost("gte", 0.03) })).toEqual(["c_partial", "c_low"]);
+
+    const { body } = await search(
+      { filter: { conditions: [condition("vendor", "is", "beta", undefined, "tpl_cost")], cost: cost("gt", 0) } },
+      owner(),
+    );
+
+    expect(jsonArray(body.jobs).map((job) => jsonObject(job).matches)).toEqual([
+      [
+        { template_id: "tpl_cost", field_id: "vendor", field_name: "Vendor", type: "text", value_state: "value", display: "Beta" },
+        { kind: "cost", amount: 0.05, currency: "USD", complete: true, display: "$0.0500" },
+      ],
+    ]);
+  });
+
+  test("pages through cost results, with cursors bound to the cost condition", async () => {
+    const filter = { cost: cost("gte", 0.02) };
+    const first = await search({ filter, limit: 2 }, owner());
+
+    expect(first.body).toMatchObject({ total: 6, total_capped: false, has_more: true });
+    const second = await search({ filter, limit: 2, cursor: first.body.next_cursor ?? null }, owner());
+    const third = await search({ filter, limit: 2, cursor: second.body.next_cursor ?? null }, owner());
+
+    expect([first, second, third].flatMap((page) => jsonArray(page.body.jobs).map((job) => jsonObject(job).job_id))).toEqual(
+      await byCost(filter),
+    );
+    expect(third.body).toMatchObject({ has_more: false, next_cursor: null });
+
+    const ids = await search({ filter, ids_only: true, limit: 500 }, owner());
+
+    expect(ids.body.job_ids).toEqual(await byCost(filter));
+
+    const rebound = await search({ filter: { cost: cost("gte", 0.03) }, limit: 2, cursor: first.body.next_cursor ?? null }, owner());
+    const unbound = await search({ filter: {}, limit: 2, cursor: first.body.next_cursor ?? null }, owner());
+
+    expect([errorCode(rebound.body), errorCode(unbound.body)]).toEqual(["invalid_cursor", "invalid_cursor"]);
+  });
+
+  test("only callers who can read the Costs page may search by cost", async () => {
+    const overview = (credentials: Credentials) =>
+      fixture.application(
+        new Request(`${BASE}/v1/workspaces/${fixture.costWorkspaceId}/costs/overview?start=2026-04-01&end=2026-04-09&unit=day`, {
+          headers: headersFor(credentials),
+        }),
+      );
+
+    for (const credentials of [owner(), admin()]) {
+      expect((await overview(credentials)).status).toBe(200);
+      expect((await search({ filter: { cost: cost("gt", 0.03) } }, credentials)).status).toBe(200);
+    }
+
+    for (const credentials of [member(), costKey()]) {
+      expect((await overview(credentials)).status).not.toBe(200);
+      const refused = await search({ filter: { cost: cost("gt", 0.03) } }, credentials);
+
+      expect({ status: refused.status, error: refused.body.error, cacheControl: refused.cacheControl }).toEqual({
+        status: 403,
+        error: { code: "forbidden", message: "Only workspace owners and admins can search by cost." },
+        cacheControl: "private, no-store",
+      });
+      // Everything else stays available to them.
+      expect(await found({ statuses: ["failed"] }, credentials)).toEqual(["c_failed"]);
+    }
+
+    // A malformed cost is a 400 for everyone.
+    for (const credentials of [owner(), member()]) {
+      const malformed = await search({ filter: { cost: { op: "gt", value: -1 } } }, credentials);
+
+      expect([malformed.status, errorCode(malformed.body)]).toEqual([400, "invalid_search_filter"]);
+    }
+  });
+
+  test("the catalogue says whether the caller may search by cost", async () => {
+    const capability = async (credentials: Credentials) =>
+      (await readObjectResponse(await call("/search/catalog", undefined, credentials))).capabilities;
+
+    expect(await capability(owner())).toEqual({ cost: true });
+    expect(await capability(admin())).toEqual({ cost: true });
+    expect(await capability(member())).toEqual({ cost: false });
+    expect(await capability(costKey())).toEqual({ cost: false });
   });
 });
 

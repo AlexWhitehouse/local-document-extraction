@@ -74,7 +74,7 @@ export async function handleSearchInterpretation({
   request: Request;
   modelGatewayRequestTimeoutMs: string;
 }): Promise<Response> {
-  const response = await withAuthorizedProductStore(product, request, async ({ store, signal: workspaceSignal, workspace }) => {
+  const response = await withAuthorizedProductStore(product, request, async ({ store, signal: workspaceSignal, workspace, canReadCosts }) => {
     const callTimeoutMs = Math.max(1, Math.min(60_000, Number(modelGatewayRequestTimeoutMs) || 60_000));
     // Only the client or Workspace deletion cancels; the deadline is a model failure, not a cancellation.
     const cancelled = AbortSignal.any([request.signal, workspaceSignal]);
@@ -97,7 +97,7 @@ export async function handleSearchInterpretation({
       if (!configuration) throw configurationMissing();
 
       // The server's own catalogue: a client can't offer the model fields from elsewhere.
-      const catalog = store.getSearchCatalog();
+      const catalog = { ...store.getSearchCatalog(), capabilities: { cost: canReadCosts() } };
 
       const credential = createWorkspaceCredentialVault(product.stateDirectory).decrypt(
         workspace.id,

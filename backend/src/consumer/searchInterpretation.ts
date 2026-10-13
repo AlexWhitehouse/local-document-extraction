@@ -23,6 +23,7 @@ import {
   TEXT_OPERATORS,
   validateCommandInterpretation,
   type CommandInterpretation,
+  type SearchCapabilities,
   type SearchCatalog,
   type SearchValueType,
 } from "../../../shared/documentSearch";
@@ -39,7 +40,10 @@ export const INTERPRETATION_LIMITS = Object.freeze({
 
 export type InterpretationSegment = { type: string; text: string };
 
-export type InterpretationCatalog = Pick<SearchCatalog, "templates" | "models">;
+/** Without `capabilities`, the model may only use Templates, fields and models. */
+export type InterpretationCatalog = Pick<SearchCatalog, "templates" | "models"> & {
+  capabilities?: SearchCapabilities;
+};
 
 type PromptField = { field_id: string; name: string; type: SearchValueType | null; known_values?: string[] };
 
@@ -48,6 +52,8 @@ type PromptTemplate = { id: string; name: string; fields: PromptField[] };
 export type PromptCatalogue = {
   templates: PromptTemplate[];
   models: string[];
+  /** What the caller may search by beyond fields: cost is true only for workspace owners and admins. */
+  capabilities: SearchCapabilities;
   /** Present when frequent values were left out to fit the prompt. */
   known_values_omitted?: true;
   /** Present when some Templates were left out to fit the prompt. */
@@ -59,7 +65,7 @@ const list = (values: readonly string[]) => values.join(", ");
 export const INTERPRETATION_OUTPUT_CONTRACT = `Return exactly a JSON object {"action":string,"args":object,"filter":object|null,"unrecognised":[string],"notes":[note]}. No additional properties anywhere.
 action: one of ${list(COMMAND_ACTIONS)}.
 args: only these optional keys. template_id: a catalogue Template ID (the Template to edit, or the one the action is about). instruction: the requested Template change or new Template description in the user's words (at most ${SEARCH_LIMITS.instructionCharacters} characters). format: one of ${list(EXPORT_FORMATS)}. email: an email address written in the request. role: one of ${list(INVITE_ROLES)}. page: one of ${list(COMMAND_PAGES)}. workspace: a Workspace name exactly as written. limit: an integer from 1 to ${SEARCH_LIMITS.idsPageSize} for "the latest N".
-filter: null when the action doesn't act on documents. Otherwise an object with only these optional keys. text: plain search words (at most ${SEARCH_LIMITS.textCharacters} characters), matched against document names, document IDs and extracted text. statuses: up to ${SEARCH_LIMITS.statuses} of ${list(SEARCH_JOB_STATUSES)}. template_ids: up to ${SEARCH_LIMITS.templates} catalogue Template IDs. uploaded_from, uploaded_to: inclusive upload days as YYYY-MM-DD, from not after to. model: one of the catalogue models. conditions: up to ${SEARCH_LIMITS.conditions} of {"template_id":string,"field_id":string,"op":string,"value"?:string|number,"value2"?:string|number}.
+filter: null when the action doesn't act on documents. Otherwise an object with only these optional keys. text: plain search words (at most ${SEARCH_LIMITS.textCharacters} characters), matched against document names, document IDs and extracted text. statuses: up to ${SEARCH_LIMITS.statuses} of ${list(SEARCH_JOB_STATUSES)}. template_ids: up to ${SEARCH_LIMITS.templates} catalogue Template IDs. uploaded_from, uploaded_to: inclusive upload days as YYYY-MM-DD, from not after to. model: one of the catalogue models. conditions: up to ${SEARCH_LIMITS.conditions} of {"template_id":string,"field_id":string,"op":string,"value"?:string|number,"value2"?:string|number}. cost: only when catalogue.capabilities.cost is true, {"op":string,"value":number,"value2"?:number} comparing the document's total processing cost in USD, with op one of ${list(COMPARISON_OPERATORS)}; values are plain numbers of 0 or more and only "between" takes value2, which must not be smaller than value.
 Condition operators by field type. text: ${list(TEXT_OPERATORS)}. number and date: ${list(COMPARISON_OPERATORS)}. boolean: ${list(BOOLEAN_OPERATORS)}. Any type: ${list(STATE_OPERATORS)}. State and boolean operators take no value. Only "between" takes value2, which must not be smaller than value. Text values are written as in the request; number values are plain numbers; date values are YYYY-MM-DD. Fields whose type is null can't be used.
 unrecognised: up to ${SEARCH_LIMITS.unrecognised} words or phrases from the request you could not use, each exactly as written.
 notes: up to ${SEARCH_LIMITS.notes} of {"kind":"ambiguous_field","text":string,"alternatives":[{"template_id":string,"field_id":string}]} with at most 5 alternatives, {"kind":"matched","text":string} or {"kind":"unrecognised","text":string}. Note text is at most 300 characters.`;
@@ -71,6 +77,7 @@ Use only Template IDs, field IDs and models that appear in the catalogue, copied
 Relative dates such as "today", "yesterday", "this week", "last week", "this month", "last month" or "in the last 7 days" refer to the upload date. Resolve them against today's date in the given time zone into uploaded_from and uploaded_to, both inclusive. Weeks run Monday to Sunday: "last week" is the previous Monday to Sunday and "this week" is this Monday to today. "In the last N days" covers today and the N-1 days before it, so "the last 7 days" on 2026-10-13 is 2026-10-07 to 2026-10-13. An explicit date next to a date field ("issued after 1 March") is a condition on that field, not an upload date.
 When a field name is on several Templates, use the field on the Template the request names; otherwise use the first such Template in catalogue order, and add an ambiguous_field note whose alternatives list the same-named fields on the other Templates.
 A field's known_values show frequent values; a word matching one identifies that field. Remaining descriptive words (for example "billed to Leeds") may become a contains condition on the most plausible text field (for example a billing address field); add a matched note naming the field you used. Other plain search words may go in filter.text.
+Words about what a document cost to process ("cost", "processing cost", "total cost", "spend", "spent", "price to process", "costing") followed by an amount are filter.cost, not a page and not a field, unless a Template the request names has a field with that name. Amounts are USD: "$0.03" and "0.03" are 0.03, and "3 cents" is 0.03. Use filter.cost only when catalogue.capabilities.cost is true; otherwise report those words in unrecognised.
 Status words map to statuses ("failed", "still processing"). Filler words such as "show", "me", "all" or "please" need no report. Report every other word or phrase you could not use in unrecognised, exactly as written, instead of guessing. The segments are the client's own tentative reading of the request: use them as hints only.`;
 
 /** Offers the model a bounded catalogue. Frequent values are dropped first, then Templates the request doesn't name. */
@@ -94,7 +101,8 @@ export function catalogueForPrompt(catalog: InterpretationCatalog, text: string)
   }));
 
   const size = (value: PromptCatalogue | PromptTemplate) => Buffer.byteLength(JSON.stringify(value));
-  const full: PromptCatalogue = { templates, models: catalog.models };
+  const capabilities: SearchCapabilities = { cost: catalog.capabilities?.cost === true };
+  const full: PromptCatalogue = { templates, models: catalog.models, capabilities };
 
   if (size(full) <= INTERPRETATION_LIMITS.catalogueBytes) return full;
 
@@ -103,7 +111,12 @@ export function catalogueForPrompt(catalog: InterpretationCatalog, text: string)
     fields: template.fields.map(({ known_values: _known, ...field }) => field),
   }));
 
-  const withoutValues: PromptCatalogue = { templates: plain, models: catalog.models, known_values_omitted: true };
+  const withoutValues: PromptCatalogue = {
+    templates: plain,
+    models: catalog.models,
+    capabilities,
+    known_values_omitted: true,
+  };
 
   if (size(withoutValues) <= INTERPRETATION_LIMITS.catalogueBytes) return withoutValues;
 
@@ -111,7 +124,7 @@ export function catalogueForPrompt(catalog: InterpretationCatalog, text: string)
   const request = text.toLowerCase();
   const named = plain.filter((template) => request.includes(template.name.toLowerCase()));
   const offered: PromptTemplate[] = [];
-  let used = size({ templates: [], models: catalog.models, known_values_omitted: true, truncated: true });
+  let used = size({ templates: [], models: catalog.models, capabilities, known_values_omitted: true, truncated: true });
 
   for (const template of [...named, ...plain.filter((template) => !named.includes(template))]) {
     const bytes = size(template) + 1;
@@ -121,7 +134,7 @@ export function catalogueForPrompt(catalog: InterpretationCatalog, text: string)
     used += bytes;
   }
 
-  return { templates: offered, models: catalog.models, known_values_omitted: true, truncated: true };
+  return { templates: offered, models: catalog.models, capabilities, known_values_omitted: true, truncated: true };
 }
 
 /** One short, text-only model call. The result only describes an action; the client decides what to run. */

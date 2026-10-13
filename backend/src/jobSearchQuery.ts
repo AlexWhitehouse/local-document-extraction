@@ -3,6 +3,7 @@ import type { Database, SQLQueryBindings } from "bun:sqlite";
 import {
   findCatalogField,
   normalizeSearchText,
+  type CostCondition,
   searchValueType,
   type DocumentSearchFilter,
   type FieldCondition,
@@ -12,7 +13,8 @@ import {
   type SearchValueType,
 } from "../../shared/documentSearch";
 
-export type SearchMatch = {
+/** The value of a field a condition or the plain words used. */
+export type FieldSearchMatch = {
   template_id: string;
   field_id: string;
   field_name: string;
@@ -20,6 +22,21 @@ export type SearchMatch = {
   value_state: SearchValueState;
   display: string | null;
 };
+
+/**
+ * The document's processing cost, listed when the filter uses `cost`. `amount` is null when calls
+ * occurred but none reported a cost; `complete` is false when some calls didn't report one.
+ */
+export type CostSearchMatch = {
+  kind: "cost";
+  amount: number | null;
+  currency: "USD";
+  complete: boolean;
+  /** As the Costs page shows it, with "+" for a known subtotal; null when no amount was reported. */
+  display: string | null;
+};
+
+export type SearchMatch = FieldSearchMatch | CostSearchMatch;
 
 export type JobSearchCursor = { createdAt: string; jobId: string };
 
@@ -40,7 +57,7 @@ export type JobSearchHit = {
   created_at: string;
   template_id: string | null;
   template_name: string | null;
-  matches: SearchMatch[];
+  matches: FieldSearchMatch[];
 };
 
 export type JobSearchResult = { jobs: JobSearchHit[]; total: number; total_capped: boolean; has_more: boolean };
@@ -194,6 +211,48 @@ function textClause(term: string): Clause {
   };
 }
 
+/**
+ * A share of the packet's split, by the rule in `documentCosts` (localModelCosts.ts) and `allocateCost`:
+ * split × (document pages / packet pages), unrounded. Only a document with a packet lineage has one.
+ */
+const SPLIT_SHARE = `(SELECT COALESCE((SELECT SUM(c.amount) FROM model_call_costs c WHERE c.owner_id = p.id AND c.stage = 'split'), 0)
+    * (CAST(json_array_length(r.source_pages) AS REAL) / json_array_length(p.selected_pages))
+  FROM document_routing r JOIN document_packets p ON p.id = r.parent_packet_id WHERE r.job_id = j.id)`;
+
+const HAS_LINEAGE = `EXISTS (SELECT 1 FROM document_routing r JOIN document_packets p ON p.id = r.parent_packet_id
+  WHERE r.job_id = j.id)`;
+
+const ownedStage = (stage: string) =>
+  `COALESCE((SELECT SUM(c.amount) FROM model_call_costs c WHERE c.owner_id = j.id AND c.stage = '${stage}'), 0)`;
+
+/**
+ * The document's total reported cost in USD, as `documentCosts` and the Costs page compute it: per-stage
+ * sums of reported amounts (unreported calls add nothing), the split replaced by the packet share when
+ * the document came from a packet, then added in stage order. It is rounded to 10 decimal places so
+ * floating-point noise from summing (0.01 + 0.02) can't decide a comparison with a typed amount.
+ */
+const DOCUMENT_COST = `ROUND(0.0
+  + CASE WHEN ${HAS_LINEAGE} THEN COALESCE(${SPLIT_SHARE}, 0) ELSE ${ownedStage("split")} END
+  + ${ownedStage("auto_template")}
+  + ${ownedStage("extraction")}, 10)`;
+
+function costClause(cost: CostCondition): Clause {
+  switch (cost.op) {
+    case "eq":
+      return { sql: `${DOCUMENT_COST} = ?`, parameters: [cost.value] };
+    case "gt":
+      return { sql: `${DOCUMENT_COST} > ?`, parameters: [cost.value] };
+    case "gte":
+      return { sql: `${DOCUMENT_COST} >= ?`, parameters: [cost.value] };
+    case "lt":
+      return { sql: `${DOCUMENT_COST} < ?`, parameters: [cost.value] };
+    case "lte":
+      return { sql: `${DOCUMENT_COST} <= ?`, parameters: [cost.value] };
+    case "between":
+      return { sql: `${DOCUMENT_COST} BETWEEN ? AND ?`, parameters: [cost.value, cost.value2 ?? cost.value] };
+  }
+}
+
 function filterClauses(filter: DocumentSearchFilter, conditions: ResolvedCondition[]): Clause[] {
   const clauses: Clause[] = [];
 
@@ -216,6 +275,9 @@ function filterClauses(filter: DocumentSearchFilter, conditions: ResolvedConditi
   if (filter.model) clauses.push({ sql: "j.model_name = ?", parameters: [filter.model] });
 
   for (const condition of conditions) clauses.push(conditionClause(condition));
+
+  // Last, so the cheaper members narrow the rows before the per-document cost is computed.
+  if (filter.cost) clauses.push(costClause(filter.cost));
 
   return clauses;
 }
@@ -262,9 +324,9 @@ function readMatches(
   page: PageRow[],
   conditions: ResolvedCondition[],
   term: string | null,
-): Map<string, SearchMatch[]> {
+): Map<string, FieldSearchMatch[]> {
   const jobIds = JSON.stringify(page.map((job) => job.job_id));
-  const matches = new Map<string, SearchMatch[]>(page.map((job) => [job.job_id, []]));
+  const matches = new Map<string, FieldSearchMatch[]>(page.map((job) => [job.job_id, []]));
   const fields = new Map<string, ResolvedCondition>();
 
   for (const condition of conditions) fields.set(`${condition.template_id}\u0000${condition.field_id}`, condition);
@@ -365,7 +427,7 @@ export function searchJobs(database: Database, input: JobSearchInput): JobSearch
   const text = input.filter.text ? normalizeSearchText(input.filter.text) : null;
   // Short terms never match values, so there is no matching field to report.
   const term = text && usesTrigrams(text) ? text : null;
-  const matches = input.withMatches ? readMatches(database, page, conditions, term) : new Map<string, SearchMatch[]>();
+  const matches = input.withMatches ? readMatches(database, page, conditions, term) : new Map<string, FieldSearchMatch[]>();
   const names = new Map<string, string>();
 
   if (input.withMatches) {

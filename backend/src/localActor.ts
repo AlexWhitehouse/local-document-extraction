@@ -60,6 +60,38 @@ export async function authorizeWorkspaceUser(input: {
   return { workspace, userId: actor.kind === "browser" ? actor.session.id : input.delegation!.actor.userId, assertAuthorized };
 }
 
+/**
+ * Who may read processing costs: workspace owners and admins, as on the Costs page. An API key
+ * carries no role, so it never may.
+ */
+export function canReadCosts(workspace: LocalWorkspace | LocalApiKeyWorkspace): boolean {
+  return "role" in workspace && (workspace.role === "owner" || workspace.role === "admin");
+}
+
+/**
+ * Whether the actor may read costs now. Browser sessions need an owner or admin role. Delegated
+ * (MCP) connections also need the `workspace:costs` scope, as the MCP cost tools do.
+ */
+export function actorCanReadCosts(input: {
+  actor: WorkspaceActor; workspaceId: string; workspaceControl: LocalWorkspaceControl;
+  delegation?: DelegatedProductAccess;
+}): boolean {
+  const { actor } = input;
+
+  if (actor.kind === "api-key") return false;
+
+  if (actor.kind === "browser") return canReadCosts(authorizeWorkspaceActor(input));
+
+  if (!input.delegation || actor.workspaceId !== input.workspaceId) return false;
+
+  try {
+    return canReadCosts(input.delegation.grants.authorize(actor, input.workspaceControl, "workspace:costs"));
+  } catch (error) {
+    if (error instanceof HttpError) return false;
+    throw error;
+  }
+}
+
 /** Resolve authority from persisted state, never a requested role or browser workspace selection. */
 export function authorizeWorkspaceActor(input: {
   actor: WorkspaceActor; workspaceId: string; workspaceControl: LocalWorkspaceControl;

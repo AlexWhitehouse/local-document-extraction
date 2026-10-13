@@ -17,7 +17,8 @@ test("the command palette searches extracted values, exports and deletes results
     const tour = page.getByRole("complementary", { name: "Welcome tour" });
 
     if (await tour.isVisible()) await tour.getByRole("button", { name: "Dismiss tour" }).click();
-    await saveModelGateway(page, harness, "browser/model");
+    // This model reports a cost of $0.01234 for each extraction.
+    await saveModelGateway(page, harness, "browser/cost-dashboard");
     const workspace = new URL(page.url()).pathname.split("/")[2]!;
     const headers = { "x-workspace-id": workspace, origin: harness.origin };
 
@@ -85,6 +86,23 @@ test("the command palette searches extracted values, exports and deletes results
     await expect(palette.locator("mark").first()).toHaveText(/INV-E2E/i);
     expect(interpreted).toBe(0);
     await page.screenshot({ path: testInfo.outputPath("palette-search.png") });
+
+    // An owner can search by processing cost; each row shows the document's cost.
+    await page.keyboard.press("Escape");
+    await input.fill("Find documents with a cost over $0.01");
+    await input.press("Enter");
+    await expect(request.locator(".palette-pill-match", { hasText: "Processing cost" })).toBeVisible();
+    await expect(palette.locator("strong", { hasText: /^2 documents$/ })).toBeVisible();
+    await expect(palette.getByRole("option", { name: /palette-a\.png.*Cost \$0\.0123/ })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await input.fill("Find documents with a cost over 2 cents");
+    await input.press("Enter");
+    await expect(palette.locator("strong", { hasText: /^0 documents$/ })).toBeVisible();
+    expect(interpreted).toBe(0);
+    await page.keyboard.press("Escape");
+    await input.fill('Find invoices where the invoice number starts with "inv-e2e"');
+    await input.press("Enter");
+    await expect(palette.locator("strong", { hasText: /^2 documents$/ })).toBeVisible();
 
     // Export the results as CSV inside the palette.
     await palette.getByRole("button", { name: "Export 2", exact: true }).click();

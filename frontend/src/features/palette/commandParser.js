@@ -14,6 +14,7 @@ import { isIsoDate, operatorsFor, SEARCH_LIMITS } from "../../../../shared/docum
  * @typedef {import("../../../../shared/documentSearch.ts").CommandPage} CommandPage
  * @typedef {import("../../../../shared/documentSearch.ts").DocumentSearchFilter} DocumentSearchFilter
  * @typedef {import("../../../../shared/documentSearch.ts").FieldCondition} FieldCondition
+ * @typedef {import("../../../../shared/documentSearch.ts").CostCondition} CostCondition
  * @typedef {import("../../../../shared/documentSearch.ts").InterpretationNote} InterpretationNote
  * @typedef {import("../../../../shared/documentSearch.ts").SearchJobStatus} SearchJobStatus
  * @typedef {import("../../../../shared/documentSearch.ts").SearchOperator} SearchOperator
@@ -257,6 +258,61 @@ const COMPARE_PHRASES = {
 const COMPARE_BY_PHRASE = new Map(
   Object.entries(COMPARE_PHRASES).flatMap(([op, phrases]) => phrases.map((phrase) => [phrase, op])),
 );
+
+/**
+ * Words for what a document cost to process. They mean the processing cost only when an amount
+ * follows ("cost over $0.03"); otherwise "costs" and "spend" name the Costs page.
+ */
+const COST_PHRASES = [
+  "total processing cost",
+  "total processing costs",
+  "processing cost",
+  "processing costs",
+  "total cost",
+  "total costs",
+  "cost to process",
+  "price to process",
+  "cost",
+  "costs",
+  "costing",
+  "costed",
+  "spend",
+  "spent",
+  "spending",
+];
+
+const COST_PHRASE_KEYS = new Set(COST_PHRASES);
+
+/** Comparisons for an amount. Date words such as "after" or "since" don't apply to money. */
+const COST_COMPARE_PHRASES = {
+  gt: ["over", "above", "more than", "greater than", "higher than", "in excess of", ">"],
+  gte: ["at least", "no less than", ">="],
+  lt: ["under", "below", "less than", "lower than", "cheaper than", "<"],
+  lte: ["at most", "no more than", "up to", "<="],
+  eq: ["exactly", "equal to", "equals", "="],
+};
+
+/** @type {Map<string, SearchOperator>} */
+const COST_COMPARE_BY_PHRASE = new Map(
+  Object.entries(COST_COMPARE_PHRASES).flatMap(([op, phrases]) => phrases.map((phrase) => [phrase, op])),
+);
+
+const COST_AMOUNT = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+";
+
+const DOLLAR_AMOUNT = `(?:us\\s?)?\\$\\s?(?:${COST_AMOUNT})(?:\\s*(?:usd|dollars?))?`;
+
+/** An amount with a currency: "$0.03", "3 cents", "3c", "2 dollars". */
+const MARKED_AMOUNT = `${DOLLAR_AMOUNT}|(?:${COST_AMOUNT})(?:\\s*(?:cents?|usd|dollars?)|\\s?¢|c)`;
+
+/** Plain numbers are dollars. */
+const AMOUNT = `${MARKED_AMOUNT}|${COST_AMOUNT}`;
+
+/** "is", "was" or "of" may come between the cost phrase and its comparison: "a cost of more than $1". */
+const COST_LEAD = "(?:(?:is|are|was|were|of)\\s+)?";
+
+export const PROCESSING_COST_LABEL = "Processing cost";
+
+const COST_UNAVAILABLE = "Only owners and admins can search by cost.";
 
 /** Bare words that should keep their own meaning instead of becoming the value of "is". */
 const RESERVED_VALUES = new Set([
@@ -750,6 +806,7 @@ function formatRange(range, today) {
  *   fields: Map<string, FieldEntry[]>,
  *   booleanLabels: Set<string>,
  *   values: Map<string, ValueEntry[]>,
+ *   costAvailable: boolean,
  *   index: { subjects: PhraseIndex, templateNames: PhraseIndex, fields: PhraseIndex, booleanLabels: PhraseIndex, values: PhraseIndex },
  * }} Lexicon
  */
@@ -762,6 +819,7 @@ const EMPTY_CATALOG = {
   templates: [],
   models: [],
   interpretation: { available: false, reason: "model_not_configured" },
+  capabilities: { cost: false },
 };
 
 /**
@@ -1004,6 +1062,8 @@ function buildLexicon(catalog) {
     fields,
     booleanLabels,
     values,
+    // Only callers who may read costs can search by them; without capabilities, nobody can.
+    costAvailable: catalog.capabilities?.cost === true,
     index: {
       subjects: phraseIndex(subjects.keys()),
       templateNames: phraseIndex(templateNames.keys()),
@@ -1063,6 +1123,12 @@ const STATIC_PATTERNS = {
   whitespace: stickyLoose("\\s+"),
   the: stickyLoose("the\\s+"),
   fromOrBy: stickyLoose("(?:from|by)\\s+"),
+  costPhrase: sticky(`(?:the\\s+)?(?:${alternation(COST_PHRASES)})`),
+  costCondition: sticky(
+    `${COST_LEAD}(?:between\\s+(?:${AMOUNT})\\s+(?:and|to|-|–)\\s+(?:${AMOUNT})` +
+      `|(?:(?:${alternation(wordPhrases(COST_COMPARE_BY_PHRASE.keys()))})\\s+|(?:${alternation(symbolPhrases(COST_COMPARE_BY_PHRASE.keys()))})\\s*)(?:${AMOUNT})` +
+      `|${MARKED_AMOUNT})`,
+  ),
   templateSuffix: sticky("\\s+templates?"),
   workspaceSuffix: sticky("\\s+workspace"),
 };
@@ -1115,6 +1181,7 @@ export function lexCommand(text, catalog, options = {}) {
     workspaces: workspaceIndex(options.workspaces),
     action: null,
     afterField: false,
+    afterCost: false,
     named: new Set(),
   };
 
@@ -1160,6 +1227,7 @@ export function lexCommand(text, catalog, options = {}) {
     if (best) {
       push(best.type, index + best.text.length);
       context.afterField = best.type === "field";
+      context.afterCost = best.type === "field" && isCostPhrase(best.text);
       noteNamedTemplate(context, best);
 
       if (best.type === "action") context.action = ACTION_BY_VERB.get(phraseKey(best.text)) ?? null;
@@ -1175,7 +1243,11 @@ export function lexCommand(text, catalog, options = {}) {
 
     const word = matchAt(STATIC_PATTERNS.word, source, index) ?? source[index];
 
-    if (significantWords(word).length) context.afterField = false;
+    if (significantWords(word).length) {
+      context.afterField = false;
+      context.afterCost = false;
+    }
+
     push("plain", index + word.length);
   }
 
@@ -1215,6 +1287,7 @@ function templateNameKey(key) {
  *   workspaces: PhraseIndex,
  *   action: CommandAction|null,
  *   afterField: boolean,
+ *   afterCost: boolean,
  *   named: Set<string>,
  * }} LexContext
  * @typedef {{ type: SegmentType, test: (text: string, index: number, context: LexContext) => string|null }} LexRule
@@ -1231,6 +1304,11 @@ function sliceMatch(text, start, match) {
 
 /** @type {LexRule[]} */
 const CONDITION_RULES = [
+  // After a cost phrase, amounts may be written "3 cents" or "$0.03".
+  {
+    type: "condition",
+    test: (text, index, { afterCost }) => (afterCost ? matchAt(STATIC_PATTERNS.costCondition, text, index) : null),
+  },
   { type: "condition", test: (text, index) => matchAt(STATIC_PATTERNS.stateCondition, text, index) },
   {
     type: "condition",
@@ -1286,6 +1364,18 @@ const LATER_RULES = [
     test: (text, index, { lexicon }) => sliceMatch(text, index, lookupPhrase(lexicon.index.subjects, text, index)),
   },
   { type: "status", test: (text, index) => matchAt(STATIC_PATTERNS.status, text, index) },
+  // "cost over $0.03": a cost phrase followed by an amount. Before the page rule, which also reads "cost".
+  {
+    type: "field",
+    test: (text, index) => {
+      const phrase = matchAt(STATIC_PATTERNS.costPhrase, text, index);
+      const gap = phrase ? matchAt(STATIC_PATTERNS.whitespace, text, index + phrase.length) : null;
+
+      if (!phrase || !gap) return null;
+
+      return matchAt(STATIC_PATTERNS.costCondition, text, index + phrase.length + gap.length) ? phrase : null;
+    },
+  },
   {
     type: "field",
     test: (text, index, { lexicon }) =>
@@ -1475,6 +1565,74 @@ function parseNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+/**
+ * Whether a phrase names a document's processing cost, such as "cost", "the total cost" or "spent".
+ * @param {string} text
+ */
+export function isCostPhrase(text) {
+  return COST_PHRASE_KEYS.has(phraseKey(text).replace(/^the /, ""));
+}
+
+const AMOUNT_PARTS = /^(?:us ?)?(\$)? ?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+) ?(cents?|¢|c|usd|dollars?)?$/;
+
+/**
+ * An amount in USD: "$0.03", "0.03" and "3 cents" are all 0.03.
+ * @param {string} text
+ * @param {"cents"|"dollars"|null} [unitIfMissing] a range's unit, written once at its end ("1 to 5 cents")
+ * @returns {{ value: number, unit: "cents"|"dollars"|null, marked: boolean } | null}
+ */
+function parseAmount(text, unitIfMissing = null) {
+  const match = AMOUNT_PARTS.exec(phraseKey(text));
+
+  if (!match) return null;
+  const [, dollarSign, digits, word] = match;
+  const written = word ? (/^(?:cents?|¢|c)$/.test(word) ? "cents" : "dollars") : null;
+
+  if (dollarSign && written === "cents") return null;
+  const unit = written ?? (dollarSign ? "dollars" : unitIfMissing);
+  // Shifting the decimal point in the text keeps "3 cents" exactly 0.03.
+  const value = Number(`${digits.replace(/,/g, "")}${unit === "cents" ? "e-2" : ""}`);
+
+  return Number.isFinite(value) ? { value, unit, marked: Boolean(dollarSign || written) } : null;
+}
+
+/**
+ * A comparison with an amount, as written after a cost phrase: "over 3 cents", "between $0.01 and $0.05",
+ * "of $1", ">= 0.5". A bare amount needs a currency ("costing $0.05") to count as "equals".
+ * @param {string} text
+ * @returns {CostCondition | null}
+ */
+export function parseCostCondition(text) {
+  const key = phraseKey(text).replace(/^(?:is|are|was|were|of) /, "");
+  const between = /^between (.+?) (?:and|to|-|–) (.+)$/.exec(key);
+
+  if (between) {
+    const second = parseAmount(between[2]);
+    const first = second && parseAmount(between[1], second.unit);
+
+    return first && second && second.value >= first.value
+      ? { op: "between", value: first.value, value2: second.value }
+      : null;
+  }
+
+  let best = null;
+
+  for (const [phrase, op] of COST_COMPARE_BY_PHRASE) {
+    if (!key.startsWith(phrase)) continue;
+    const rest = key.slice(phrase.length);
+
+    if (/^[a-z]/.test(phrase) && !/^ /.test(rest)) continue;
+
+    if (!best || phrase.length > best.phrase.length) best = { phrase, op, rest: rest.trim() };
+  }
+
+  const amount = parseAmount(best ? best.rest : key);
+
+  if (!amount || (!best && !amount.marked)) return null;
+
+  return { op: best?.op ?? "eq", value: amount.value };
+}
+
 // ---------------------------------------------------------------------------
 // Local interpretation
 // ---------------------------------------------------------------------------
@@ -1493,6 +1651,7 @@ function parseNumber(value) {
  *   statuses: SearchJobStatus[],
  *   text: string[],
  *   uploaded: DateRange,
+ *   cost: CostCondition|null,
  * }} InterpretState
  */
 
@@ -1529,6 +1688,7 @@ export function interpretLocally(segments, catalog, options = {}) {
     statuses: [],
     text: [],
     uploaded: { from: null, to: null },
+    cost: null,
   };
 
   const subjects = readSubjects(state);
@@ -1697,6 +1857,8 @@ function readFilterSegments(state, consumed) {
   let pendingField = null;
   /** @type {{ index: number, op: SearchOperator } | null} */
   let pendingState = null;
+  /** @type {Set<number>} amounts a cost phrase already took, used or not */
+  const costAmounts = new Set();
 
   const settleField = () => {
     if (pendingField && !pendingField.used) {
@@ -1712,9 +1874,18 @@ function readFilterSegments(state, consumed) {
   };
 
   for (const [index, segment] of state.segments.entries()) {
+    if (costAmounts.has(index)) continue;
+
     switch (segment.type) {
       case "field": {
         settleField();
+        const amountIndex = readCost(state, index, consumed);
+
+        if (amountIndex !== null) {
+          costAmounts.add(amountIndex);
+          break;
+        }
+
         const entry = resolveField(state, segment.text, index);
 
         if (!entry) break;
@@ -1828,6 +1999,48 @@ function readFilterSegments(state, consumed) {
   }
 
   settleField();
+}
+
+/**
+ * Reads a cost phrase and the amount after it ("cost over $0.03") as the processing cost. Returns the
+ * amount's segment index once both are handled, or null to read the phrase as a field label instead:
+ * when no amount follows, or a Template named in the request has a field with that label.
+ * Without access to costs a catalogue field of that name is still used; otherwise both stay unused.
+ * @param {InterpretState} state
+ * @param {number} index
+ * @param {Set<number>} consumed
+ * @returns {number|null}
+ */
+function readCost(state, index, consumed) {
+  const segment = state.segments[index];
+
+  if (!isCostPhrase(segment.text)) return null;
+  const amountIndex = state.segments.findIndex((candidate, position) => position > index && candidate.text.trim());
+  const amount = state.segments[amountIndex];
+  const cost = amount?.type === "condition" ? parseCostCondition(amount.text) : null;
+
+  if (!cost) return null;
+  const fields = state.lexicon.fields.get(phraseKey(segment.text).replace(/^the /, "")) ?? [];
+
+  if (fields.some((entry) => state.hints.includes(entry.template.id))) return null;
+
+  if (!state.lexicon.costAvailable) {
+    if (fields.length) return null;
+
+    if (!state.notes.some((note) => note.text === COST_UNAVAILABLE))
+      state.notes.push({ kind: "unrecognised", text: COST_UNAVAILABLE });
+
+    return amountIndex;
+  }
+
+  // Only the first cost condition is used; a second one is left unused.
+  if (state.cost) return amountIndex;
+  state.cost = cost;
+  state.resolved[index] = PROCESSING_COST_LABEL;
+  consumed.add(index);
+  consumed.add(amountIndex);
+
+  return amountIndex;
 }
 
 /**
@@ -2218,6 +2431,8 @@ function buildFilter(state, action, subjects) {
       cut(`Only the first ${SEARCH_LIMITS.conditions} conditions are used.`);
   }
 
+  if (state.cost) filter.cost = state.cost;
+
   // With nothing else to go on, plain words become a text search so the palette still shows results.
   if (!Object.keys(filter).length && state.unused.length)
     filter.text = clip(state.unused.join(" "), SEARCH_LIMITS.textCharacters);
@@ -2372,7 +2587,7 @@ function markPlainConsumed(segments, consumed) {
 
 /**
  * The model only fills the gaps. Whatever the local parser recognised (the action verb, upload
- * dates, statuses, Templates, field conditions and arguments) stays exactly as the pills show it,
+ * dates, statuses, Templates, field conditions, cost and arguments) stays exactly as the pills show it,
  * so the same request can't change meaning between runs. The model adds what the parser couldn't
  * read: leftover words, plain search text and conditions on other fields.
  * @param {CommandInterpretation} local
@@ -2434,6 +2649,10 @@ export function mergeInterpretations(local, model, segments) {
   }
 
   if (conditions.length) filter.conditions = conditions;
+  // A locally recognised cost stays as its pills show it.
+  const cost = mine.cost ?? theirs.cost;
+
+  if (cost) filter.cost = cost;
   merged.filter = filter;
 
   return merged;
@@ -2477,6 +2696,28 @@ const OPERATOR_WORDS = {
 };
 
 const NUMBER_FORMAT = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 6 });
+
+const COST_WORDS = { eq: "of", gt: "over", gte: "at least", lt: "under", lte: "at most", between: "between" };
+
+const USD_FORMAT = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
+});
+
+/**
+ * "cost over $0.03", "cost between $0.01 and $0.05".
+ * @param {CostCondition} cost
+ */
+function describeCost(cost) {
+  const word = COST_WORDS[cost.op] ?? cost.op;
+  const first = USD_FORMAT.format(cost.value);
+
+  if (cost.op === "between") return `cost ${word} ${first} and ${USD_FORMAT.format(cost.value2 ?? cost.value)}`;
+
+  return `cost ${word} ${first}`;
+}
 
 /**
  * @param {string|number|undefined} value
@@ -2532,6 +2773,8 @@ export function describeFilter(filter, catalog, options = {}) {
     parts.push(filter.template_ids.map((id) => templateName(lexiconFor(catalog), id)).join(" or "));
 
   for (const condition of filter.conditions ?? []) parts.push(describeCondition(condition, catalog));
+
+  if (filter.cost) parts.push(describeCost(filter.cost));
 
   if (filter.statuses?.length)
     parts.push(filter.statuses.map((status) => STATUS_LABELS[status] ?? status).join(" or "));

@@ -8,13 +8,15 @@ import {
   SEARCH_LIMITS,
   SearchContractError,
   type DocumentSearchFilter,
+  type SearchCapabilities,
   type SearchCatalog,
 } from "../../shared/documentSearch";
+import { formatUsd, type ProcessingCosts } from "../../shared/processingCosts";
 import { HttpError } from "./lib/http";
 import { nowIso } from "./lib/ids";
 import { parseJsonBody } from "./lib/validation";
 import { errorResponse, withAuthorizedProductStore, type ProductServices } from "./localApplication";
-import type { JobSearchCursor } from "./jobSearchQuery";
+import type { CostSearchMatch, JobSearchCursor } from "./jobSearchQuery";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalLiveUpdateHub } from "./localLiveUpdateHub";
 import type { LocalWorkspaceProductStoreHandle } from "./localWorkspaceProductStoreRegistry";
@@ -23,20 +25,37 @@ const noStore = { "cache-control": "private, no-store" };
 
 const RETRY_LIMIT = 500;
 
-/** The Workspace's search catalogue, with whether a model can interpret requests. */
-export function buildSearchCatalog(store: Pick<LocalWorkspaceProductStoreHandle, "getSearchCatalog" | "getModelConfiguration">): SearchCatalog {
+/** The Workspace's search catalogue, with whether a model can interpret requests and what the caller may search by. */
+export function buildSearchCatalog(
+  store: Pick<LocalWorkspaceProductStoreHandle, "getSearchCatalog" | "getModelConfiguration">,
+  capabilities: SearchCapabilities,
+): SearchCatalog {
   return {
     ...store.getSearchCatalog(),
     interpretation: store.getModelConfiguration()
       ? { available: true }
       : { available: false, reason: "model_not_configured" },
+    capabilities,
   };
 }
 
 export function handleSearchCatalog({ product, request }: { product: ProductServices; request: Request }) {
-  return withAuthorizedProductStore(product, request, ({ store }) =>
-    Response.json(buildSearchCatalog(store), { headers: noStore }),
+  return withAuthorizedProductStore(product, request, ({ store, canReadCosts }) =>
+    Response.json(buildSearchCatalog(store, { cost: canReadCosts() }), { headers: noStore }),
   );
+}
+
+/** The cost match shows the same total as the document's own page and the Costs page. */
+function costMatch(costs: ProcessingCosts): CostSearchMatch {
+  const { amount, complete } = costs.total;
+
+  return {
+    kind: "cost",
+    amount,
+    currency: costs.currency,
+    complete,
+    display: amount === null ? null : `${formatUsd(amount)}${complete ? "" : "+"}`,
+  };
 }
 
 type SearchRequest = { filter: DocumentSearchFilter; cursor: string | null; limit: number; idsOnly: boolean };
@@ -80,6 +99,7 @@ function filterFingerprint(filter: DocumentSearchFilter): string {
       isString(condition.value) ? normalizeSearchText(condition.value) : (condition.value ?? null),
       isString(condition.value2) ? normalizeSearchText(condition.value2) : (condition.value2 ?? null),
     ]),
+    filter.cost ? [filter.cost.op, filter.cost.value, filter.cost.value2 ?? null] : null,
   ];
 
   return createHash("sha256").update(JSON.stringify(canonical)).digest("base64url");
@@ -133,9 +153,13 @@ export function handleJobSearch({
   request: Request;
   jobCursorSecret: Uint8Array;
 }): Promise<Response> {
-  return withAuthorizedProductStore(product, request, async ({ store }) => {
+  return withAuthorizedProductStore(product, request, async ({ store, canReadCosts }) => {
     try {
       const search = readSearchRequest(parseJsonBody(await request.text()));
+
+      // The same rule as GET /v1/workspaces/:id/costs/overview: costs are for owners and admins.
+      if (search.filter.cost && !canReadCosts())
+        throw new HttpError(403, "forbidden", "Only workspace owners and admins can search by cost.");
       // Checking a filter needs Templates and fields only; known values are for the palette and interpreter.
       const catalog = store.getSearchFields();
       const filter = checkFilterAgainstCatalog(search.filter, catalog);
@@ -183,7 +207,12 @@ export function handleJobSearch({
           jobs: page.jobs.flatMap((job) => {
             const summary = summaries.get(job.job_id);
 
-            return summary ? [{ ...summary, template_name: job.template_name, matches: job.matches }] : [];
+            if (!summary) return [];
+
+            const matches =
+              filter.cost && summary.costs ? [...job.matches, costMatch(summary.costs)] : job.matches;
+
+            return [{ ...summary, template_name: job.template_name, matches }];
           }),
           ...counts,
           next_cursor,

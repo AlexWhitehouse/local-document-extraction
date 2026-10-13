@@ -368,6 +368,40 @@ describe("CommandPalette", () => {
     expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
   });
 
+  it("searches by processing cost when the catalogue allows it, and shows each document's cost", async () => {
+    const costCatalog = { ...catalog, capabilities: { cost: true } };
+    const searches = [];
+
+    const request = createRequest({
+      search: (body) => {
+        searches.push(body);
+
+        if (body.ids_only) return { job_ids: ["job-1"], statuses: { "job-1": "completed" }, total: 1, total_capped: false, has_more: false, next_cursor: null };
+
+        return {
+          jobs: [{ ...jobs[0], matches: [{ kind: "cost", amount: 0.0312, currency: "USD", complete: true, display: "$0.0312" }] }],
+          total: 1,
+          total_capped: false,
+          next_cursor: null,
+          has_more: false,
+        };
+      },
+    });
+
+    const context = createContext({ catalog: costCatalog, refreshCatalog: vi.fn(async () => costCatalog), request });
+    await openPalette(context, user);
+    await user.type(input(), "Show me documents with a cost greater than $0.03");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+
+    expect(await screen.findByText("hnh-inv-20517.pdf")).toBeTruthy();
+    expect(screen.getByText(/Cost \$0\.0312/)).toBeTruthy();
+    expect(screen.getByText(/cost over \$0\.03/)).toBeTruthy();
+    expect(within(pills()).getByText("Processing cost")).toBeTruthy();
+    // Read locally, so no model call; the search carries the cost.
+    expect(context.request).not.toHaveBeenCalledWith("/search/interpret", expect.anything());
+    expect(searches[0].filter).toEqual({ cost: { op: "gt", value: 0.03 } });
+  });
+
   it("stops a delete at a confirmation inside the palette, with Cancel focused", async () => {
     const context = createContext();
     await openPalette(context, user);

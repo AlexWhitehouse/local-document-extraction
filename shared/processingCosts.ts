@@ -40,3 +40,16 @@ export function allocateCost(cost: CostAmount, pages: number, totalPages: number
 
   return { ...cost, amount: cost.amount === null ? null : cost.amount * (pages / totalPages) };
 }
+
+/** The Costs page's USD format: three significant digits below $1 so sub-cent document costs stay comparable. */
+export function formatUsd(amount: number): string {
+  if (amount === 0) return "$0.00";
+
+  if (amount >= 1) return `$${amount.toFixed(2)}`;
+
+  if (amount < 0.0001) return "<$0.0001";
+
+  if (amount >= 0.1) return `$${amount.toFixed(3).replace(/0$/, "")}`;
+
+  return `$${amount.toPrecision(3)}`;
+}

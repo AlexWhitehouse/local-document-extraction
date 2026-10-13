@@ -791,7 +791,8 @@ Searches job metadata and extracted values. Every filter member narrows the resu
     "model": "provider/model",
     "conditions": [
       {"template_id": "tpl_example", "field_id": "total", "op": "between", "value": 100, "value2": 500}
-    ]
+    ],
+    "cost": {"op": "gt", "value": 0.03}
   },
   "limit": 50
 }
@@ -801,6 +802,7 @@ Searches job metadata and extracted values. Every filter member narrows the resu
 - `uploaded_from` and `uploaded_to` are inclusive UTC days.
 - `conditions` hold at most 10 field conditions. A condition names one template and one field of that template's current version. It only matches jobs of that template whose stored value has the field's current type, so fields with the same ID on other templates never match.
 - Only scalar fields can be searched: text, number, date and yes/no. Tables and nested fields can't be searched yet.
+- `cost` compares each document's total reported processing cost in USD, the same total as the document page and the Costs page. It is the sum of the document's model calls, plus its page share of its packet's splitting cost. Calls without a reported cost add nothing, so a document with no reported cost counts as 0. `op` is `eq`, `gt`, `gte`, `lt`, `lte` or `between`. `value` is a number of 0 or more, and only `between` takes `value2`, which must not be smaller. Totals are compared rounded to 10 decimal places. Only callers who can read the Costs page may use `cost`: Workspace owners and admins with a browser session. Others, including API keys, get `403 forbidden`.
 
 | Field type | Operators | Value |
 | --- | --- | --- |
@@ -826,11 +828,11 @@ Searches job metadata and extracted values. Every filter member narrows the resu
 }
 ```
 
-Each job has the same summary fields as `GET /v1/jobs`, plus `template_name` and `matches`, the stored values of the fields the conditions used and the first text field that matched `text`. `total` is capped at 10,000; `total_capped` is `true` above that. Pass `next_cursor` back as `cursor` with the same filter to read the next page. A cursor is only valid for the filter it was issued for and until the runtime restarts.
+Each job has the same summary fields as `GET /v1/jobs`, plus `template_name` and `matches`, the stored values of the fields the conditions used and the first text field that matched `text`. When the filter uses `cost`, `matches` ends with the document's cost: `{"kind": "cost", "amount": 0.0312, "currency": "USD", "complete": true, "display": "$0.0312"}`. `amount` is `null` when calls ran but none reported a cost, and `complete` is `false` when some calls didn't report one; `display` then ends with `+`. Field matches have no `kind`. `total` is capped at 10,000; `total_capped` is `true` above that. Pass `next_cursor` back as `cursor` with the same filter to read the next page. A cursor is only valid for the filter it was issued for and until the runtime restarts.
 
 With `"ids_only": true`, `limit` may be up to 500 and the response is `{"job_ids", "statuses", "total", "total_capped", "next_cursor", "has_more"}`.
 
-Invalid filters, unknown templates or fields, and operators that don't suit the field type return `400 invalid_search_filter`. A bad cursor returns `400 invalid_cursor`.
+Invalid filters, unknown templates or fields, and operators that don't suit the field type return `400 invalid_search_filter`. A bad cursor returns `400 invalid_cursor`. A `cost` filter from a caller who can't read costs returns `403 forbidden` with the message "Only workspace owners and admins can search by cost."
 
 ### Read the search catalogue
 
@@ -844,11 +846,12 @@ Lists the active templates with their current fields, the models used by jobs, a
     {"field_id": "supplier", "name": "Supplier", "data_type": "string", "type": "text", "known_values": ["Acme"]}
   ]}],
   "models": ["provider/model"],
-  "interpretation": {"available": true}
+  "interpretation": {"available": true},
+  "capabilities": {"cost": true}
 }
 ```
 
-`type` is `null` for fields that can't be searched. `known_values` lists frequent short values of text fields. Without a model configuration, `interpretation` is `{"available": false, "reason": "model_not_configured"}`.
+`type` is `null` for fields that can't be searched. `known_values` lists frequent short values of text fields. Without a model configuration, `interpretation` is `{"available": false, "reason": "model_not_configured"}`. `capabilities.cost` is `true` when the caller may search by `cost`, by the same rule as the Costs page.
 
 ### Try failed jobs again
 
@@ -887,7 +890,7 @@ Turns a plain-language request into one action from a fixed list, its arguments 
 The response is `{"interpretation": {"action", "args", "filter", "unrecognised", "notes"}}`:
 
 - `action` is one of `find_documents`, `find_templates`, `edit_template`, `create_template`, `upload`, `retry`, `export`, `delete`, `invite`, `switch_workspace`, `go_to` or `run_evaluation`.
-- `filter` uses the search filter above, checked against the catalogue.
+- `filter` uses the search filter above, checked against the catalogue. It contains `cost` only for callers whose catalogue has `capabilities.cost`; for others, cost words are listed in `unrecognised`.
 - `unrecognised` lists words the model couldn't use.
 - `notes` explain ambiguous fields and give alternatives.
 
@@ -937,7 +940,7 @@ Use both HTTP status and `error.code` in application logic. Treat `message` as h
 | `400` | `invalid_search_filter`, `invalid_job_retry`, `invalid_job_export` | Correct the search filter, retry list or export format. |
 | `400` | `invalid_job_export` | Supply a non-empty array of job IDs. |
 | `401` | `unauthorized` | Supply authentication. |
-| `403` | `forbidden` | Check the API key or Workspace access. |
+| `403` | `forbidden` | Check the API key or Workspace access. Searching by cost needs a Workspace owner or admin. |
 | `404` | `not_found`, `template_not_found`, `tag_not_found` | Check the resource ID and route; submission requires an active template. |
 | `404` | `source_not_retained`, `source_missing` | The source is unavailable; stored results remain readable. |
 | `409` | `workspace_model_not_configured` | Ask a Workspace owner/admin to configure the model gateway. |

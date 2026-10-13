@@ -73,7 +73,9 @@ function fixture(options: { configured?: boolean; assistantModel?: string; timeo
       (userId === "member" && ["workspace_a", "workspace_b"].includes(workspaceId)) ||
       (userId === "a_only" && workspaceId === "workspace_a")
         ? workspaceFixture({ ...workspace, id: workspaceId, role: "member" })
-        : null,
+        : userId === "owner" && workspaceId === "workspace_a"
+          ? workspaceFixture({ ...workspace, id: workspaceId, role: "owner" })
+          : null,
     authorizeApiKey: ({ apiKey }: { apiKey: string }) => (apiKey === "inbound" ? workspace : null),
   });
 
@@ -230,9 +232,36 @@ test("returns a validated interpretation from one text-only call to the assistan
           },
         ],
         models: [],
+        // A member can't read costs, so the model can't search by them.
+        capabilities: { cost: false },
       },
     },
   });
+});
+
+test("only owners and admins get cost in the catalogue, and the model's cost filter is checked against it", async () => {
+  const f = fixture();
+  const costly = { ...interpretation, filter: { cost: { op: "gt", value: 0.03 } } };
+  const gateway = f.mockGateway(reply(costly));
+
+  const owned = await f.interpret(JSON.stringify(body), { cookie: "owner" });
+  expect(owned.status).toBe(200);
+  expect((await owned.json()).interpretation.filter).toEqual({ cost: { op: "gt", value: 0.03 } });
+  expect(gateway.requests()[0].messages[0].content).toContain('"3 cents" is 0.03');
+  expect(JSON.parse(gateway.requests()[0].messages[1].content).untrustedContext.catalogue.capabilities).toEqual({ cost: true });
+
+  const withoutCosts: Array<Record<string, string>> = [{ cookie: "member" }, { cookie: "", authorization: "Bearer inbound" }];
+
+  for (const headers of withoutCosts) {
+    const before = gateway.requests().length;
+    const refused = await f.interpret(JSON.stringify(body), headers);
+
+    expect(refused.status).toBe(422);
+    const [first, correction] = gateway.requests().slice(before);
+
+    expect(JSON.parse(first.messages[1].content).untrustedContext.catalogue.capabilities).toEqual({ cost: false });
+    expect(correction.messages[3].content).toContain("Only workspace owners and admins can search by cost.");
+  }
 });
 
 test("API keys may interpret, structured output is requested when supported, and cookie requests need a trusted origin", async () => {

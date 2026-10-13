@@ -85,6 +85,12 @@ export type FieldCondition = {
   value2?: string | number;
 };
 
+/**
+ * A document's total reported processing cost in USD: its own model calls plus its page share of
+ * its packet's split. Calls without a reported amount count as nothing. `value2` is only for `between`.
+ */
+export type CostCondition = { op: ComparisonOperator; value: number; value2?: number };
+
 /** Every present member narrows the result. All members combine with AND. */
 export type DocumentSearchFilter = {
   /** Plain words: document name, document ID, and extracted text values. */
@@ -96,6 +102,8 @@ export type DocumentSearchFilter = {
   uploaded_to?: string;
   model?: string;
   conditions?: FieldCondition[];
+  /** Only for callers who may read costs (`SearchCatalog.capabilities.cost`). */
+  cost?: CostCondition;
 };
 
 export class SearchContractError extends Error {
@@ -198,6 +206,35 @@ function isTextOperator(op: SearchOperator): op is TextOperator {
   return TEXT_OPERATORS.some((operator) => operator === op);
 }
 
+function isComparisonOperator(value: string): value is ComparisonOperator {
+  return COMPARISON_OPERATORS.some((operator) => operator === value);
+}
+
+function readCostAmount(value: JsonValue | undefined): number {
+  if (!isNumber(value) || !Number.isFinite(value) || value < 0) fail("Cost values must be amounts in USD of 0 or more.");
+
+  return value;
+}
+
+function readCostCondition(value: JsonValue | undefined): CostCondition {
+  const input = readObject(value, "Cost", ["op", "value", "value2"]);
+  const op = input.op;
+
+  if (!isString(op) || !isComparisonOperator(op)) fail("Cost has an unknown operator.");
+  const condition: CostCondition = { op, value: readCostAmount(input.value) };
+
+  if ((op === "between") !== (input.value2 !== undefined)) fail(`Cost needs a second value only for "between".`);
+
+  if (input.value2 !== undefined) {
+    const value2 = readCostAmount(input.value2);
+
+    if (value2 < condition.value) fail("The second value of a range must not be smaller than the first.");
+    condition.value2 = value2;
+  }
+
+  return condition;
+}
+
 /** Checks the shape of a condition. The value's type is checked against the field in `checkCondition`. */
 function readCondition(value: JsonValue | undefined, index: number): FieldCondition {
   const label = `Condition ${index + 1}`;
@@ -249,6 +286,7 @@ export function parseDocumentSearchFilter(value: JsonValue | undefined): Documen
     "uploaded_to",
     "model",
     "conditions",
+    "cost",
   ]);
 
   const filter: DocumentSearchFilter = {};
@@ -290,6 +328,8 @@ export function parseDocumentSearchFilter(value: JsonValue | undefined): Documen
     filter.conditions = input.conditions.map(readCondition);
   }
 
+  if (input.cost !== undefined) filter.cost = readCostCondition(input.cost);
+
   return filter;
 }
 
@@ -311,11 +351,21 @@ export type SearchCatalogTemplate = {
   fields: SearchCatalogField[];
 };
 
+/** What the caller may search by, beyond the Templates and fields. */
+export type SearchCapabilities = {
+  /** Whether the caller may read processing costs, as on the Costs page: workspace owners and admins. */
+  cost: boolean;
+};
+
 export type SearchCatalog = {
   templates: SearchCatalogTemplate[];
   models: string[];
   interpretation: { available: true } | { available: false; reason: "model_not_configured" | "model_unavailable" };
+  capabilities: SearchCapabilities;
 };
+
+/** A catalogue for validation. Without `capabilities`, nothing beyond Templates and fields is available. */
+export type ValidationCatalog = Pick<SearchCatalog, "templates"> & { capabilities?: SearchCapabilities };
 
 export function findCatalogField(
   catalog: Pick<SearchCatalog, "templates">,
@@ -571,7 +621,7 @@ function readNoteText(value: JsonValue | undefined): string {
  */
 export function validateCommandInterpretation(
   value: JsonValue | undefined,
-  catalog: Pick<SearchCatalog, "templates">,
+  catalog: ValidationCatalog,
 ): CommandInterpretation {
   const input = readObject(value, "Interpretation", ["action", "args", "filter", "unrecognised", "notes"]);
   const action = input.action;
@@ -585,6 +635,8 @@ export function validateCommandInterpretation(
 
   if (filter?.template_ids?.some((id) => !catalog.templates.some((template) => template.id === id)))
     fail("Filter names a template that isn't in this workspace.");
+
+  if (filter?.cost && !catalog.capabilities?.cost) fail("Only workspace owners and admins can search by cost.");
 
   const unrecognised = input.unrecognised ?? [];
 

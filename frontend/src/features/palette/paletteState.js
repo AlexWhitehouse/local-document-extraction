@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { checkCondition, findCatalogField, normalizeSearchText } from "../../../../shared/documentSearch.ts";
 import { isJsonArray, isJsonObject, isString } from "../../../../shared/json.ts";
+import { isCostPhrase, PROCESSING_COST_LABEL } from "./commandParser.js";
 
 // Pure helpers and small hooks shared by the command palette shell, its results and its bulk flows.
 
@@ -43,6 +44,7 @@ export const EMPTY_CATALOG = Object.freeze({
   templates: [],
   models: [],
   interpretation: { available: false, reason: "model_unavailable" },
+  capabilities: { cost: false },
 });
 
 function isApplePlatform() {
@@ -135,6 +137,15 @@ export function pillLabels(segments, localResolved, interpretation, catalog) {
   return segments.map((segment, index) => {
     if (segment.type === "field") {
       const key = fieldKey(segment.text);
+
+      // "cost over $0.03" is the processing cost unless a condition uses a field of that name.
+      if (interpretation?.filter?.cost && isCostPhrase(segment.text)) {
+        const named = conditions.some(
+          (candidate) => fieldKey(findCatalogField(catalog, candidate.template_id, candidate.field_id)?.field.name) === key,
+        );
+
+        if (!named) return PROCESSING_COST_LABEL;
+      }
 
       const condition = conditions.find((candidate) => {
         const match = findCatalogField(catalog, candidate.template_id, candidate.field_id);
@@ -260,11 +271,12 @@ export function highlightParts(display, { condition, text } = {}) {
 }
 
 // The Documents list filters can take search text, upload dates and a model. Anything else
-// (field conditions, statuses, Templates) has no equivalent there.
+// (field conditions, statuses, Templates, cost) has no equivalent there.
 export function documentsListFilters(filter) {
   if (!filter) return null;
 
-  const representable = !filter.conditions?.length && !filter.statuses?.length && !filter.template_ids?.length;
+  const representable =
+    !filter.conditions?.length && !filter.statuses?.length && !filter.template_ids?.length && !filter.cost;
 
   if (!representable) return null;
 
@@ -344,6 +356,7 @@ export function parseSearchCatalog(value) {
     : [];
 
   const interpretation = isJsonObject(value.interpretation) ? value.interpretation : {};
+  const capabilities = isJsonObject(value.capabilities) ? value.capabilities : {};
 
   return {
     templates,
@@ -352,6 +365,8 @@ export function parseSearchCatalog(value) {
       interpretation.available === true
         ? { available: true }
         : { available: false, reason: isString(interpretation.reason) ? interpretation.reason : "model_unavailable" },
+    // Searching by cost is off unless the server says this caller may read costs.
+    capabilities: { cost: capabilities.cost === true },
   };
 }
 

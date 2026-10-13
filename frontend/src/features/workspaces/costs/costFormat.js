@@ -1,19 +1,11 @@
-import { sumCosts } from "../../../../../shared/processingCosts.ts";
+import { formatUsd, sumCosts } from "../../../../../shared/processingCosts.ts";
 import { STAGES } from "./costConstants.js";
 
 /** Three significant digits below $1 so sub-cent document costs stay comparable. */
 export function usd(amount) {
   if (amount === null || amount === undefined || !Number.isFinite(amount)) return "—";
 
-  if (amount === 0) return "$0.00";
-
-  if (amount >= 1) return `$${amount.toFixed(2)}`;
-
-  if (amount < 0.0001) return "<$0.0001";
-
-  if (amount >= 0.1) return `$${amount.toFixed(3).replace(/0$/, "")}`;
-
-  return `$${amount.toPrecision(3)}`;
+  return formatUsd(amount);
 }
 
 /** Production semantics: + marks a known subtotal, unavailable is never zero. */

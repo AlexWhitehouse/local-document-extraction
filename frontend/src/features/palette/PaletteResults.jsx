@@ -35,9 +35,18 @@ function Highlighted({ parts }) {
   return parts.map((part, index) => (part.match ? <mark key={index}>{part.text}</mark> : <React.Fragment key={index}>{part.text}</React.Fragment>));
 }
 
+// The document's processing cost, shown when the search compared it, as the Costs page writes it.
+function MatchedCost({ job }) {
+  const match = Array.isArray(job.matches) ? job.matches.find((candidate) => candidate.kind === "cost") : null;
+
+  if (!match) return null;
+
+  return ` · Cost ${match.display ?? "unavailable"}`;
+}
+
 // The field value that matched, with the matched part marked.
 function MatchedValue({ job, filter }) {
-  const match = Array.isArray(job.matches) ? job.matches[0] : null;
+  const match = Array.isArray(job.matches) ? job.matches.find((candidate) => candidate.kind !== "cost") : null;
 
   if (!match) return null;
 
@@ -71,6 +80,7 @@ function RowDetail({ item, filter }) {
         <StatusDot tone={statusTone(job.status)} label={statusLabel(job.status)} />
         {job.created_at ? ` · ${formatUploadDay(job.created_at)}` : ""}
         <MatchedValue job={job} filter={filter} />
+        <MatchedCost job={job} />
       </span>
     );
   }

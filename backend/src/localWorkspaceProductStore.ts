@@ -411,7 +411,7 @@ export type LocalWorkspaceProductStore = DocumentProcessingStore &
     /** Undoes a claim whose file deletion failed, so a later sweep tries again. */
     releaseSourceFileCleanup(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): void;
     /** Active Templates, their current fields and known text values, and the models used by jobs. */
-    getSearchCatalog(): Omit<SearchCatalog, "interpretation">;
+    getSearchCatalog(): Omit<SearchCatalog, "interpretation" | "capabilities">;
     /** Active Templates and their current fields, without known values: enough to check a search filter. */
     getSearchFields(): Pick<SearchCatalog, "templates">;
     /** A page of jobs matching a catalogue-checked filter, answered from the field value index. */
