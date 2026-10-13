@@ -1,13 +1,19 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 
 import {
+  conditionLeaves,
   findCatalogField,
+  groupMembers,
+  isConditionGroup,
+  isCostTerm,
+  isFieldCondition,
   normalizeSearchText,
   type CostCondition,
   searchValueType,
   type DocumentSearchFilter,
   type FieldCondition,
   type SearchCatalog,
+  type SearchCondition,
   type SearchJobStatus,
   type SearchValueState,
   type SearchValueType,
@@ -84,15 +90,13 @@ function usesTrigrams(term: string): boolean {
   return [...term].length >= 3;
 }
 
-function resolveConditions(input: JobSearchInput): ResolvedCondition[] {
-  return (input.filter.conditions ?? []).map((condition) => {
-    const match = findCatalogField(input.catalog, condition.template_id, condition.field_id);
-    const type = match && searchValueType(match.field.data_type);
+function resolveCondition(condition: FieldCondition, catalog: JobSearchInput["catalog"]): ResolvedCondition {
+  const match = findCatalogField(catalog, condition.template_id, condition.field_id);
+  const type = match && searchValueType(match.field.data_type);
 
-    if (!match || !type) throw new Error("Search conditions must be checked against the catalogue first");
+  if (!match || !type) throw new Error("Search conditions must be checked against the catalogue first");
 
-    return { ...condition, data_type: match.field.data_type, field_name: match.field.name, type };
-  });
+  return { ...condition, data_type: match.field.data_type, field_name: match.field.name, type };
 }
 
 /** The predicate on one `job_field_values v` row of a compatible field. */
@@ -253,7 +257,26 @@ function costClause(cost: CostCondition): Clause {
   }
 }
 
-function filterClauses(filter: DocumentSearchFilter, conditions: ResolvedCondition[]): Clause[] {
+/** One member of the filter's conditions; groups become a bracketed AND or OR of their members. */
+function searchConditionClause(condition: SearchCondition, catalog: JobSearchInput["catalog"]): Clause {
+  if (isCostTerm(condition)) return costClause(condition.cost);
+
+  if (!isConditionGroup(condition)) return conditionClause(resolveCondition(condition, catalog));
+  const { any, members } = groupMembers(condition);
+  const clauses = members.map((member) => searchConditionClause(member, catalog));
+
+  return {
+    sql: clauses.map((clause) => `(${clause.sql})`).join(any ? " OR " : " AND "),
+    parameters: clauses.flatMap((clause) => clause.parameters),
+  };
+}
+
+/** Whether a condition computes the per-document cost, which is the slowest predicate. */
+function computesCost(condition: SearchCondition): boolean {
+  return conditionLeaves([condition]).some(isCostTerm);
+}
+
+function filterClauses(filter: DocumentSearchFilter, catalog: JobSearchInput["catalog"]): Clause[] {
   const clauses: Clause[] = [];
 
   if (filter.text) clauses.push(textClause(normalizeSearchText(filter.text)));
@@ -274,10 +297,13 @@ function filterClauses(filter: DocumentSearchFilter, conditions: ResolvedConditi
 
   if (filter.model) clauses.push({ sql: "j.model_name = ?", parameters: [filter.model] });
 
-  for (const condition of conditions) clauses.push(conditionClause(condition));
+  // Conditions that compute the cost go last, so the cheaper members narrow the rows first.
+  const conditions = filter.conditions ?? [];
 
-  // Last, so the cheaper members narrow the rows before the per-document cost is computed.
-  if (filter.cost) clauses.push(costClause(filter.cost));
+  for (const condition of conditions.filter((member) => !computesCost(member)))
+    clauses.push(searchConditionClause(condition, catalog));
+
+  for (const condition of conditions.filter(computesCost)) clauses.push(searchConditionClause(condition, catalog));
 
   return clauses;
 }
@@ -399,8 +425,11 @@ function readMatches(
  * Conditions and plain words are answered from the field value index; result payloads are never read.
  */
 export function searchJobs(database: Database, input: JobSearchInput): JobSearchResult {
-  const conditions = resolveConditions(input);
-  const clauses = filterClauses(input.filter, conditions);
+  const conditions = conditionLeaves(input.filter.conditions)
+    .filter(isFieldCondition)
+    .map((condition) => resolveCondition(condition, input.catalog));
+
+  const clauses = filterClauses(input.filter, input.catalog);
   const filtered = combine(clauses);
 
   const { count } = database

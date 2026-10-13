@@ -1,4 +1,12 @@
-import { isIsoDate, operatorsFor, SEARCH_LIMITS } from "../../../../shared/documentSearch.ts";
+import {
+  conditionLeaves,
+  groupMembers,
+  isConditionGroup,
+  isCostTerm,
+  isIsoDate,
+  operatorsFor,
+  SEARCH_LIMITS,
+} from "../../../../shared/documentSearch.ts";
 
 /**
  * Local command parser for the command palette. Pure and synchronous: it runs on every keystroke.
@@ -15,6 +23,8 @@ import { isIsoDate, operatorsFor, SEARCH_LIMITS } from "../../../../shared/docum
  * @typedef {import("../../../../shared/documentSearch.ts").DocumentSearchFilter} DocumentSearchFilter
  * @typedef {import("../../../../shared/documentSearch.ts").FieldCondition} FieldCondition
  * @typedef {import("../../../../shared/documentSearch.ts").CostCondition} CostCondition
+ * @typedef {import("../../../../shared/documentSearch.ts").CostTerm} CostTerm
+ * @typedef {import("../../../../shared/documentSearch.ts").SearchCondition} SearchCondition
  * @typedef {import("../../../../shared/documentSearch.ts").InterpretationNote} InterpretationNote
  * @typedef {import("../../../../shared/documentSearch.ts").SearchJobStatus} SearchJobStatus
  * @typedef {import("../../../../shared/documentSearch.ts").SearchOperator} SearchOperator
@@ -1315,6 +1325,7 @@ export function lexCommand(text, catalog, options = {}) {
     action: null,
     afterField: false,
     afterCost: false,
+    listing: null,
     named: new Set(),
   };
 
@@ -1360,7 +1371,10 @@ export function lexCommand(text, catalog, options = {}) {
     if (best) {
       push(best.type, index + best.text.length);
       context.afterField = best.type === "field";
-      context.afterCost = best.type === "field" && isCostPhrase(best.text);
+      // "cost over 3 cents and under 5 cents": a second amount is still about the cost.
+      context.afterCost =
+        best.type === "field" ? isCostPhrase(best.text) : best.type === "condition" && context.afterCost;
+      context.listing = LISTED_TYPES.has(best.type) ? "after_item" : null;
       noteNamedTemplate(context, best);
 
       if (best.type === "action") context.action = ACTION_BY_VERB.get(phraseKey(best.text)) ?? null;
@@ -1375,6 +1389,16 @@ export function lexCommand(text, catalog, options = {}) {
     }
 
     const word = matchAt(STATIC_PATTERNS.word, source, index) ?? source[index];
+    const key = word.toLowerCase();
+
+    // "is X1, X2 or X3", "is 5 or 10": a bare word after "or" or a comma is another value in the list.
+    if (context.listing === "after_joiner" && /^[\p{L}\p{N}]/u.test(word) && !STOP_WORDS.has(key)) {
+      push("value", index + word.length);
+      context.listing = "after_item";
+      continue;
+    }
+
+    context.listing = context.listing && (key === "or" || word === ",") ? "after_joiner" : null;
 
     if (significantWords(word).length) {
       context.afterField = false;
@@ -1421,6 +1445,7 @@ function templateNameKey(key) {
  *   action: CommandAction|null,
  *   afterField: boolean,
  *   afterCost: boolean,
+ *   listing: "after_item"|"after_joiner"|null,
  *   named: Set<string>,
  * }} LexContext
  * @typedef {{ type: SegmentType, test: (text: string, index: number, context: LexContext) => string|null }} LexRule
@@ -1434,6 +1459,9 @@ function templateNameKey(key) {
 function sliceMatch(text, start, match) {
   return match ? text.slice(start, match.end) : null;
 }
+
+/** Phrases that can start a list of values continued by "or" or a comma. */
+const LISTED_TYPES = new Set(["condition", "value", "date"]);
 
 /** @type {LexRule[]} */
 const CONDITION_RULES = [
@@ -1810,13 +1838,19 @@ export function parseCostCondition(text) {
  *   notes: InterpretationNote[],
  *   incomplete: boolean,
  *   hints: string[],
- *   conditions: FieldCondition[],
+ *   terms: Term[],
+ *   joined: Set<number>,
  *   statuses: SearchJobStatus[],
  *   text: string[],
  *   uploaded: DateRange,
- *   cost: CostCondition|null,
  *   guarded: Set<number>,
+ *   scoped: boolean,
  * }} InterpretState
+ *
+ * A field or cost condition the request names, with the segments it was read from. `exclusive` marks an
+ * exact value ("vendor is Acme", "from Acme"): one field can't hold two of them, so "and" between two
+ * means either.
+ * @typedef {{ condition: FieldCondition|CostTerm, start: number, end: number, exclusive: boolean }} Term
  */
 
 /**
@@ -1837,8 +1871,23 @@ export function interpretLocally(segments, catalog, options = {}) {
   const lexicon = lexiconFor(catalog);
   // Upload dates are UTC days, so callers pass today's UTC date.
   const today = options.today ?? utcToday();
+  const first = interpretWith(segments, lexicon, today, options, new Set());
 
-  const { guarded, disjunctions } = findGuards(segments, lexicon);
+  // An "or" that joins no two conditions ("failed or from Acme") can't be expressed. Read again with
+  // the phrases beside it left out, so the model reads them instead of the parser applying them with AND.
+  return first.loose.length ? interpretWith(segments, lexicon, today, options, new Set(first.loose)).result : first.result;
+}
+
+/**
+ * @param {Segment[]} segments
+ * @param {Lexicon} lexicon
+ * @param {string} today
+ * @param {InterpretOptions} options
+ * @param {Set<number>} guardedOrs "or" segments whose neighbouring phrases are left out
+ * @returns {{ result: LocalInterpretation, loose: number[] }} `loose` lists "or" segments that joined nothing
+ */
+function interpretWith(segments, lexicon, today, options, guardedOrs) {
+  const { guarded, disjunctions } = findGuards(segments, lexicon, guardedOrs);
 
   /** @type {InterpretState} */
   const state = {
@@ -1850,12 +1899,13 @@ export function interpretLocally(segments, catalog, options = {}) {
     notes: [],
     incomplete: false,
     hints: [],
-    conditions: [],
+    terms: [],
+    joined: new Set(),
     statuses: [],
     text: [],
     uploaded: { from: null, to: null },
-    cost: null,
     guarded,
+    scoped: templatesScopeConditions(segments, lexicon),
   };
 
   const subjects = readSubjects(state);
@@ -1871,13 +1921,17 @@ export function interpretLocally(segments, catalog, options = {}) {
 
   if (filterAction) readFilterSegments(state, consumed);
 
+  const grouped = filterAction ? groupTerms(state) : [];
+
   readArgs(state, action, subjects, args, consumed, options.workspaces);
 
   for (const [index, segment] of segments.entries()) {
     if (consumed.has(index)) continue;
 
-    // "or" joins statuses or Templates into one list; anywhere else the filter can't express it.
-    const disjunction = disjunctions.has(index) && (disjunctions.get(index) === null || !filterAction);
+    // "or" joins statuses or Templates into one list, or conditions into a group; anywhere else the
+    // filter can't express it.
+    const disjunction =
+      disjunctions.has(index) && !state.joined.has(index) && (disjunctions.get(index) === null || !filterAction);
 
     if (segment.type === "plain") state.unused.push(...significantWords(segment.text, disjunction));
     else if (guarded.has(index) || !["action", "subject", "template", "page"].includes(segment.type)) {
@@ -1886,7 +1940,7 @@ export function interpretLocally(segments, catalog, options = {}) {
     }
   }
 
-  const filter = filterAction ? buildFilter(state, action, subjects) : null;
+  const filter = filterAction ? buildFilter(state, action, subjects, grouped) : null;
 
   if (state.unused.length) {
     const words = state.unused.map((word) => `“${word}”`).join(", ");
@@ -1903,26 +1957,34 @@ export function interpretLocally(segments, catalog, options = {}) {
     notes: state.notes.slice(0, SEARCH_LIMITS.notes),
   };
 
+  const loose = filterAction
+    ? [...disjunctions].flatMap(([index, kind]) => (kind === null && !state.joined.has(index) && !guardedOrs.has(index) ? [index] : []))
+    : [];
+
   return {
-    interpretation,
-    complete: !state.incomplete && state.unused.length === 0,
-    resolved: state.resolved,
-    unused: state.unused,
+    result: {
+      interpretation,
+      complete: !state.incomplete && state.unused.length === 0,
+      resolved: state.resolved,
+      unused: state.unused,
+    },
+    loose,
   };
 }
 
 /**
  * Phrases the parser must not apply because a word it can't read changes their meaning: a negating
- * word ("except failed", "not from last week", "Acme excluded"), or "or" between conditions, which a
+ * word ("except failed", "not from last week", "Acme excluded"), or an "or" in `guardedOrs`, one the
  * filter can't express. A guard covers the run of filter phrases on that side of the word, up to an
  * unread word or another kind of phrase, so a field goes with its value. Template names in the run are
  * guarded after a negating word and passed over after "or". "or" between two statuses or two Templates
- * is a list the filter holds, so it guards nothing.
+ * is a list the filter holds, and "or" between conditions is a group, so neither is guarded.
  * @param {Segment[]} segments
  * @param {Lexicon} lexicon
+ * @param {Set<number>} guardedOrs
  * @returns {{ guarded: Set<number>, disjunctions: Map<number, "status"|"template"|null> }}
  */
-function findGuards(segments, lexicon) {
+function findGuards(segments, lexicon, guardedOrs) {
   /** @type {Set<number>} */
   const guarded = new Set();
   /** @type {Map<number, "status"|"template"|null>} */
@@ -1964,7 +2026,7 @@ function findGuards(segments, lexicon) {
 
       disjunctions.set(index, kind);
 
-      if (!kind) {
+      if (!kind && guardedOrs.has(index)) {
         guardRun(index - 1, -1, false);
         guardRun(index + 1, 1, false);
       }
@@ -2102,7 +2164,7 @@ function readFilterSegments(state, consumed) {
       const { entry, index } = pendingField;
       const op = entry.field.type === "boolean" ? "is_true" : "has_value";
 
-      state.conditions.push({ template_id: entry.template.id, field_id: entry.field.field_id, op });
+      addTerm(state, { template_id: entry.template.id, field_id: entry.field.field_id, op }, index);
 
       if (entry.field.type === "boolean") state.resolved[index] = `${entry.field.name}: yes`;
     }
@@ -2115,6 +2177,11 @@ function readFilterSegments(state, consumed) {
 
     if (state.guarded.has(index)) {
       settleField();
+      continue;
+    }
+
+    if (!pendingField && readFollowing(state, index)) {
+      consumed.add(index);
       continue;
     }
 
@@ -2135,7 +2202,7 @@ function readFilterSegments(state, consumed) {
         pendingField = { index, entry, used: false };
 
         if (pendingState) {
-          addCondition(state, entry, { op: pendingState.op, values: [], word: "", kind: "state" }, pendingState.index);
+          addCondition(state, entry, { op: pendingState.op, values: [], word: "", kind: "state" }, pendingState.index, index);
           consumed.add(pendingState.index);
           pendingField.used = true;
           pendingState = null;
@@ -2154,7 +2221,7 @@ function readFilterSegments(state, consumed) {
           const entry = resolveField(state, parsed.negatedLabel, index);
 
           if (entry) {
-            state.conditions.push({ template_id: entry.template.id, field_id: entry.field.field_id, op: "is_false" });
+            addTerm(state, { template_id: entry.template.id, field_id: entry.field.field_id, op: "is_false" }, index);
             state.resolved[index] = `${entry.field.name}: no`;
             consumed.add(index);
           }
@@ -2163,7 +2230,7 @@ function readFilterSegments(state, consumed) {
         }
 
         if (pendingField) {
-          if (addCondition(state, pendingField.entry, parsed, index)) {
+          if (addCondition(state, pendingField.entry, parsed, index, pendingField.index)) {
             consumed.add(index);
             pendingField.used = true;
           }
@@ -2213,7 +2280,7 @@ function readFilterSegments(state, consumed) {
         if (range) state.resolved[index] = formatRange(range, state.today);
 
         if (range && dateField) {
-          state.conditions.push(rangeCondition(dateField.entry, range));
+          addTerm(state, rangeCondition(dateField.entry, range), dateField.index, index);
           dateField.used = true;
           consumed.add(index);
         } else if (range && mergeUploaded(state, range)) consumed.add(index);
@@ -2278,14 +2345,121 @@ function readCost(state, index, consumed) {
     return amountIndex;
   }
 
-  // Only the first cost condition is used; a second one is left unused.
-  if (state.cost) return amountIndex;
-  state.cost = cost;
+  addTerm(state, { cost }, index, amountIndex);
   state.resolved[index] = PROCESSING_COST_LABEL;
   consumed.add(index);
   consumed.add(amountIndex);
 
   return amountIndex;
+}
+
+/**
+ * Records a field or cost condition read from segments `start` to `end`.
+ * @param {InterpretState} state
+ * @param {FieldCondition|CostTerm} condition
+ * @param {number} start
+ * @param {number} [end]
+ * @param {boolean} [exclusive] defaults to whether the condition is an exact value
+ */
+function addTerm(state, condition, start, end = start, exclusive) {
+  const exact = "op" in condition && (condition.op === "is" || condition.op === "eq");
+
+  state.terms.push({ condition, start, end, exclusive: exclusive ?? exact });
+}
+
+/**
+ * Reads a phrase that continues the condition just before it, joined only by "and", "or" or a comma:
+ * "cost over $0.03 and under $0.05", "total under 10 or over 100", "vendor is Acme or Globex",
+ * "invoice number is X1, X2 or X3", "issued before 1 March or after 1 June". The phrase is on the same
+ * field, and a bare value takes the same operator. Returns whether the segment was used.
+ * @param {InterpretState} state
+ * @param {number} index
+ */
+function readFollowing(state, index) {
+  const segment = state.segments[index];
+  const last = state.terms.at(-1);
+
+  if (!last || !["condition", "value", "date"].includes(segment.type) || !joinsTerms(state, last.end, index)) return false;
+
+  if (isCostTermCondition(last.condition)) {
+    const cost = segment.type === "condition" ? parseCostCondition(segment.text) : null;
+
+    if (!cost) return false;
+    addTerm(state, { cost }, index);
+
+    return true;
+  }
+
+  const entry = fieldEntry(state.lexicon, last.condition);
+
+  if (!entry) return false;
+
+  if (segment.type === "date") {
+    // "uploaded last week" is about the upload date, never the field.
+    if (entry.field.type !== "date" || /^(?:uploaded|added|created|received)\s/i.test(segment.text)) return false;
+    const range = parseDatePhrase(segment.text, state.today, false);
+
+    if (!range) return false;
+    state.resolved[index] = formatRange(range, state.today);
+    addTerm(state, rangeCondition(entry, range), index);
+
+    return true;
+  }
+
+  if (segment.type === "value") {
+    const value = (isQuoted(segment.text) ? stripQuotes(segment.text) : segment.text.replace(/^(?:from|by)\s+/i, "")).trim();
+    const { op } = last.condition;
+    const takesValue = last.condition.value !== undefined && op !== "between";
+    const kind = entry.field.type === "text" ? "text" : "compare";
+
+    if (!value || value.length > SEARCH_LIMITS.valueCharacters) return false;
+    const parsed = { op: takesValue ? op : entry.field.type === "text" ? "is" : "eq", values: [value], word: "", kind };
+
+    return addCondition(state, entry, parsed, index, index, last.exclusive);
+  }
+
+  const parsed = parseCondition(segment.text, state.lexicon);
+
+  if (!parsed || parsed.negatedLabel) return false;
+
+  return addCondition(state, entry, parsed, index);
+}
+
+/**
+ * Whether only "and", "or", commas and filler words come between two segments.
+ * @param {InterpretState} state
+ * @param {number} after
+ * @param {number} before
+ */
+function joinsTerms(state, after, before) {
+  for (let index = after + 1; index < before; index += 1) {
+    const segment = state.segments[index];
+
+    if (segment.type !== "plain" || significantWords(segment.text, true).some((word) => word.toLowerCase() !== "or"))
+      return false;
+  }
+
+  return true;
+}
+
+/**
+ * @param {FieldCondition|CostTerm} condition
+ * @returns {condition is CostTerm}
+ */
+function isCostTermCondition(condition) {
+  return "cost" in condition;
+}
+
+/**
+ * @param {Lexicon} lexicon
+ * @param {FieldCondition} condition
+ * @returns {FieldEntry|null}
+ */
+function fieldEntry(lexicon, condition) {
+  const template = lexicon.templates.find((candidate) => candidate.id === condition.template_id);
+  const field = template?.fields.find((candidate) => candidate.field_id === condition.field_id);
+
+  return template && field ? { template, field } : null;
 }
 
 /**
@@ -2301,6 +2475,19 @@ function resolveField(state, label, index) {
   const candidates = state.lexicon.fields.get(key) ?? [];
 
   if (!candidates.length) return null;
+
+  // "invoices with total over 100 or receipts with total over 50": each field is on the Template before it.
+  if (state.scoped) {
+    const scope = scopeTemplate(state, index);
+    const scoped = candidates.find((candidate) => candidate.template.id === scope);
+
+    if (scoped) {
+      state.resolved[index] = scoped.template.name;
+
+      return scoped;
+    }
+  }
+
   const named = candidates.filter((candidate) => state.hints.includes(candidate.template.id));
   const pool = named.length ? named : candidates;
   const chosen = pool[0];
@@ -2346,13 +2533,15 @@ function templateName(lexicon, id) {
  * @param {InterpretState} state
  * @param {FieldEntry} entry
  * @param {ParsedCondition} parsed
- * @param {number} index
+ * @param {number} index the condition's segment
+ * @param {number} [end] the last segment the condition was read from, when it isn't `index`
+ * @param {boolean} [exclusive]
  */
-function addCondition(state, entry, parsed, index) {
+function addCondition(state, entry, parsed, index, end = index, exclusive) {
   const condition = fitCondition(entry, parsed, state.today);
 
   if (!condition) return false;
-  state.conditions.push(condition);
+  addTerm(state, condition, Math.min(index, end), Math.max(index, end), exclusive);
 
   if (state.resolved[index] === null && entry.field.type === "boolean")
     state.resolved[index] = `${entry.field.name}: ${condition.op === "is_true" ? "yes" : "no"}`;
@@ -2538,7 +2727,7 @@ function applyLooseCondition(state, parsed, index) {
  * @param {InterpretState} state
  * @param {string} text
  * @param {number} index
- * @param {{ entry: FieldEntry } | null} pendingField
+ * @param {{ index: number, entry: FieldEntry } | null} pendingField
  */
 function applyValue(state, text, index, pendingField) {
   const quoted = isQuoted(text);
@@ -2551,7 +2740,7 @@ function applyValue(state, text, index, pendingField) {
     const kind = pendingField.entry.field.type === "text" ? "text" : "compare";
     const op = pendingField.entry.field.type === "text" ? "contains" : "eq";
 
-    return addCondition(state, pendingField.entry, { op, values: [value], word: "", kind }, index);
+    return addCondition(state, pendingField.entry, { op, values: [value], word: "", kind }, index, pendingField.index);
   }
 
   if (quoted) {
@@ -2576,14 +2765,21 @@ function applyKnownValue(state, value, index, op) {
   const candidates = state.lexicon.values.get(phraseKey(value)) ?? [];
 
   // With Templates named, only their fields count; a value from another Template would match nothing.
-  const pool = state.hints.length
-    ? candidates.filter((candidate) => state.hints.includes(candidate.template.id))
-    : candidates;
+  // Where Templates are named between conditions, the value is on the Template named before it.
+  const scope = state.scoped ? scopeTemplate(state, index) : null;
+  const scoped = candidates.filter((candidate) => candidate.template.id === scope);
+
+  const pool = scoped.length
+    ? scoped
+    : state.hints.length
+      ? candidates.filter((candidate) => state.hints.includes(candidate.template.id))
+      : candidates;
 
   const chosen = pool[0];
 
   if (!chosen) return false;
-  state.conditions.push({ template_id: chosen.template.id, field_id: chosen.field.field_id, op, value: chosen.value });
+  // A known value is a whole value, so two of them on one field are alternatives.
+  addTerm(state, { template_id: chosen.template.id, field_id: chosen.field.field_id, op, value: chosen.value }, index, index, op !== "is_not");
   state.resolved[index] = chosen.field.name;
 
   // A condition limits the search to its Template, so "documents excluding Acme" would quietly leave out
@@ -2634,15 +2830,211 @@ function applyKnownValue(state, value, index, op) {
 }
 
 /**
+ * The Template a subject or Template phrase names, if any.
+ * @param {Segment} segment
+ * @param {Lexicon} lexicon
+ * @returns {string|null}
+ */
+function segmentTemplate(segment, lexicon) {
+  const key = phraseKey(segment.text);
+
+  if (segment.type === "subject") return lexicon.subjects.get(key)?.template?.id ?? null;
+
+  if (segment.type === "template") return lexicon.templateNames.get(templateNameKey(key))?.id ?? null;
+
+  return null;
+}
+
+/**
+ * The Template named last before a segment, which its field belongs to when `state.scoped`.
+ * @param {InterpretState} state
+ * @param {number} index
+ */
+function scopeTemplate(state, index) {
+  return (
+    state.segments
+      .slice(0, index)
+      .map((segment) => segmentTemplate(segment, state.lexicon))
+      .findLast(Boolean) ?? null
+  );
+}
+
+/**
+ * Whether Templates are named between conditions, as in "invoices with total over 100 or receipts with
+ * total over 50", so each field belongs to the Template named before it.
+ * @param {Segment[]} segments
+ * @param {Lexicon} lexicon
+ */
+function templatesScopeConditions(segments, lexicon) {
+  const firstCondition = segments.findIndex((segment) => ["field", "condition", "value"].includes(segment.type));
+
+  return (
+    firstCondition >= 0 &&
+    segments.some((segment, index) => index > firstCondition && segmentTemplate(segment, lexicon) !== null)
+  );
+}
+
+/**
+ * Joins the request's conditions the way it reads, and marks the "or" words that joined them.
+ *
+ * Conditions on one field come together first: "vendor is Acme or Globex and total over 100" is
+ * (Acme or Globex) and total over 100. Then "and" binds tighter than "or", as in "vendor is Acme or
+ * total over 500 and paid": Acme, or (over 500 and paid). In "A, B or C" the commas take the word that
+ * ends the list. Exact values of one field joined by "and" are alternatives, since a field can't hold
+ * both, and excluded values joined by "or" all stay excluded: "excluding Acme or Globex" leaves out both.
+ * @param {InterpretState} state
+ * @returns {SearchCondition[]} the filter's conditions, all of which must hold
+ */
+function groupTerms(state) {
+  const terms = [...state.terms].sort((a, b) => a.start - b.start).slice(0, SEARCH_LIMITS.conditions);
+
+  if (!terms.length) return [];
+  const links = terms.slice(1).map((term, position) => readLink(state, terms[position], term));
+
+  for (const link of links) for (const index of link.ors) state.joined.add(index);
+
+  // "A, B or C": each comma takes the word after the last item.
+  const kinds = links.map((link, position) => {
+    if (link.kind !== "list") return link.kind;
+
+    return links.slice(position).find((next) => next.kind !== "list")?.kind === "or" ? "or" : "and";
+  });
+
+  /** @type {SearchCondition[]} */
+  const runs = [];
+  /** @type {Array<"and"|"or">} */
+  const between = [];
+  let start = 0;
+
+  for (let end = 1; end <= terms.length; end += 1) {
+    if (end < terms.length && termSubject(terms[end]) === termSubject(terms[start])) continue;
+    const run = terms.slice(start, end);
+    let inner = kinds.slice(start, end - 1);
+
+    if (run.every((term) => "op" in term.condition && term.condition.op === "is_not")) inner = inner.map(() => "and");
+    else if (run.length > 1 && run.every((term) => term.exclusive) && inner.every((kind) => kind === "and"))
+      inner = inner.map(() => "or");
+
+    runs.push(combineByPrecedence(run.map((term) => term.condition), inner));
+
+    if (end < terms.length) between.push(kinds[end - 1]);
+    start = end;
+  }
+
+  const root = combineByPrecedence(runs, between);
+
+  return "all" in root ? root.all : [root];
+}
+
+/**
+ * How two conditions are joined: by "or", by a comma, or otherwise by "and". Only words, punctuation and
+ * the Template the next condition is on may come between them; any other phrase means "and", and an
+ * "or" there joins nothing.
+ * @param {InterpretState} state
+ * @param {Term} previous
+ * @param {Term} next
+ * @returns {{ kind: "and"|"or"|"list", ors: number[] }}
+ */
+function readLink(state, previous, next) {
+  /** @type {number[]} */
+  const ors = [];
+  let comma = false;
+
+  for (let index = previous.end + 1; index < next.start; index += 1) {
+    const segment = state.segments[index];
+
+    if (segmentTemplate(segment, state.lexicon)) continue;
+
+    if (segment.type !== "plain") return { kind: "and", ors: [] };
+
+    if (significantWords(segment.text, true).some((word) => word.toLowerCase() === "or")) ors.push(index);
+
+    comma ||= segment.text.includes(",");
+  }
+
+  return { kind: ors.length ? "or" : comma ? "list" : "and", ors };
+}
+
+/** @param {Term} term */
+function termSubject(term) {
+  const { condition } = term;
+
+  return isCostTermCondition(condition) ? "cost" : `${condition.template_id}\u0000${condition.field_id}`;
+}
+
+/**
+ * Combines conditions joined by "and" and "or", "and" first: [a, b, c] with ["and", "or"] is (a and b) or c.
+ * Groups of the same kind are merged, so the result is never `{ all: [{ all: ... }] }`.
+ * @param {SearchCondition[]} items
+ * @param {Array<"and"|"or">} kinds `kinds[i]` joins `items[i]` and `items[i + 1]`
+ * @returns {SearchCondition}
+ */
+function combineByPrecedence(items, kinds) {
+  /** @type {SearchCondition[][]} */
+  const groups = [[items[0]]];
+
+  for (const [position, item] of items.slice(1).entries()) {
+    if (kinds[position] === "or") groups.push([item]);
+    else groups[groups.length - 1].push(item);
+  }
+
+  const alternatives = groups.map((group) =>
+    group.length === 1 ? group[0] : { all: group.flatMap((item) => ("all" in item ? item.all : [item])) },
+  );
+
+  return alternatives.length === 1
+    ? alternatives[0]
+    : { any: alternatives.flatMap((item) => ("any" in item ? item.any : [item])) };
+}
+
+/**
+ * The Templates a document must have to match, or null when any Template can. `conflict` lists the
+ * Templates of an "all" group whose members need different Templates, which nothing can match.
+ * @param {SearchCondition} condition
+ * @returns {{ templates: string[]|null, conflict: string[]|null }}
+ */
+function conditionTemplates(condition) {
+  if (isCostTerm(condition)) return { templates: null, conflict: null };
+
+  if (!isConditionGroup(condition)) return { templates: [condition.template_id], conflict: null };
+  const { any, members } = groupMembers(condition);
+  const read = members.map(conditionTemplates);
+  const conflict = read.find((member) => member.conflict)?.conflict ?? null;
+  const known = read.flatMap((member) => (member.templates ? [member.templates] : []));
+
+  if (any)
+    return { templates: known.length < read.length ? null : [...new Set(known.flat())], conflict };
+
+  if (!known.length) return { templates: null, conflict };
+  const shared = known.reduce((common, templates) => common.filter((id) => templates.includes(id)));
+
+  return { templates: shared, conflict: conflict ?? (shared.length ? null : [...new Set(known.flat())]) };
+}
+
+/**
+ * How deeply groups nest in a list of conditions.
+ * @param {SearchCondition[]} conditions
+ * @returns {number}
+ */
+function conditionDepth(conditions) {
+  return Math.max(
+    0,
+    ...conditions.map((condition) =>
+      isConditionGroup(condition) ? 1 + conditionDepth(groupMembers(condition).members) : 0,
+    ),
+  );
+}
+
+/**
  * @param {InterpretState} state
  * @param {CommandAction} action
  * @param {Subjects} subjects
+ * @param {SearchCondition[]} conditions from `groupTerms`
  * @returns {DocumentSearchFilter}
  */
-function buildFilter(state, action, subjects) {
+function buildFilter(state, action, subjects, conditions) {
   /** @type {DocumentSearchFilter} */
   const filter = {};
-  const pinned = [...new Set(state.conditions.map((condition) => condition.template_id))];
 
   /** @param {string} text */
   const cut = (text) => {
@@ -2650,18 +3042,20 @@ function buildFilter(state, action, subjects) {
     state.notes.push({ kind: "unrecognised", text: truncate(text, 300) });
   };
 
-  // Template IDs and conditions combine with AND, and a document has one Template.
-  if (pinned.length > 1) {
-    const names = pinned.map((id) => templateName(state.lexicon, id)).join(" and ");
+  if (state.terms.length > SEARCH_LIMITS.conditions) cut(`Only the first ${SEARCH_LIMITS.conditions} conditions are used.`);
+
+  // A document has one Template, so conditions on different Templates can only be alternatives.
+  const { templates: pinned, conflict } = conditionTemplates({ all: conditions });
+
+  if (conflict) {
+    const names = conflict.map((id) => templateName(state.lexicon, id)).join(" and ");
 
     cut(`These conditions use fields from ${names}, so no document can match.`);
-  } else if (pinned.length === 1) {
-    const left = subjects.templateIds.filter((id) => id !== pinned[0]).map((id) => templateName(state.lexicon, id));
+  } else if (pinned) {
+    const left = subjects.templateIds.filter((id) => !pinned.includes(id)).map((id) => templateName(state.lexicon, id));
+    const names = pinned.map((id) => templateName(state.lexicon, id)).join(" and ");
 
-    if (left.length)
-      cut(
-        `The conditions only apply to ${templateName(state.lexicon, pinned[0])}, so ${left.join(" and ")} is left out.`,
-      );
+    if (left.length) cut(`The conditions only apply to ${names}, so ${left.join(" and ")} is left out.`);
   }
 
   if (state.text.length) {
@@ -2677,7 +3071,7 @@ function buildFilter(state, action, subjects) {
 
   if (statuses.length) filter.statuses = statuses.slice(0, SEARCH_LIMITS.statuses);
 
-  if (!pinned.length && subjects.templateIds.length) {
+  if (!pinned && subjects.templateIds.length) {
     filter.template_ids = subjects.templateIds.slice(0, SEARCH_LIMITS.templates);
 
     if (subjects.templateIds.length > SEARCH_LIMITS.templates)
@@ -2688,14 +3082,11 @@ function buildFilter(state, action, subjects) {
 
   if (state.uploaded.to) filter.uploaded_to = state.uploaded.to;
 
-  if (state.conditions.length) {
-    filter.conditions = state.conditions.slice(0, SEARCH_LIMITS.conditions);
-
-    if (state.conditions.length > SEARCH_LIMITS.conditions)
-      cut(`Only the first ${SEARCH_LIMITS.conditions} conditions are used.`);
+  if (conditions.length) {
+    if (conditionDepth(conditions) > SEARCH_LIMITS.conditionDepth)
+      cut("These conditions mix “and” and “or” too deeply to search for.");
+    else filter.conditions = conditions;
   }
-
-  if (state.cost) filter.cost = state.cost;
 
   // With nothing else to go on, plain words become a text search so the palette still shows results.
   if (!Object.keys(filter).length && state.unused.length)
@@ -2851,12 +3242,12 @@ function markPlainConsumed(segments, consumed) {
 
 /**
  * The model only fills the gaps. Whatever the local parser recognised (the action verb, upload
- * dates, statuses, Templates, field conditions, cost and arguments) stays exactly as the pills show it,
+ * dates, statuses, Templates, field and cost conditions and arguments) stays exactly as the pills show it,
  * so the same request can't change meaning between runs. The model adds what the parser couldn't
  * read: leftover words, plain search text and conditions on other fields. When words were left
  * unread, the model's conditions on a field replace the parser's on that field, since an unread word
  * may change a condition the parser did read. The parser itself leaves out phrases next to a
- * negating word or an unsupported "or", so those never reach this merge.
+ * negating word or an "or" it can't group, so those never reach this merge.
  * @param {CommandInterpretation} local
  * @param {CommandInterpretation} model
  * @param {Segment[]} segments
@@ -2901,37 +3292,51 @@ export function mergeInterpretations(local, model, segments) {
 
   if (modelName) filter.model = modelName;
 
-  // Local conditions stay and model conditions are added for other fields, on the same Templates.
+  // Local conditions stay and model conditions are added for other fields, on the same Templates. Each
+  // member of the conditions list, a group included, is kept or added whole, keyed by the fields it uses.
   // When the parser left words unread, any of them could change a condition it did read ("bar Acme"),
-  // so the model's conditions replace the parser's on each field the model also filtered.
-  /** @param {FieldCondition} condition */
-  const fieldKey = (condition) => `${condition.template_id}\u0000${condition.field_id}`;
-  const localFields = new Set((mine.conditions ?? []).map(fieldKey));
-  const modelFields = new Set((theirs.conditions ?? []).map(fieldKey));
+  // so the model's conditions replace the parser's on each field the model also filtered. A locally
+  // recognised cost always stays as its pills show it.
+  const localKeys = new Set((mine.conditions ?? []).flatMap(conditionKeys));
+  const modelKeys = new Set((theirs.conditions ?? []).flatMap(conditionKeys));
   const replace = local.unrecognised.length > 0;
 
   const conditions = (mine.conditions ?? []).filter(
-    (condition) => !(replace && modelFields.has(fieldKey(condition))),
+    (condition) => !(replace && conditionKeys(condition).some((key) => key !== "cost" && modelKeys.has(key))),
   );
 
-  const pinned = new Set([...(templateIds ?? []), ...(mine.conditions ?? []).map((condition) => condition.template_id)]);
+  const pinned = new Set([
+    ...(templateIds ?? []),
+    ...conditionLeaves(mine.conditions).flatMap((leaf) => (isCostTerm(leaf) ? [] : [leaf.template_id])),
+  ]);
 
   for (const condition of theirs.conditions ?? []) {
-    if (localFields.has(fieldKey(condition)) && !replace) continue;
+    const keys = conditionKeys(condition);
 
-    if (pinned.size && !pinned.has(condition.template_id)) continue;
+    if (keys.some((key) => localKeys.has(key) && (key === "cost" || !replace))) continue;
 
-    if (conditions.length < SEARCH_LIMITS.conditions) conditions.push(condition);
+    if (pinned.size && conditionLeaves([condition]).some((leaf) => !isCostTerm(leaf) && !pinned.has(leaf.template_id)))
+      continue;
+
+    if (conditionLeaves(conditions).length + conditionLeaves([condition]).length <= SEARCH_LIMITS.conditions)
+      conditions.push(condition);
   }
 
   if (conditions.length) filter.conditions = conditions;
-  // A locally recognised cost stays as its pills show it.
-  const cost = mine.cost ?? theirs.cost;
-
-  if (cost) filter.cost = cost;
   merged.filter = filter;
 
   return merged;
+}
+
+/**
+ * The fields a condition uses, at any depth, as `template\u0000field`, and "cost" for the processing cost.
+ * @param {SearchCondition} condition
+ * @returns {string[]}
+ */
+function conditionKeys(condition) {
+  return conditionLeaves([condition]).map((leaf) =>
+    isCostTerm(leaf) ? "cost" : `${leaf.template_id}\u0000${leaf.field_id}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2983,16 +3388,55 @@ const USD_FORMAT = new Intl.NumberFormat("en-US", {
 });
 
 /**
- * "cost over $0.03", "cost between $0.01 and $0.05".
+ * "over $0.03", "between $0.01 and $0.05", written after the word "cost".
  * @param {CostCondition} cost
  */
 function describeCost(cost) {
   const word = COST_WORDS[cost.op] ?? cost.op;
   const first = USD_FORMAT.format(cost.value);
 
-  if (cost.op === "between") return `cost ${word} ${first} and ${USD_FORMAT.format(cost.value2 ?? cost.value)}`;
+  if (cost.op === "between") return `${word} ${first} and ${USD_FORMAT.format(cost.value2 ?? cost.value)}`;
 
-  return `cost ${word} ${first}`;
+  return `${word} ${first}`;
+}
+
+/**
+ * A condition or a group: "Invoice › Vendor is “Acme” or Invoice › Vendor is “Globex”". A group inside
+ * another is bracketed.
+ * @param {SearchCondition} condition
+ * @param {SearchCatalog|null|undefined} catalog
+ * @param {boolean} nested
+ * @returns {string}
+ */
+function describeSearchCondition(condition, catalog, nested) {
+  if (!isConditionGroup(condition)) {
+    const { subject, predicate } = describeLeaf(condition, catalog);
+
+    return `${subject} ${predicate}`;
+  }
+
+  const { any, members } = groupMembers(condition);
+  const joiner = any ? " or " : " and ";
+  const leaves = members.flatMap((member) => (isConditionGroup(member) ? [] : [describeLeaf(member, catalog)]));
+
+  // Conditions on one field name it once: "Invoice › Total under 10 or over 100".
+  const text =
+    leaves.length === members.length && leaves.every((leaf) => leaf.subject === leaves[0].subject)
+      ? `${leaves[0].subject} ${leaves.map((leaf) => leaf.predicate).join(joiner)}`
+      : members.map((member) => describeSearchCondition(member, catalog, true)).join(joiner);
+
+  return nested && members.length > 1 ? `(${text})` : text;
+}
+
+/**
+ * @param {FieldCondition|CostTerm} condition
+ * @param {SearchCatalog|null|undefined} catalog
+ * @returns {{ subject: string, predicate: string }}
+ */
+function describeLeaf(condition, catalog) {
+  return isCostTerm(condition)
+    ? { subject: "cost", predicate: describeCost(condition.cost) }
+    : describeCondition(condition, catalog);
 }
 
 /**
@@ -3012,6 +3456,7 @@ function describeValue(value, type) {
 /**
  * @param {FieldCondition} condition
  * @param {SearchCatalog|null|undefined} catalog
+ * @returns {{ subject: string, predicate: string }} "Invoice › Total" and "over 500"
  */
 function describeCondition(condition, catalog) {
   const template = catalog?.templates.find((candidate) => candidate.id === condition.template_id);
@@ -3020,14 +3465,15 @@ function describeCondition(condition, catalog) {
   const place = `${template?.name ?? condition.template_id} › ${field?.name ?? condition.field_id}`;
   const stateWord = OPERATOR_WORDS.state[condition.op];
 
-  if (stateWord) return `${place} ${stateWord}`;
+  if (stateWord) return { subject: place, predicate: stateWord };
   const words = type === "number" || type === "date" ? OPERATOR_WORDS[type] : OPERATOR_WORDS.text;
   const word = words[condition.op] ?? condition.op.replace(/_/g, " ");
   const first = describeValue(condition.value, type);
 
-  if (condition.op === "between") return `${place} ${word} ${first} and ${describeValue(condition.value2, type)}`;
+  if (condition.op === "between")
+    return { subject: place, predicate: `${word} ${first} and ${describeValue(condition.value2, type)}` };
 
-  return `${place} ${word} ${first}`;
+  return { subject: place, predicate: `${word} ${first}` };
 }
 
 /**
@@ -3048,9 +3494,7 @@ export function describeFilter(filter, catalog, options = {}) {
   if (filter.template_ids?.length)
     parts.push(filter.template_ids.map((id) => templateName(lexiconFor(catalog), id)).join(" or "));
 
-  for (const condition of filter.conditions ?? []) parts.push(describeCondition(condition, catalog));
-
-  if (filter.cost) parts.push(describeCost(filter.cost));
+  for (const condition of filter.conditions ?? []) parts.push(describeSearchCondition(condition, catalog, false));
 
   if (filter.statuses?.length)
     parts.push(filter.statuses.map((status) => STATUS_LABELS[status] ?? status).join(" or "));

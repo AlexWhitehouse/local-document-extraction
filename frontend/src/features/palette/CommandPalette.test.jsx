@@ -413,7 +413,7 @@ describe("CommandPalette", () => {
     expect(within(pills()).getByText("Processing cost")).toBeTruthy();
     // Read locally, so no model call; the search carries the cost.
     expect(context.request).not.toHaveBeenCalledWith("/search/interpret", expect.anything());
-    expect(searches[0].filter).toEqual({ cost: { op: "gt", value: 0.03 } });
+    expect(searches[0].filter).toEqual({ conditions: [{ cost: { op: "gt", value: 0.03 } }] });
   });
 
   it("stops a delete at a confirmation inside the palette, with Cancel focused", async () => {
@@ -912,11 +912,12 @@ describe("CommandPalette review regressions", () => {
   }
 
   it("carries every part of a request over to the Documents list: conditions, statuses, templates, cost and dates", async () => {
+    const startsWith = (value) => ({ template_id: "invoice", field_id: "invoice_number", op: "starts_with", value });
+
     const filter = {
       template_ids: ["invoice"],
-      conditions: [{ template_id: "invoice", field_id: "invoice_number", op: "starts_with", value: "hnh" }],
+      conditions: [{ any: [startsWith("hnh"), startsWith("abc")] }, { cost: { op: "gt", value: 0.5 } }],
       statuses: ["failed"],
-      cost: { op: "gt", value: 0.5 },
       uploaded_from: "2026-10-01",
       uploaded_to: "2026-10-10",
     };
@@ -926,7 +927,9 @@ describe("CommandPalette review regressions", () => {
 
     expect(context.documentController.actions.applySearchFilter).toHaveBeenCalledWith({
       filter,
-      summary: expect.stringMatching(/^Invoice · Invoice › Invoice number starts with “hnh” · .*failed.* · uploaded 1 Oct – 10 Oct$/i),
+      summary: expect.stringMatching(
+        /^Invoice · Invoice › Invoice number starts with “hnh” or starts with “abc” · cost over \$0\.50 · .*failed.* · uploaded 1 Oct – 10 Oct$/i,
+      ),
     });
     expect(context.navigate).toHaveBeenCalledWith("/workspaces/w1/documents");
     await paletteClosed();

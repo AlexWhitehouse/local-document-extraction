@@ -7,7 +7,9 @@ import {
   parseDocumentSearchFilter,
   SEARCH_LIMITS,
   SearchContractError,
+  usesCost,
   type DocumentSearchFilter,
+  type SearchCondition,
   type SearchCapabilities,
   type SearchCatalog,
 } from "../../shared/documentSearch";
@@ -83,6 +85,23 @@ function readSearchRequest(body: JsonValue): SearchRequest {
   return { filter: parseDocumentSearchFilter(body.filter), cursor, limit, idsOnly };
 }
 
+/** A condition tree in a canonical form: text values case-folded, group members in their given order. */
+function canonicalCondition(condition: SearchCondition): JsonValue {
+  if ("any" in condition) return { any: condition.any.map(canonicalCondition) };
+
+  if ("all" in condition) return { all: condition.all.map(canonicalCondition) };
+
+  if ("cost" in condition) return { cost: [condition.cost.op, condition.cost.value, condition.cost.value2 ?? null] };
+
+  return [
+    condition.template_id,
+    condition.field_id,
+    condition.op,
+    isString(condition.value) ? normalizeSearchText(condition.value) : (condition.value ?? null),
+    isString(condition.value2) ? normalizeSearchText(condition.value2) : (condition.value2 ?? null),
+  ];
+}
+
 /** A stable digest of the normalised filter; cursors are only valid for the filter they were issued for. */
 function filterFingerprint(filter: DocumentSearchFilter): string {
   const canonical = [
@@ -92,14 +111,7 @@ function filterFingerprint(filter: DocumentSearchFilter): string {
     filter.uploaded_from ?? null,
     filter.uploaded_to ?? null,
     filter.model ?? null,
-    (filter.conditions ?? []).map((condition) => [
-      condition.template_id,
-      condition.field_id,
-      condition.op,
-      isString(condition.value) ? normalizeSearchText(condition.value) : (condition.value ?? null),
-      isString(condition.value2) ? normalizeSearchText(condition.value2) : (condition.value2 ?? null),
-    ]),
-    filter.cost ? [filter.cost.op, filter.cost.value, filter.cost.value2 ?? null] : null,
+    (filter.conditions ?? []).map(canonicalCondition),
   ];
 
   return createHash("sha256").update(JSON.stringify(canonical)).digest("base64url");
@@ -158,7 +170,7 @@ export function handleJobSearch({
       const search = readSearchRequest(parseJsonBody(await request.text()));
 
       // The same rule as GET /v1/workspaces/:id/costs/overview: costs are for owners and admins.
-      if (search.filter.cost && !canReadCosts())
+      if (usesCost(search.filter) && !canReadCosts())
         throw new HttpError(403, "forbidden", "Only workspace owners and admins can search by cost.");
       // Checking a filter needs Templates and fields only; known values are for the palette and interpreter.
       const catalog = store.getSearchFields();
@@ -210,7 +222,7 @@ export function handleJobSearch({
             if (!summary) return [];
 
             const matches =
-              filter.cost && summary.costs ? [...job.matches, costMatch(summary.costs)] : job.matches;
+              usesCost(filter) && summary.costs ? [...job.matches, costMatch(summary.costs)] : job.matches;
 
             return [{ ...summary, template_name: job.template_name, matches }];
           }),

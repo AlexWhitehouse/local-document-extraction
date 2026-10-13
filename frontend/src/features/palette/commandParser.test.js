@@ -506,6 +506,13 @@ describe("interpretLocally conditions", () => {
     expect(run(text).interpretation.filter).toEqual({ conditions: [condition("tpl_invoice", "total", op, value)] });
   });
 
+  it("reads a bare comparison after and as another bound on the same field", () => {
+    // Receipts have two number fields, so "under 20" can only be read from what came before it.
+    expect(run("receipts with tax over 10 and under 20").interpretation.filter).toEqual({
+      conditions: [condition("tpl_receipt", "tax", "gt", 10), condition("tpl_receipt", "tax", "lt", 20)],
+    });
+  });
+
   it("reads number ranges", () => {
     expect(run("invoices where total is between 100 and 2,000").interpretation.filter).toEqual({
       conditions: [condition("tpl_invoice", "total", "between", 100, 2000)],
@@ -1242,7 +1249,10 @@ describe("processing cost", () => {
       ["condition", "greater than $0.03"],
     ]);
     expect(resolved[segments.findIndex((segment) => segment.type === "field")]).toBe("Processing cost");
-    expect(interpretation).toMatchObject({ action: "find_documents", filter: { cost: { op: "gt", value: 0.03 } } });
+    expect(interpretation).toMatchObject({
+      action: "find_documents",
+      filter: { conditions: [{ cost: { op: "gt", value: 0.03 } }] },
+    });
     expect(complete).toBe(true);
   });
 
@@ -1263,16 +1273,16 @@ describe("processing cost", () => {
   ])("%s", (text, cost) => {
     const { interpretation, complete } = costRun(text);
 
-    expect(interpretation.filter).toEqual({ cost });
+    expect(interpretation.filter).toEqual({ conditions: [{ cost }] });
     expect(complete).toBe(true);
   });
 
   it("needs an amount after the cost words, and a range in order", () => {
     // A bare number without a comparison or currency isn't an amount.
-    expect(costRun("documents costing 3").interpretation.filter.cost).toBeUndefined();
-    expect(costRun("documents with a cost between $0.05 and $0.01").interpretation.filter.cost).toBeUndefined();
+    expect(costRun("documents costing 3").interpretation.filter.conditions).toBeUndefined();
+    expect(costRun("documents with a cost between $0.05 and $0.01").interpretation.filter.conditions).toBeUndefined();
     // Negative amounts aren't costs.
-    expect(costRun("documents with a cost under -1").interpretation.filter.cost).toBeUndefined();
+    expect(costRun("documents with a cost under -1").interpretation.filter.conditions).toBeUndefined();
   });
 
   it("combines with Templates, statuses, upload dates and field conditions", () => {
@@ -1283,12 +1293,11 @@ describe("processing cost", () => {
       template_ids: ["tpl_invoice"],
       uploaded_from: "2026-10-05",
       uploaded_to: "2026-10-11",
-      cost: { op: "gt", value: 0.02 },
+      conditions: [{ cost: { op: "gt", value: 0.02 } }],
     });
     expect(complete).toBe(true);
     expect(costRun("invoices where total is over 500 and the cost is under $0.10").interpretation.filter).toEqual({
-      conditions: [condition("tpl_invoice", "total", "gt", 500)],
-      cost: { op: "lt", value: 0.1 },
+      conditions: [condition("tpl_invoice", "total", "gt", 500), { cost: { op: "lt", value: 0.1 } }],
     });
   });
 
@@ -1303,11 +1312,11 @@ describe("processing cost", () => {
       conditions: [condition("tpl_invoice", "cost", "gt", 5)],
     });
     expect(costRun("documents with a cost over 5", costFieldCatalog).interpretation.filter).toEqual({
-      cost: { op: "gt", value: 5 },
+      conditions: [{ cost: { op: "gt", value: 5 } }],
     });
     expect(costRun("receipts with a cost over $5", costFieldCatalog).interpretation.filter).toEqual({
       template_ids: ["tpl_receipt"],
-      cost: { op: "gt", value: 5 },
+      conditions: [{ cost: { op: "gt", value: 5 } }],
     });
   });
 
@@ -1315,7 +1324,7 @@ describe("processing cost", () => {
     for (const source of [catalog, { ...catalog, capabilities: { cost: false } }]) {
       const { interpretation, complete, unused } = costRun("Show me documents with a cost greater than $0.03", source);
 
-      expect(interpretation.filter.cost).toBeUndefined();
+      expect(interpretation.filter.conditions).toBeUndefined();
       expect(unused).toEqual(["cost", "greater than $0.03"]);
       expect(complete).toBe(false);
       expect(interpretation.notes).toContainEqual({ kind: "unrecognised", text: "Only owners and admins can search by cost." });
@@ -1329,31 +1338,70 @@ describe("processing cost", () => {
     });
   });
 
+  it.each([
+    // Purchase orders have one number field, which used to take the second bound.
+    "purchase orders that cost more than $0.03 and less than $0.05",
+    "documents that cost more than $0.03 and cost less than $0.05",
+    "documents costing over 3 cents and under 5 cents",
+  ])("reads every cost condition: %s", (text) => {
+    const { interpretation, complete } = costRun(text);
+
+    // The second condition is on the cost, not on a number field.
+    expect(interpretation.filter.conditions).toEqual([{ cost: { op: "gt", value: 0.03 } }, { cost: { op: "lt", value: 0.05 } }]);
+    expect(complete).toBe(true);
+  });
+
+  it("groups cost conditions like field conditions", () => {
+    expect(costRun("documents that cost under 1 cent or over 5 cents").interpretation.filter).toEqual({
+      conditions: [{ any: [{ cost: { op: "lt", value: 0.01 } }, { cost: { op: "gt", value: 0.05 } }] }],
+    });
+    expect(costRun("receipts that cost over $0.03 or total under 20").interpretation.filter).toEqual({
+      template_ids: ["tpl_receipt"],
+      conditions: [{ any: [{ cost: { op: "gt", value: 0.03 } }, condition("tpl_receipt", "total", "lt", 20)] }],
+    });
+    expect(costRun("receipts that cost over $0.03 and total under 20").interpretation.filter).toEqual({
+      conditions: [{ cost: { op: "gt", value: 0.03 } }, condition("tpl_receipt", "total", "lt", 20)],
+    });
+  });
+
   it("describes the cost in the summary", () => {
-    expect(describeFilter({ cost: { op: "gt", value: 0.03 } }, costCatalog)).toBe("cost over $0.03");
-    expect(describeFilter({ cost: { op: "lte", value: 1 } }, costCatalog)).toBe("cost at most $1.00");
-    expect(describeFilter({ cost: { op: "eq", value: 0.0025 } }, costCatalog)).toBe("cost of $0.0025");
-    expect(describeFilter({ cost: { op: "between", value: 0.01, value2: 0.05 } }, costCatalog)).toBe(
-      "cost between $0.01 and $0.05",
-    );
+    const describe = (cost) => describeFilter({ conditions: [{ cost }] }, costCatalog);
+
+    expect(describe({ op: "gt", value: 0.03 })).toBe("cost over $0.03");
+    expect(describe({ op: "lte", value: 1 })).toBe("cost at most $1.00");
+    expect(describe({ op: "eq", value: 0.0025 })).toBe("cost of $0.0025");
+    expect(describe({ op: "between", value: 0.01, value2: 0.05 })).toBe("cost between $0.01 and $0.05");
     expect(
-      describeFilter({ template_ids: ["tpl_invoice"], statuses: ["failed"], cost: { op: "gte", value: 0.5 } }, costCatalog),
+      describeFilter(
+        { template_ids: ["tpl_invoice"], statuses: ["failed"], conditions: [{ cost: { op: "gte", value: 0.5 } }] },
+        costCatalog,
+      ),
     ).toBe("Invoice · cost at least $0.50 · failed");
+    expect(
+      describeFilter({ conditions: [{ any: [{ cost: { op: "lt", value: 0.01 } }, { cost: { op: "gt", value: 0.05 } }] }] }, costCatalog),
+    ).toBe("cost under $0.01 or over $0.05");
   });
 
   it("keeps a locally recognised cost over the model's, and takes the model's otherwise", () => {
-    const model = (cost) => ({ action: "find_documents", args: {}, filter: { cost }, unrecognised: [], notes: [] });
+    const model = (cost) => ({
+      action: "find_documents",
+      args: {},
+      filter: { conditions: [{ cost }] },
+      unrecognised: [],
+      notes: [],
+    });
+
     const recognised = costRun("documents with a cost over $0.03 billed to Leeds");
 
     expect(
-      mergeInterpretations(recognised.interpretation, model({ op: "gt", value: 3 }), recognised.segments).filter.cost,
-    ).toEqual({ op: "gt", value: 0.03 });
+      mergeInterpretations(recognised.interpretation, model({ op: "gt", value: 3 }), recognised.segments).filter.conditions,
+    ).toEqual([{ cost: { op: "gt", value: 0.03 } }]);
 
     const unread = costRun("documents billed to Leeds");
 
     expect(
-      mergeInterpretations(unread.interpretation, model({ op: "lt", value: 1 }), unread.segments).filter.cost,
-    ).toEqual({ op: "lt", value: 1 });
+      mergeInterpretations(unread.interpretation, model({ op: "lt", value: 1 }), unread.segments).filter.conditions,
+    ).toEqual([{ cost: { op: "lt", value: 1 } }]);
   });
 });
 
@@ -1498,13 +1546,92 @@ describe("date ranges", () => {
   });
 });
 
-describe("or", () => {
+describe("and and or", () => {
+  const vendor = (op, value) => condition("tpl_invoice", "vendor", op, value);
+  const total = (op, value) => condition("tpl_invoice", "total", op, value);
+
   it.each([
-    ["find invoices with vendor Acme or vendor Globex Supplies", ["vendor", "Acme", "or", "vendor", "Globex Supplies"]],
-    ["find invoices from Acme or Globex Supplies", ["from Acme", "or", "Globex Supplies"]],
-    ["invoices where total is over 500 or vendor is Acme", ["total", "is over 500", "or", "vendor", "is Acme"]],
+    ["find invoices with vendor Acme or vendor Globex Supplies", [{ any: [vendor("contains", "Acme"), vendor("contains", "Globex Supplies")] }]],
+    ["find invoices from Acme or Globex Supplies", [{ any: [vendor("contains", "Acme"), vendor("contains", "Globex Supplies")] }]],
+    // Known values are whole values, so "and" between two of them means either.
+    ["find invoices from Acme and Globex Supplies", [{ any: [vendor("contains", "Acme"), vendor("contains", "Globex Supplies")] }]],
+    ["invoices where vendor is Acme or Globex Supplies", [{ any: [vendor("is", "Acme"), vendor("is", "Globex Supplies")] }]],
+    // Bare values after "or" or a comma take the operator before them.
+    [
+      "invoices where invoice number is X1, X2 or X3",
+      [{ any: ["X1", "X2", "X3"].map((value) => condition("tpl_invoice", "invoice_number", "is", value)) }],
+    ],
+    [
+      'invoices where invoice number starts with "ab" or "cd"',
+      [{ any: ["ab", "cd"].map((value) => condition("tpl_invoice", "invoice_number", "starts_with", value)) }],
+    ],
+    ["invoices where total is 5 or 10 or 15", [{ any: [total("eq", 5), total("eq", 10), total("eq", 15)] }]],
+    ["invoices with total under 10 or over 100", [{ any: [total("lt", 10), total("gt", 100)] }]],
+    ["invoices with total over 10 and under 20", [total("gt", 10), total("lt", 20)]],
+    ["invoices with total over 10, under 20", [total("gt", 10), total("lt", 20)]],
+    // "and" binds tighter than "or".
+    ["invoices with total over 10 and under 20 or over 100", [{ any: [{ all: [total("gt", 10), total("lt", 20)] }, total("gt", 100)] }]],
+    ["invoices where total is over 500 or vendor is Acme", [{ any: [total("gt", 500), vendor("is", "Acme")] }]],
+    [
+      "invoices where vendor is Acme or total over 500 and paid",
+      [{ any: [vendor("is", "Acme"), { all: [total("gt", 500), condition("tpl_invoice", "paid", "is_true")] }] }],
+    ],
+    // ...except that one field's values come together first.
+    ["invoices where vendor is Acme or Globex Supplies and total over 100", [{ any: [vendor("is", "Acme"), vendor("is", "Globex Supplies")] }, total("gt", 100)]],
+    [
+      "invoices issued before 1 March 2026 or after 1 June 2026",
+      [{ any: [condition("tpl_invoice", "issue_date", "lt", "2026-03-01"), condition("tpl_invoice", "issue_date", "gte", "2026-06-02")] }],
+    ],
+    // Excluding either value excludes both.
+    ["invoices excluding Acme or Globex Supplies", [vendor("is_not", "Acme"), vendor("is_not", "Globex Supplies")]],
+  ])("%s", (text, conditions) => {
+    const { interpretation, complete, unused } = run(text);
+
+    expect(interpretation.filter.conditions).toEqual(conditions);
+    expect(unused).toEqual([]);
+    expect(complete).toBe(true);
+  });
+
+  it("puts each field on the Template named before it", () => {
+    const { interpretation, complete } = run("invoices with total over 100 or receipts with total over 50");
+
+    expect(interpretation.filter).toEqual({
+      conditions: [{ any: [total("gt", 100), condition("tpl_receipt", "total", "gt", 50)] }],
+    });
+    expect(complete).toBe(true);
+    expect(run("receipts from Acme or invoices from Globex Supplies").interpretation.filter).toEqual({
+      conditions: [{ any: [condition("tpl_receipt", "merchant", "contains", "Acme"), vendor("contains", "Globex Supplies")] }],
+    });
+    // Templates named together before the conditions are still ambiguous.
+    expect(run("invoices and receipts with total over 100").complete).toBe(false);
+  });
+
+  it("asks when Templates must match together", () => {
+    const { interpretation, complete } = run("documents where vendor is Acme and merchant is Acme");
+
+    expect(complete).toBe(false);
+    expect(interpretation.notes).toContainEqual({
+      kind: "unrecognised",
+      text: "These conditions use fields from Invoice and Receipt, so no document can match.",
+    });
+  });
+
+  it("describes groups, naming a field once", () => {
+    const describe = (conditions) => describeFilter({ conditions }, catalog);
+
+    expect(describe([{ any: [vendor("is", "Acme"), vendor("is", "Globex")] }, total("gt", 100)])).toBe(
+      "Invoice › Vendor is “Acme” or is “Globex” · Invoice › Total over 100",
+    );
+    expect(describe([{ any: [vendor("is", "Acme"), { all: [total("gt", 500), total("lt", 600)] }] }])).toBe(
+      "Invoice › Vendor is “Acme” or (Invoice › Total over 500 and under 600)",
+    );
+  });
+
+  it.each([
     ["documents uploaded today or yesterday", ["uploaded today", "or", "yesterday"]],
     ["find failed or Acme invoices", ["failed", "or", "Acme"]],
+    ["failed invoices or vendor is Acme", ["failed", "or", "vendor", "is Acme"]],
+    ["invoices from Acme or uploaded last week", ["from Acme", "or", "uploaded last week"]],
   ])("never ANDs the two sides of %s", (text, words) => {
     const { interpretation, complete, unused } = run(text);
 
@@ -1603,18 +1730,33 @@ describe("mergeInterpretations with words the parser didn't read", () => {
   });
 
   it("only uses the model's conditions for an or the filter can't express", () => {
-    const either = local("delete invoices from Acme or Globex Supplies");
+    const either = local("delete invoices from Acme or uploaded last week");
 
     expect(either.interpretation.filter.conditions).toBeUndefined();
 
-    const one = condition("tpl_invoice", "vendor", "contains", "Globex Supplies");
+    const one = condition("tpl_invoice", "vendor", "contains", "Acme");
 
     expect(
-      mergeInterpretations(either.interpretation, answer([one], ["Acme or"]), either.segments).filter.conditions,
+      mergeInterpretations(either.interpretation, answer([one], ["or uploaded last week"]), either.segments).filter.conditions,
     ).toEqual([one]);
-    expect(
-      mergeInterpretations(either.interpretation, answer([], ["from Acme or Globex Supplies"]), either.segments).filter
-        .conditions,
-    ).toBeUndefined();
+  });
+
+  it("keeps a group the parser read whole, and adds the model's groups on other fields", () => {
+    const grouped = local("delete invoices from Acme or Globex Supplies billed to Leeds");
+    const vendors = { any: [contains, condition("tpl_invoice", "vendor", "contains", "Globex Supplies")] };
+
+    expect(grouped.interpretation.filter.conditions).toEqual([vendors]);
+
+    const address = { any: [condition("tpl_invoice", "billing_address", "contains", "Leeds"), condition("tpl_invoice", "vendor", "is", "Leeds")] };
+
+    // Unread words let the model's reading of a field replace the parser's.
+    expect(mergeInterpretations(grouped.interpretation, answer([address]), grouped.segments).filter.conditions).toEqual([address]);
+
+    const other = { any: [condition("tpl_invoice", "billing_address", "contains", "Leeds"), condition("tpl_invoice", "paid", "is_true")] };
+
+    expect(mergeInterpretations(grouped.interpretation, answer([other]), grouped.segments).filter.conditions).toEqual([
+      vendors,
+      other,
+    ]);
   });
 });

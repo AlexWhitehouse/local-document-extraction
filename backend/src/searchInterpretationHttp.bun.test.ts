@@ -246,7 +246,7 @@ test("only owners and admins get cost in the catalogue, and the model's cost fil
 
   const owned = await f.interpret(JSON.stringify(body), { cookie: "owner" });
   expect(owned.status).toBe(200);
-  expect((await owned.json()).interpretation.filter).toEqual({ cost: { op: "gt", value: 0.03 } });
+  expect((await owned.json()).interpretation.filter).toEqual({ conditions: [{ cost: { op: "gt", value: 0.03 } }] });
   expect(gateway.requests()[0].messages[0].content).toContain('"3 cents" is 0.03');
   expect(JSON.parse(gateway.requests()[0].messages[1].content).untrustedContext.catalogue.capabilities).toEqual({ cost: true });
 

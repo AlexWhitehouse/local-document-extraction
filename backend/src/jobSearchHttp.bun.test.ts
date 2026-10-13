@@ -5,7 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { isJsonObject, isNumber, isString, parseJson, type JsonObject, type JsonValue } from "../../shared/json";
-import type { CostCondition, DocumentSearchFilter, FieldCondition, SearchOperator } from "../../shared/documentSearch";
+import {
+  SEARCH_LIMITS,
+  type CostCondition,
+  type DocumentSearchFilter,
+  type FieldCondition,
+  type SearchCondition,
+  type SearchOperator,
+} from "../../shared/documentSearch";
 import { readModelCallUsage } from "./consumer/modelUsage";
 import type { FieldDefinition } from "./lib/types";
 import { createLocalApplication } from "./localApplication";
@@ -616,6 +623,64 @@ describe("POST /v1/jobs/search", () => {
     expect(await found({ conditions: [condition("total", "eq", 0), condition("total", "gte", 1000, undefined, "tpl_rec")] })).toEqual([]);
   });
 
+  test("conditions group with any and all, across fields and Templates", async () => {
+    const sorted = async (filter: DocumentSearchFilter) => (await found(filter)).sort();
+
+    expect(await sorted({ conditions: [{ any: [condition("total", "eq", 0), condition("total", "gte", 1200)] }] })).toEqual([
+      "job_b",
+      "job_c",
+    ]);
+    // One field's alternatives, and a condition on another field that applies to both.
+    expect(
+      await found({
+        conditions: [{ any: [condition("paid", "is_true"), condition("total", "eq", 0)] }, condition("issued", "lt", "2026-03-31")],
+      }),
+    ).toEqual(["job_b"]);
+    // "and" inside "or": (total at least 1,000 and paid) or total 0.
+    expect(
+      await sorted({
+        conditions: [{ any: [{ all: [condition("total", "gte", 1000), condition("paid", "is_true")] }, condition("total", "eq", 0)] }],
+      }),
+    ).toEqual(["job_b", "job_c"]);
+    expect(
+      await found({ conditions: [{ any: [{ all: [condition("total", "gte", 1000), condition("paid", "is_false")] }] }] }),
+    ).toEqual([]);
+    // Alternatives on different Templates match documents of either.
+    expect(
+      await sorted({ conditions: [{ any: [condition("total", "eq", 0), condition("total", "gte", 1000, undefined, "tpl_rec")] }] }),
+    ).toEqual(["job_c", "job_e"]);
+
+    // Results list every field the conditions name, wherever it sits in the tree.
+    const { body } = await search({
+      filter: { conditions: [{ any: [condition("total", "eq", 0), condition("paid", "is_true")] }] },
+    });
+
+    expect(jsonArray(body.jobs).map((job) => jsonArray(jsonObject(job).matches).map((match) => jsonObject(match).field_id))).toEqual([
+      ["total", "paid"],
+      ["total", "paid"],
+    ]);
+  });
+
+  test("condition groups are checked like conditions", async () => {
+    const leaves = (count: number) => Array.from({ length: count }, () => condition("total", "has_value"));
+    const nested = (depth: number): SearchCondition => (depth ? { any: [nested(depth - 1)] } : condition("total", "has_value"));
+
+    for (const conditions of [
+      [{ any: [] }],
+      [{ any: leaves(1), all: leaves(1) }],
+      [{ any: leaves(6) }, { all: leaves(5) }],
+      [nested(SEARCH_LIMITS.conditionDepth + 1)],
+      [{ any: [condition("missing_field", "has_value")] }],
+      [{ any: [condition("total", "contains", "x")] }],
+    ]) {
+      const response = await search({ filter: { conditions } });
+
+      expect({ status: response.status, code: errorCode(response.body) }).toEqual({ status: 400, code: "invalid_search_filter" });
+    }
+
+    expect(await found({ conditions: [nested(SEARCH_LIMITS.conditionDepth)] })).toEqual(["job_c", "job_b"]);
+  });
+
   test("unknown or deleted Templates and fields are rejected as invalid filters", async () => {
     for (const filter of [
       { conditions: [condition("missing_field", "has_value")] },
@@ -680,8 +745,14 @@ describe("searching by processing cost", () => {
   const member = (): Credentials => ({ cookie: fixture.memberCookie, workspaceId: fixture.costWorkspaceId });
   const costKey = (): Credentials => ({ apiKey: fixture.costApiKey });
 
-  const cost = (op: CostCondition["op"], value: number, value2?: number): CostCondition =>
+  const bound = (op: CostCondition["op"], value: number, value2?: number): CostCondition =>
     value2 === undefined ? { op, value } : { op, value, value2 };
+
+  const costTerm = (op: CostCondition["op"], value: number, value2?: number): SearchCondition => ({
+    cost: bound(op, value, value2),
+  });
+
+  const cost = (op: CostCondition["op"], value: number, value2?: number): SearchCondition[] => [costTerm(op, value, value2)];
 
   const byCost = (filter: DocumentSearchFilter) => found(filter, owner());
 
@@ -694,30 +765,55 @@ describe("searching by processing cost", () => {
   test("comparisons are on the total reported cost, with exact boundaries", async () => {
     const { three, one } = children();
 
-    expect(await byCost({ cost: cost("gt", 0.03) })).toEqual([three, "c_failed", "c_partial", "c_mid"]);
+    expect(await byCost({ conditions: cost("gt", 0.03) })).toEqual([three, "c_failed", "c_partial", "c_mid"]);
     // c_low's 0.005 + 0.025 is 0.030000000000000002 in floating point; it still equals $0.03.
-    expect(await byCost({ cost: cost("gte", 0.03) })).toEqual([three, "c_failed", "c_partial", "c_mid", "c_low"]);
-    expect(await byCost({ cost: cost("eq", 0.03) })).toEqual(["c_low"]);
-    expect(await byCost({ cost: cost("lt", 0.03) })).toEqual([one, "c_unknown", "c_none"]);
-    expect(await byCost({ cost: cost("lte", 0.02) })).toEqual([one, "c_unknown", "c_none"]);
-    expect(await byCost({ cost: cost("lt", 0.02) })).toEqual(["c_unknown", "c_none"]);
-    expect(await byCost({ cost: cost("between", 0.02, 0.04) })).toEqual([one, "c_partial", "c_low"]);
-    expect(await byCost({ cost: cost("between", 0.05, 0.05) })).toEqual(["c_mid"]);
-    expect(await byCost({ cost: cost("gt", 1) })).toEqual([]);
+    expect(await byCost({ conditions: cost("gte", 0.03) })).toEqual([three, "c_failed", "c_partial", "c_mid", "c_low"]);
+    expect(await byCost({ conditions: cost("eq", 0.03) })).toEqual(["c_low"]);
+    expect(await byCost({ conditions: cost("lt", 0.03) })).toEqual([one, "c_unknown", "c_none"]);
+    expect(await byCost({ conditions: cost("lte", 0.02) })).toEqual([one, "c_unknown", "c_none"]);
+    expect(await byCost({ conditions: cost("lt", 0.02) })).toEqual(["c_unknown", "c_none"]);
+    expect(await byCost({ conditions: cost("between", 0.02, 0.04) })).toEqual([one, "c_partial", "c_low"]);
+    expect(await byCost({ conditions: cost("between", 0.05, 0.05) })).toEqual(["c_mid"]);
+    expect(await byCost({ conditions: cost("gt", 1) })).toEqual([]);
+  });
+
+  test("cost conditions combine like field conditions, and the earlier cost member still works", async () => {
+    const { three, one } = children();
+
+    expect(await byCost({ conditions: [costTerm("gt", 0.02), costTerm("lt", 0.05)] })).toEqual(["c_partial", "c_low"]);
+    // "Any" matches what either condition matches on its own.
+    const either = [...(await byCost({ conditions: cost("lt", 0.02) })), ...(await byCost({ conditions: cost("gt", 0.05) }))];
+
+    expect(either).toContain(three);
+    expect((await byCost({ conditions: [{ any: [costTerm("lt", 0.02), costTerm("gt", 0.05)] }] })).sort()).toEqual(either.sort());
+    expect(
+      await byCost({ conditions: [{ any: [costTerm("eq", 0.02), condition("vendor", "is", "beta", undefined, "tpl_cost")] }] }),
+    ).toEqual(expect.arrayContaining([one]));
+
+    // A cost condition, or a list of them, beside the conditions.
+    for (const legacy of [{ op: "gt", value: 0.03 }, [{ op: "gt", value: 0.03 }]]) {
+      const { body } = await search({ filter: { cost: legacy } }, owner());
+
+      expect(jsonArray(body.jobs).map((job) => jsonObject(job).job_id)).toEqual(await byCost({ conditions: cost("gt", 0.03) }));
+    }
+
+    const empty = await search({ filter: { cost: [] } }, owner());
+
+    expect([empty.status, errorCode(empty.body)]).toEqual([400, "invalid_search_filter"]);
   });
 
   test("a packet document counts its page share of the split; unreported calls add nothing", async () => {
     const { three, one } = children();
 
     // 0.08 split over four pages: three pages is 0.06, plus the document's own 0.001; one page is 0.02.
-    expect(await byCost({ cost: cost("eq", 0.061) })).toEqual([three]);
-    expect(await byCost({ cost: cost("eq", 0.02) })).toEqual([one]);
-    expect(await byCost({ cost: cost("eq", 0.04) })).toEqual(["c_partial"]);
-    expect(await byCost({ cost: cost("eq", 0) })).toEqual(["c_unknown", "c_none"]);
+    expect(await byCost({ conditions: cost("eq", 0.061) })).toEqual([three]);
+    expect(await byCost({ conditions: cost("eq", 0.02) })).toEqual([one]);
+    expect(await byCost({ conditions: cost("eq", 0.04) })).toEqual(["c_partial"]);
+    expect(await byCost({ conditions: cost("eq", 0) })).toEqual(["c_unknown", "c_none"]);
   });
 
   test("each result lists its cost as the document page shows it, and the search agrees with it", async () => {
-    const { body } = await search({ filter: { cost: cost("gte", 0) } }, owner());
+    const { body } = await search({ filter: { conditions: cost("gte", 0) } }, owner());
     const jobs = jsonArray(body.jobs).map((job) => jsonObject(job));
     const matches = Object.fromEntries(jobs.map((job) => [jsonText(job.job_id), jsonArray(job.matches)]));
 
@@ -733,7 +829,7 @@ describe("searching by processing cost", () => {
     for (const job of jobs) {
       const costs = jsonObject(jsonObject(job.costs).total);
       const amount = isNumber(costs.amount) ? costs.amount : 0;
-      const same = await byCost({ cost: cost("eq", Number(amount.toFixed(10))) });
+      const same = await byCost({ conditions: cost("eq", Number(amount.toFixed(10))) });
 
       expect(same).toContain(jsonText(job.job_id));
     }
@@ -742,16 +838,16 @@ describe("searching by processing cost", () => {
   test("combines with statuses, Templates, field conditions and plain words", async () => {
     const { three } = children();
 
-    expect(await byCost({ statuses: ["completed"], cost: cost("gt", 0.03) })).toEqual(["c_partial", "c_mid"]);
-    expect(await byCost({ statuses: ["failed"], cost: cost("gt", 0.03) })).toEqual(["c_failed"]);
-    expect(await byCost({ template_ids: ["tpl_cost"], cost: cost("gt", 0.03) })).toEqual([three, "c_failed", "c_partial", "c_mid"]);
+    expect(await byCost({ statuses: ["completed"], conditions: cost("gt", 0.03) })).toEqual(["c_partial", "c_mid"]);
+    expect(await byCost({ statuses: ["failed"], conditions: cost("gt", 0.03) })).toEqual(["c_failed"]);
+    expect(await byCost({ template_ids: ["tpl_cost"], conditions: cost("gt", 0.03) })).toEqual([three, "c_failed", "c_partial", "c_mid"]);
     expect(
-      await byCost({ conditions: [condition("total", "gte", 200, undefined, "tpl_cost")], cost: cost("lt", 0.045) }),
+      await byCost({ conditions: [condition("total", "gte", 200, undefined, "tpl_cost"), costTerm("lt", 0.045)] }),
     ).toEqual(["c_unknown", "c_partial"]);
-    expect(await byCost({ text: "acme", cost: cost("gte", 0.03) })).toEqual(["c_partial", "c_low"]);
+    expect(await byCost({ text: "acme", conditions: cost("gte", 0.03) })).toEqual(["c_partial", "c_low"]);
 
     const { body } = await search(
-      { filter: { conditions: [condition("vendor", "is", "beta", undefined, "tpl_cost")], cost: cost("gt", 0) } },
+      { filter: { conditions: [condition("vendor", "is", "beta", undefined, "tpl_cost"), costTerm("gt", 0)] } },
       owner(),
     );
 
@@ -764,7 +860,7 @@ describe("searching by processing cost", () => {
   });
 
   test("pages through cost results, with cursors bound to the cost condition", async () => {
-    const filter = { cost: cost("gte", 0.02) };
+    const filter = { conditions: cost("gte", 0.02) };
     const first = await search({ filter, limit: 2 }, owner());
 
     expect(first.body).toMatchObject({ total: 6, total_capped: false, has_more: true });
@@ -780,7 +876,7 @@ describe("searching by processing cost", () => {
 
     expect(ids.body.job_ids).toEqual(await byCost(filter));
 
-    const rebound = await search({ filter: { cost: cost("gte", 0.03) }, limit: 2, cursor: first.body.next_cursor ?? null }, owner());
+    const rebound = await search({ filter: { conditions: cost("gte", 0.03) }, limit: 2, cursor: first.body.next_cursor ?? null }, owner());
     const unbound = await search({ filter: {}, limit: 2, cursor: first.body.next_cursor ?? null }, owner());
 
     expect([errorCode(rebound.body), errorCode(unbound.body)]).toEqual(["invalid_cursor", "invalid_cursor"]);
@@ -796,12 +892,12 @@ describe("searching by processing cost", () => {
 
     for (const credentials of [owner(), admin()]) {
       expect((await overview(credentials)).status).toBe(200);
-      expect((await search({ filter: { cost: cost("gt", 0.03) } }, credentials)).status).toBe(200);
+      expect((await search({ filter: { conditions: cost("gt", 0.03) } }, credentials)).status).toBe(200);
     }
 
     for (const credentials of [member(), costKey()]) {
       expect((await overview(credentials)).status).not.toBe(200);
-      const refused = await search({ filter: { cost: cost("gt", 0.03) } }, credentials);
+      const refused = await search({ filter: { conditions: cost("gt", 0.03) } }, credentials);
 
       expect({ status: refused.status, error: refused.body.error, cacheControl: refused.cacheControl }).toEqual({
         status: 403,

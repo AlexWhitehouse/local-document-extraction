@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { checkCondition, findCatalogField, normalizeSearchText } from "../../../../shared/documentSearch.ts";
+import {
+  checkCondition,
+  conditionLeaves,
+  findCatalogField,
+  isFieldCondition,
+  mapConditionLeaves,
+  normalizeSearchText,
+  usesCost,
+} from "../../../../shared/documentSearch.ts";
 import { isJsonArray, isJsonObject, isString } from "../../../../shared/json.ts";
 import { isCostPhrase, PROCESSING_COST_LABEL } from "./commandParser.js";
 
@@ -137,14 +145,14 @@ const fieldKey = (name) => normalizeSearchText(String(name || "").replace(/^the\
  * and field pills name the Template the interpretation chose for them.
  */
 export function pillLabels(segments, localResolved, interpretation, catalog) {
-  const conditions = interpretation?.filter?.conditions || [];
+  const conditions = conditionLeaves(interpretation?.filter?.conditions).filter(isFieldCondition);
 
   return segments.map((segment, index) => {
     if (segment.type === "field") {
       const key = fieldKey(segment.text);
 
       // "cost over $0.03" is the processing cost unless a condition uses a field of that name.
-      if (interpretation?.filter?.cost && isCostPhrase(segment.text)) {
+      if (usesCost(interpretation?.filter) && isCostPhrase(segment.text)) {
         const named = conditions.some(
           (candidate) => fieldKey(findCatalogField(catalog, candidate.template_id, candidate.field_id)?.field.name) === key,
         );
@@ -168,9 +176,9 @@ export function pillLabels(segments, localResolved, interpretation, catalog) {
 }
 
 /**
- * Swaps an ambiguous field for one of its alternatives: the condition that uses the same field
- * name on another Template moves to the alternative's Template and field. Returns null when the
- * alternative can't take the condition (for example a number condition on a text field).
+ * Swaps an ambiguous field for one of its alternatives: the conditions that use the same field
+ * name on another Template, wherever they sit in the filter, move to the alternative's Template and
+ * field. Returns null when the alternative can't take them (for example a number condition on a text field).
  */
 export function applyAlternative(interpretation, alternative, catalog) {
   const filter = interpretation?.filter;
@@ -179,29 +187,31 @@ export function applyAlternative(interpretation, alternative, catalog) {
   if (!filter?.conditions || !target) return null;
   const name = fieldKey(target.field.name);
 
-  const index = filter.conditions.findIndex((condition) => {
-    const match = findCatalogField(catalog, condition.template_id, condition.field_id);
+  const previous = conditionLeaves(filter.conditions).find((condition) => {
+    const match = isFieldCondition(condition) && findCatalogField(catalog, condition.template_id, condition.field_id);
 
     return match && condition.template_id !== alternative.template_id && fieldKey(match.field.name) === name;
   });
 
-  if (index < 0) return null;
-  const previous = filter.conditions[index];
-  let swapped;
+  if (!previous) return null;
+  let conditions;
 
   try {
-    swapped = checkCondition(
-      { ...previous, template_id: alternative.template_id, field_id: alternative.field_id },
-      target.field.type,
+    conditions = mapConditionLeaves(filter.conditions, (condition) =>
+      isFieldCondition(condition) &&
+      condition.template_id === previous.template_id &&
+      condition.field_id === previous.field_id
+        ? checkCondition(
+            { ...condition, template_id: alternative.template_id, field_id: alternative.field_id },
+            target.field.type,
+          )
+        : condition,
     );
   } catch {
     return null;
   }
 
-  const nextFilter = {
-    ...filter,
-    conditions: filter.conditions.map((condition, position) => (position === index ? swapped : condition)),
-  };
+  const nextFilter = { ...filter, conditions };
 
   if (filter.template_ids) {
     nextFilter.template_ids = [

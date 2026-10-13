@@ -9,7 +9,10 @@ import { isJsonArray, isJsonObject, isNumber, isString, type JsonObject, type Js
 export const SEARCH_LIMITS = Object.freeze({
   textCharacters: 200,
   valueCharacters: 200,
+  /** Field and cost conditions in the whole tree, wherever they sit. */
   conditions: 10,
+  /** How deeply `any` and `all` groups may nest. */
+  conditionDepth: 3,
   templates: 20,
   statuses: 5,
   pageSize: 100,
@@ -91,6 +94,62 @@ export type FieldCondition = {
  */
 export type CostCondition = { op: ComparisonOperator; value: number; value2?: number };
 
+/** A condition on the document's processing cost, as one condition in a filter. */
+export type CostTerm = { cost: CostCondition };
+
+/** `any` matches when at least one member does; `all` when every member does. */
+export type ConditionGroup = { any: SearchCondition[] } | { all: SearchCondition[] };
+
+/**
+ * One member of `DocumentSearchFilter.conditions`: a field condition, a cost condition, or a group of them.
+ * "Vendor is Acme or Initech and total over 100" is
+ * `[{ any: [vendor is Acme, vendor is Initech] }, total gt 100]`.
+ */
+export type SearchCondition = FieldCondition | CostTerm | ConditionGroup;
+
+export function isCostTerm(condition: SearchCondition): condition is CostTerm {
+  return "cost" in condition;
+}
+
+export function isConditionGroup(condition: SearchCondition): condition is ConditionGroup {
+  return "any" in condition || "all" in condition;
+}
+
+export function isFieldCondition(condition: SearchCondition): condition is FieldCondition {
+  return "field_id" in condition;
+}
+
+/** The members of a group and whether one of them is enough. */
+export function groupMembers(group: ConditionGroup): { any: boolean; members: SearchCondition[] } {
+  return "any" in group ? { any: true, members: group.any } : { any: false, members: group.all };
+}
+
+/** Every field and cost condition in a list of conditions, in order. */
+export function conditionLeaves(conditions: readonly SearchCondition[] | undefined): Array<FieldCondition | CostTerm> {
+  return (conditions ?? []).flatMap((condition) =>
+    isConditionGroup(condition) ? conditionLeaves(groupMembers(condition).members) : [condition],
+  );
+}
+
+/** Rebuilds conditions with every field and cost condition replaced by `change`; groups keep their shape. */
+export function mapConditionLeaves(
+  conditions: readonly SearchCondition[],
+  change: (leaf: FieldCondition | CostTerm) => FieldCondition | CostTerm,
+): SearchCondition[] {
+  return conditions.map((condition) => {
+    if (!isConditionGroup(condition)) return change(condition);
+    const { any, members } = groupMembers(condition);
+    const mapped = mapConditionLeaves(members, change);
+
+    return any ? { any: mapped } : { all: mapped };
+  });
+}
+
+/** Whether any condition, at any depth, is on the processing cost. */
+export function usesCost(filter: DocumentSearchFilter | null | undefined): boolean {
+  return conditionLeaves(filter?.conditions).some(isCostTerm);
+}
+
 /** Every present member narrows the result. All members combine with AND. */
 export type DocumentSearchFilter = {
   /** Plain words: document name, document ID, and extracted text values. */
@@ -101,9 +160,12 @@ export type DocumentSearchFilter = {
   uploaded_from?: string;
   uploaded_to?: string;
   model?: string;
-  conditions?: FieldCondition[];
-  /** Only for callers who may read costs (`SearchCatalog.capabilities.cost`). */
-  cost?: CostCondition;
+  /**
+   * Every member must hold. Cost conditions are only for callers who may read costs
+   * (`SearchCatalog.capabilities.cost`). Requests may also send a `cost` member, a cost condition or a
+   * list of them, which is read as cost conditions added to this list.
+   */
+  conditions?: SearchCondition[];
 };
 
 export class SearchContractError extends Error {
@@ -235,6 +297,40 @@ function readCostCondition(value: JsonValue | undefined): CostCondition {
   return condition;
 }
 
+/**
+ * Reads a list of conditions with its groups. `count` holds the field and cost conditions read so far,
+ * across the whole tree, so the limit and the labels ("Condition 3") count every one of them.
+ */
+function readConditionList(value: JsonValue | undefined, depth: number, count: { leaves: number }): SearchCondition[] {
+  if (!isJsonArray(value)) fail("Conditions must be a list.");
+
+  return value.map((member) => {
+    const group = isJsonObject(member) && ("any" in member || "all" in member);
+
+    if (!group) {
+      count.leaves += 1;
+
+      if (count.leaves > SEARCH_LIMITS.conditions) fail(`Use at most ${SEARCH_LIMITS.conditions} conditions.`);
+
+      return isJsonObject(member) && "cost" in member
+        ? { cost: readCostCondition(readObject(member, `Condition ${count.leaves}`, ["cost"]).cost) }
+        : readCondition(member, count.leaves - 1);
+    }
+
+    if (depth >= SEARCH_LIMITS.conditionDepth)
+      fail(`Condition groups can be nested at most ${SEARCH_LIMITS.conditionDepth} deep.`);
+    const input = readObject(member, "Condition group", ["any", "all"]);
+    const any = input.any !== undefined;
+
+    if (any === (input.all !== undefined)) fail(`A condition group has either "any" or "all".`);
+    const members = readConditionList(any ? input.any : input.all, depth + 1, count);
+
+    if (!members.length) fail("A condition group needs at least one condition.");
+
+    return any ? { any: members } : { all: members };
+  });
+}
+
 /** Checks the shape of a condition. The value's type is checked against the field in `checkCondition`. */
 function readCondition(value: JsonValue | undefined, index: number): FieldCondition {
   const label = `Condition ${index + 1}`;
@@ -322,13 +418,18 @@ export function parseDocumentSearchFilter(value: JsonValue | undefined): Documen
     filter.model = input.model;
   }
 
-  if (input.conditions !== undefined) {
-    if (!isJsonArray(input.conditions) || input.conditions.length > SEARCH_LIMITS.conditions)
-      fail(`Use at most ${SEARCH_LIMITS.conditions} field conditions.`);
-    filter.conditions = input.conditions.map(readCondition);
+  const count = { leaves: 0 };
+  const conditions = input.conditions === undefined ? [] : readConditionList(input.conditions, 0, count);
+
+  // An earlier form: `cost` beside the conditions, one cost condition or a list of them.
+  if (input.cost !== undefined) {
+    const costs = isJsonArray(input.cost) ? input.cost : [input.cost];
+
+    if (!costs.length) fail("Cost must be a cost condition or a list of them.");
+    conditions.push(...readConditionList(costs.map((cost) => ({ cost })), 0, count));
   }
 
-  if (input.cost !== undefined) filter.cost = readCostCondition(input.cost);
+  if (input.conditions !== undefined || conditions.length) filter.conditions = conditions;
 
   return filter;
 }
@@ -437,7 +538,8 @@ export function checkFilterAgainstCatalog(
 
   return {
     ...filter,
-    conditions: filter.conditions.map((condition) => {
+    conditions: mapConditionLeaves(filter.conditions, (condition) => {
+      if (isCostTerm(condition)) return condition;
       const match = findCatalogField(catalog, condition.template_id, condition.field_id);
 
       if (!match) fail(`Field "${condition.field_id}" isn't on that template.`);
@@ -636,7 +738,7 @@ export function validateCommandInterpretation(
   if (filter?.template_ids?.some((id) => !catalog.templates.some((template) => template.id === id)))
     fail("Filter names a template that isn't in this workspace.");
 
-  if (filter?.cost && !catalog.capabilities?.cost) fail("Only workspace owners and admins can search by cost.");
+  if (usesCost(filter) && !catalog.capabilities?.cost) fail("Only workspace owners and admins can search by cost.");
 
   const unrecognised = input.unrecognised ?? [];
 
