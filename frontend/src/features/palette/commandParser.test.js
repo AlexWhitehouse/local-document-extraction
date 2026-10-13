@@ -1601,6 +1601,12 @@ describe("one-letter values", () => {
     "delete invoices where invoice number is the",
     "delete invoices where invoice number equals",
     "delete invoices where the invoice number starts with the",
+    "delete invoices where invoice number isn't",
+    "delete invoices where invoice number isn’t",
+    "delete invoices where invoice number doesn't",
+    "delete invoices where invoice number is not",
+    "delete invoices where invoice number !=",
+    "delete invoices where invoice number >",
   ])("never reads an unfinished comparison as has a value: %s", (text) => {
     const { interpretation, complete, unused } = run(text);
 

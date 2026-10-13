@@ -2390,23 +2390,17 @@ function readCost(state, index, consumed) {
   return amountIndex;
 }
 
-/** Words that begin a comparison after a field label, as in "vendor is", "total equals", "name starts with". */
+/**
+ * Words and symbols that begin a comparison after a field label, as in "vendor is", "total over",
+ * "number isn't", "name starts with", "date before" or "total >=". Contractions are written with "'".
+ */
 const COMPARISON_WORDS = new Set([
-  "is",
-  "are",
-  "was",
-  "were",
-  "equals",
-  "equal",
-  "contains",
-  "contain",
-  "includes",
-  "starts",
-  "start",
-  "begins",
-  "ends",
-  "matches",
-  "=",
+  ..."is isnt isn't are arent aren't was wasnt wasn't were werent weren't".split(" "),
+  ..."does doesnt doesn't do dont don't has hasnt hasn't have not no".split(" "),
+  ..."equals equal equalling contains contain containing includes include including".split(" "),
+  ..."excludes exclude excluding except starts start starting begins begin beginning ends end ending".split(" "),
+  ..."matches match like over under above below before after between since until from".split(" "),
+  ..."more less greater fewer higher lower exactly at least most".split(" "),
 ]);
 
 /**
@@ -2415,7 +2409,10 @@ const COMPARISON_WORDS = new Set([
  */
 function startsComparison(segment) {
   if (segment?.type !== "plain") return false;
-  const first = segment.text.trim().toLowerCase().match(/^(?:[\p{L}]+|=)/u)?.[0];
+  const text = segment.text.trim().toLowerCase().replace(/’/g, "'");
+
+  if (/^[=<>!≠≤≥]/u.test(text)) return true;
+  const first = text.match(/^\p{L}+(?:'\p{L}+)?/u)?.[0];
 
   return first !== undefined && COMPARISON_WORDS.has(first);
 }
