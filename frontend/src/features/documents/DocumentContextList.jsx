@@ -18,7 +18,6 @@ const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
 
 export function DocumentContextList({
   workspaceId,
-  search,
   packets = [],
   selectedPacketId = "",
   packetError = "",
@@ -32,7 +31,6 @@ export function DocumentContextList({
   documents,
   selectedDocumentId,
   selectedDocumentIds = [],
-  debouncedSearch,
   filters = EMPTY_FILTERS,
   availableModels = [],
   hasActiveFilters = false,
@@ -44,7 +42,6 @@ export function DocumentContextList({
   onRetryDocumentList,
   isDeletingDocuments = false,
   isExportingDocuments = false,
-  onSearchChange,
   onFiltersChange = () => {},
   onSelectDocument,
   onToggleAllDocumentSelections = () => {},
@@ -53,8 +50,8 @@ export function DocumentContextList({
 }) {
   // Keep packet ownership for actions even when its sole document is displayed as a normal row.
   const items = useMemo(
-    () => buildListItems(packets, documents, debouncedSearch, filters, hasActiveFilters),
-    [packets, documents, debouncedSearch, filters, hasActiveFilters],
+    () => buildListItems(packets, documents, filters, hasActiveFilters),
+    [packets, documents, filters, hasActiveFilters],
   );
 
   const availableDocumentIds = useMemo(
@@ -84,9 +81,8 @@ export function DocumentContextList({
     : "Select all available documents";
 
   const isSelectionLocked = isDeletingDocuments || isExportingDocuments;
-  const isFiltered = Boolean(search || debouncedSearch || hasActiveFilters);
-  // An empty workspace has nothing to search or select; the page body offers the upload.
-  const isWorkspaceEmpty = !items.length && listStatus === "ready" && !isFiltered;
+  // An empty workspace has nothing to filter or select; the page body offers the upload.
+  const isWorkspaceEmpty = !items.length && listStatus === "ready" && !hasActiveFilters;
 
   const rowMotion = useRowMotion(
     items,
@@ -147,37 +143,26 @@ export function DocumentContextList({
   return (
     <>
       {isWorkspaceEmpty ? null : (
-        <div className="context-search-field">
-          <div className="context-search-row">
-            <label className="context-select-all-control" title={selectAllLabel}>
-              <input
-                ref={(checkbox) => {
-                  if (checkbox) {
-                    checkbox.indeterminate = areSomeAvailableDocumentsSelected;
-                  }
-                }}
-                type="checkbox"
-                aria-label={selectAllLabel}
-                checked={areAllAvailableDocumentsSelected}
-                disabled={!items.length || isSelectionLocked}
-                onChange={(event) => {
-                  onToggleAllDocumentSelections(availableDocumentIds, event.target.checked);
+        <div className="context-list-toolbar">
+          <label className="context-select-all-control" title={selectAllLabel}>
+            <input
+              ref={(checkbox) => {
+                if (checkbox) {
+                  checkbox.indeterminate = areSomeAvailableDocumentsSelected;
+                }
+              }}
+              type="checkbox"
+              aria-label={selectAllLabel}
+              checked={areAllAvailableDocumentsSelected}
+              disabled={!items.length || isSelectionLocked}
+              onChange={(event) => {
+                onToggleAllDocumentSelections(availableDocumentIds, event.target.checked);
 
-                  for (const id of availablePacketIds) onTogglePacketSelection(id, event.target.checked);
-                }}
-              />
-            </label>
-            <div className="context-search-shell">
-              <Field label="Search documents" labelHidden>
-                <TextInput
-                  value={search}
-                  onChange={(event) => onSearchChange(event.target.value)}
-                  placeholder="e.g. invoice.pdf"
-                />
-              </Field>
-              <AdvancedJobFilters filters={filters} availableModels={availableModels} onFiltersChange={onFiltersChange} />
-            </div>
-          </div>
+                for (const id of availablePacketIds) onTogglePacketSelection(id, event.target.checked);
+              }}
+            />
+          </label>
+          <AdvancedJobFilters filters={filters} availableModels={availableModels} onFiltersChange={onFiltersChange} />
         </div>
       )}
       {packetError ? <ErrorState variant="inline" message={packetError} onRetry={onRetryPackets} /> : null}
@@ -279,7 +264,7 @@ export function DocumentContextList({
           <ErrorState variant="inline" error={listError} onRetry={onRetryDocumentList} />
         ) : null}
         {!items.length && listStatus === "loading" ? <Skeleton rows={4} height={44} /> : null}
-        {!items.length && listStatus === "ready" && isFiltered ? (
+        {!items.length && listStatus === "ready" && hasActiveFilters ? (
           <EmptyState variant="inline" message="No documents match these filters." />
         ) : null}
         {isWorkspaceEmpty ? <EmptyDocumentList /> : null}
@@ -326,7 +311,7 @@ function EmptyDocumentList() {
   );
 }
 
-function buildListItems(packets, documents, search, filters, hasActiveFilters) {
+function buildListItems(packets, documents, filters, hasActiveFilters) {
   // The packet's child list also identifies children in older cached summaries.
   const childIds = new Set(
     packets.flatMap((packet) => (Array.isArray(packet.children) ? packet.children : []).map((child) => child.job_id)),
@@ -336,7 +321,7 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
   const items = [];
 
   for (const packet of packets) {
-    if (!isPacketListed(packet, documents, search, filters, hasActiveFilters)) continue;
+    if (!isPacketListed(packet, documents, filters, hasActiveFilters)) continue;
     const childCount = Array.isArray(packet.children) ? packet.children.length : 0;
     const single = isSingleDocumentPacket(packet);
     const child = singlePacketDocument(packet);

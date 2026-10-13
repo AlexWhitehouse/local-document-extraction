@@ -158,7 +158,6 @@ export function useTemplateController({
   const [templateJsonError, setTemplateJsonError] = useState("");
   const [templateJsonDiagnostics, setTemplateJsonDiagnostics] = useState([]);
   const [templateJsonCopied, setTemplateJsonCopied] = useState(false);
-  const [templateSearch, setTemplateSearch] = useState("");
   const [showDraftTemplateNav, setShowDraftTemplateNav] = useState(false);
   const draftRevisionRef = useRef(0);
   const [draftRevision, setDraftRevision] = useState(0);
@@ -332,29 +331,13 @@ export function useTemplateController({
       });
   }, [draftIntent, routeKey, updateTemplateId, routeLoad.status, touchDraft]);
 
-  const filteredTemplates = useMemo(() => {
-    const query = templateSearch.trim().toLowerCase();
-
-    if (!query) {
-      return templates;
-    }
-
-    return templates.filter((template) => {
-      const name = String(template.name || "").toLowerCase();
-      const id = String(template.id || "").toLowerCase();
-      const description = String(template.description || "").toLowerCase();
-
-      return name.includes(query) || id.includes(query) || description.includes(query);
-    });
-  }, [templateSearch, templates]);
-
   const contextTemplates = useMemo(() => {
     const hasDraft = showDraftTemplateNav && activePage === "templates";
 
     const draftItem = hasDraft ? [{ id: DRAFT_TEMPLATE_NAV_ID, name: "New template", is_draft: true }] : [];
 
-    return [...draftItem, ...filteredTemplates];
-  }, [activePage, filteredTemplates, showDraftTemplateNav]);
+    return [...draftItem, ...templates];
+  }, [activePage, templates, showDraftTemplateNav]);
 
   const clearWorkspaceScopedTemplates = useCallback(() => {
     generationRef.current += 1;
@@ -392,7 +375,6 @@ export function useTemplateController({
     setTemplateJsonError("");
     setTemplateJsonDiagnostics([]);
     setTemplateJsonCopied(false);
-    setTemplateSearch("");
     setShowDraftTemplateNav(false);
   }, [cancelGeneration, cancelAssistant, touchDraft]);
 
@@ -1070,14 +1052,12 @@ export function useTemplateController({
     selectedUploadTemplateId,
     setSelectedUploadTemplateId,
     contextList: {
-      search: templateSearch,
       templates: contextTemplates,
       status: listStatus,
       error: listError,
       onRetry: () => listTemplates(),
       selectedTemplateId: updateTemplateId,
       isEditingTemplate,
-      onSearchChange: setTemplateSearch,
       onCreateTemplate: () => createTemplate(),
       onAutoGenerateTemplate: () => autoGenerateTemplate(),
       onSelectDraftTemplate: onTemplateNavigation ? () => onTemplateNavigation("new") : startNewTemplateDraft,

@@ -8,7 +8,7 @@ describe("DocumentContextList", () => {
   it("hides child lifecycle updates before their packet or its child list arrives", () => {
     const child = { job_id: "child_live", parent_packet_id: "packet_live", status: "queued" };
     const ordinary = { job_id: "ordinary", source_name: "ordinary.pdf", status: "completed" };
-    const props = { search: "", documents: [child, ordinary], onSearchChange: vi.fn(), onSelectDocument: vi.fn() };
+    const props = { documents: [child, ordinary], onSelectDocument: vi.fn() };
     const { container, rerender } = render(<DocumentContextList {...props} />);
     expect(within(container).getAllByRole("listitem")).toHaveLength(1);
     expect(within(container).queryByText("child_live")).toBeNull();
@@ -41,12 +41,10 @@ describe("DocumentContextList", () => {
 
       const { container } = render(
         <DocumentContextList
-          search=""
           packets={[packet]}
           documents={[{ ...child, source_name: "invoice.pdf", parent_packet_id: packet.packet_id }]}
           selectedPacketId={packet.packet_id}
           selectedPacketIds={[packet.packet_id]}
-          onSearchChange={vi.fn()}
           onSelectDocument={vi.fn()}
           onSelectPacket={onSelectPacket}
           onTogglePacketSelection={onTogglePacketSelection}
@@ -75,7 +73,6 @@ describe("DocumentContextList", () => {
   it("shows pending single-page uploads as ordinary processing documents", () => {
     const { container } = render(
       <DocumentContextList
-        search=""
         packets={[
           {
             packet_id: "packet_pending",
@@ -86,7 +83,6 @@ describe("DocumentContextList", () => {
           },
         ]}
         documents={[]}
-        onSearchChange={vi.fn()}
         onSelectDocument={vi.fn()}
         onLoadMoreDocuments={vi.fn()}
       />,
@@ -101,7 +97,6 @@ describe("DocumentContextList", () => {
   it("uses the current child's status when its packet summary has not refreshed yet", () => {
     const { container } = render(
       <DocumentContextList
-        search=""
         packets={[
           {
             packet_id: "packet_single",
@@ -112,7 +107,6 @@ describe("DocumentContextList", () => {
           },
         ]}
         documents={[{ job_id: "child_single", status: "awaiting_template" }]}
-        onSearchChange={vi.fn()}
         onSelectDocument={vi.fn()}
         onLoadMoreDocuments={vi.fn()}
       />,
@@ -126,7 +120,6 @@ describe("DocumentContextList", () => {
   it("flags a split packet whose child is waiting for a template while siblings still extract", () => {
     const { container } = render(
       <DocumentContextList
-        search=""
         packets={[
           {
             packet_id: "packet_split",
@@ -140,7 +133,6 @@ describe("DocumentContextList", () => {
           },
         ]}
         documents={[{ job_id: "child_b", parent_packet_id: "packet_split", status: "awaiting_template" }]}
-        onSearchChange={vi.fn()}
         onSelectDocument={vi.fn()}
         onLoadMoreDocuments={vi.fn()}
       />,
@@ -161,9 +153,7 @@ describe("DocumentContextList", () => {
 
     const { container } = render(
       <DocumentContextList
-        search=""
         documents={documents}
-        onSearchChange={vi.fn()}
         onSelectDocument={vi.fn()}
         onLoadMoreDocuments={vi.fn()}
       />,
@@ -211,10 +201,8 @@ describe("DocumentContextList", () => {
 
     const { container } = render(
       <DocumentContextList
-        search=""
         packets={packets}
         documents={[]}
-        onSearchChange={vi.fn()}
         onSelectDocument={vi.fn()}
         onLoadMoreDocuments={vi.fn()}
       />,
@@ -259,13 +247,11 @@ describe("DocumentContextList", () => {
     const onToggleAllDocumentSelections = vi.fn();
 
     const props = {
-      search: "",
       documents,
       selectedDocumentId: "job_0",
       selectedDocumentIds: ["job_500"],
       onSelectDocument,
       onToggleAllDocumentSelections,
-      onSearchChange() {},
       onLoadMoreDocuments() {},
     };
 
@@ -285,7 +271,6 @@ describe("DocumentContextList", () => {
   it("uses the document status to colour each row's left edge", () => {
     const { container } = render(
       <DocumentContextList
-        search=""
         documents={[
           { job_id: "job_completed", source_name: "completed.pdf", status: "completed" },
           { job_id: "job_queued", source_name: "queued.pdf", status: "queued" },
@@ -293,10 +278,8 @@ describe("DocumentContextList", () => {
           { job_id: "job_failed", source_name: "failed.pdf", status: "failed" },
         ]}
         selectedDocumentId="job_failed"
-        debouncedSearch=""
         hasMoreDocuments={false}
         isLoadingMoreDocuments={false}
-        onSearchChange={vi.fn()}
         onSelectDocument={vi.fn()}
         onLoadMoreDocuments={vi.fn()}
       />,
@@ -323,7 +306,6 @@ describe("DocumentContextList", () => {
 
     const { container, rerender } = render(
       <DocumentContextList
-        search=""
         packets={[
           {
             packet_id: "packet_1",
@@ -346,8 +328,6 @@ describe("DocumentContextList", () => {
           { job_id: "older", source_name: "older.pdf", status: "completed", created_at: "2026-01-01T00:00:00Z" },
         ]}
         selectedPacketId="packet_1"
-        debouncedSearch=""
-        onSearchChange={vi.fn()}
         onSelectDocument={vi.fn()}
         onSelectPacket={onSelectPacket}
         onTogglePacketSelection={onTogglePacketSelection}
@@ -373,12 +353,10 @@ describe("DocumentContextList", () => {
     expect(onSelectPacket).toHaveBeenCalledWith("packet_1");
     rerender(
       <DocumentContextList
-        search="older"
-        debouncedSearch="older"
-        hasActiveFilters={false}
+        filters={{ dateFrom: "", dateTo: "", model: "gpt-test" }}
+        hasActiveFilters
         packets={[{ packet_id: "packet_1", source_name: "bundle.pdf", status: "completed", children: [] }]}
         documents={[{ job_id: "older", source_name: "older.pdf", status: "completed" }]}
-        onSearchChange={vi.fn()}
         onSelectDocument={vi.fn()}
         onLoadMoreDocuments={vi.fn()}
       />,
@@ -403,13 +381,10 @@ describe("DocumentContextList", () => {
     const onToggleAllDocumentSelections = vi.fn();
 
     const sharedProps = {
-      search: "",
       documents,
       selectedDocumentId: "job_1",
-      debouncedSearch: "",
       hasMoreDocuments: false,
       isLoadingMoreDocuments: false,
-      onSearchChange: vi.fn(),
       onSelectDocument: vi.fn(),
       onToggleAllDocumentSelections,
       onToggleDocumentSelection: vi.fn(),
@@ -440,15 +415,12 @@ describe("DocumentContextList", () => {
   it("locks individual and bulk selection during export", () => {
     const { container } = render(
       <DocumentContextList
-        search=""
         documents={[{ job_id: "job_1", source_name: "invoice.pdf" }]}
         selectedDocumentId="job_1"
         selectedDocumentIds={["job_1"]}
-        debouncedSearch=""
         hasMoreDocuments={false}
         isLoadingMoreDocuments={false}
         isExportingDocuments={true}
-        onSearchChange={vi.fn()}
         onSelectDocument={vi.fn()}
         onToggleAllDocumentSelections={vi.fn()}
         onToggleDocumentSelection={vi.fn()}
@@ -460,19 +432,16 @@ describe("DocumentContextList", () => {
     expect(within(container).getByRole("checkbox", { name: "Select document job_1" }).disabled).toBe(true);
   });
 
-  it("applies and clears date and model filters from the integrated search action", () => {
+  it("applies and clears date and model filters from the filter popover", () => {
     const onFiltersChange = vi.fn();
 
     const sharedProps = {
-      search: "",
       documents: [{ job_id: "a", source_name: "a.pdf", status: "completed" }],
       selectedDocumentId: "",
       selectedDocumentIds: [],
-      debouncedSearch: "",
       availableModels: ["provider/model-a", "provider/model-b"],
       hasMoreDocuments: false,
       isLoadingMoreDocuments: false,
-      onSearchChange: vi.fn(),
       onFiltersChange,
       onSelectDocument: vi.fn(),
       onLoadMoreDocuments: vi.fn(),
@@ -526,14 +495,11 @@ describe("DocumentContextList", () => {
   it("prevents applying an inverted date range", () => {
     const { container } = render(
       <DocumentContextList
-        search=""
         documents={[{ job_id: "a", source_name: "a.pdf", status: "completed" }]}
         selectedDocumentId=""
-        debouncedSearch=""
         filters={{ dateFrom: "", dateTo: "", model: "" }}
         hasMoreDocuments={false}
         isLoadingMoreDocuments={false}
-        onSearchChange={vi.fn()}
         onFiltersChange={vi.fn()}
         onSelectDocument={vi.fn()}
         onLoadMoreDocuments={vi.fn()}

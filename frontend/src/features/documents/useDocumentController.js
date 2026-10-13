@@ -558,13 +558,7 @@ export function useDocumentController({
   const checkedPackets = packetController.packets.filter(
     (packet) =>
       selectedPacketIds.includes(packet.packet_id) &&
-      isPacketListed(
-        packet,
-        documents,
-        snapshot.debouncedSearch,
-        snapshot.filters,
-        Object.values(snapshot.filters).some(Boolean),
-      ),
+      isPacketListed(packet, documents, snapshot.filters, Object.values(snapshot.filters).some(Boolean)),
   );
 
   const checkedDocumentIds = selectedDocumentIds;
@@ -976,7 +970,6 @@ export function useDocumentController({
       retry: () => reconciliation.loadDetails(routeDocumentId, { showLoading: true }),
     },
     contextList: {
-      search: snapshot.search,
       documents,
       selectedDocumentId: packetController.selectedId ? "" : selectedDocument?.job_id || "",
       packets: packetController.packets,
@@ -990,7 +983,6 @@ export function useDocumentController({
       loadingPackets: packetController.loading,
       onLoadMorePackets: () => packetController.refresh({ append: true }),
       selectedDocumentIds,
-      debouncedSearch: snapshot.debouncedSearch,
       filters: snapshot.filters,
       availableModels: snapshot.availableModels,
       hasActiveFilters: Object.values(snapshot.filters).some(Boolean),
@@ -1004,7 +996,6 @@ export function useDocumentController({
       onUploadDocument: openUploadModal,
       isDeletingDocuments: isDeletingDocument,
       isExportingDocuments,
-      onSearchChange: reconciliation.setSearch,
       onFiltersChange: reconciliation.setFilters,
       onSelectDocument: selectDocument,
       onToggleAllDocumentSelections: reconciliation.toggleSelection,
@@ -1082,7 +1073,6 @@ export function useDocumentController({
         !packetController.loading &&
         documents.length === 0 &&
         packetController.packets.length === 0 &&
-        !snapshot.debouncedSearch &&
         !Object.values(snapshot.filters).some(Boolean),
       canUploadDocuments: hasWorkspaceApiAccess && modelReady,
       onUploadDocument: openUploadModal,

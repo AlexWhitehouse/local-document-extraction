@@ -429,12 +429,8 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
   const openInDocuments = (filter) =>
     close(() => {
       const listFilters = documentsListFilters(filter);
-      const contextList = documentController?.contextList;
 
-      if (listFilters && contextList) {
-        contextList.onSearchChange?.(listFilters.search);
-        contextList.onFiltersChange?.(listFilters.filters);
-      }
+      if (listFilters) documentController?.contextList?.onFiltersChange?.(listFilters);
 
       navigateTo({ page: "documents" });
     });

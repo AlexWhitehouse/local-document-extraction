@@ -767,11 +767,7 @@ describe("useDocumentController Workspace live updates", () => {
     const { controller } = renderController({ documentRequests: { getFilterOptions, listDocuments } });
 
     await waitFor(() => {
-      expect(listDocuments).toHaveBeenCalledWith({
-        search: "",
-        filters: { dateFrom: "", dateTo: "", model: "" },
-        cursor: null,
-      });
+      expect(listDocuments).toHaveBeenCalledWith({ filters: { dateFrom: "", dateTo: "", model: "" }, cursor: null });
       expect(controller().contextList.availableModels).toEqual(["provider/model-b", "provider/model-a"]);
       expect(getFilterOptions).toHaveBeenCalledOnce();
     });
@@ -782,7 +778,7 @@ describe("useDocumentController Workspace live updates", () => {
     });
 
     await waitFor(() => {
-      expect(listDocuments).toHaveBeenLastCalledWith({ search: "", filters, cursor: null });
+      expect(listDocuments).toHaveBeenLastCalledWith({ filters, cursor: null });
       expect(controller().contextList.hasActiveFilters).toBe(true);
       expect(getFilterOptions).toHaveBeenCalledOnce();
     });
@@ -943,10 +939,8 @@ function DocumentControllerHarness({
   const resolvedDocumentRequests = {
     deleteDocument: vi.fn(async () => ({ deleted: true, job_id: "" })),
     getFilterOptions: () => request("/jobs/filter-options", { method: "GET" }),
-    listDocuments: async ({ search = "", cursor = null } = {}) => {
+    listDocuments: async ({ cursor = null } = {}) => {
       const params = new URLSearchParams();
-
-      if (search) params.set("search", search);
 
       if (cursor) params.set("cursor", cursor);
       const result = await request(`/jobs${params.size ? `?${params}` : ""}`, { method: "GET" });

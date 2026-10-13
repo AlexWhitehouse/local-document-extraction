@@ -52,7 +52,7 @@ Use these before writing new markup. Most live in `frontend/src/features/ui/`.
 | Copy to clipboard | `copyWithFeedback` from `lib/copyWithFeedback.js` |
 | Unsaved edits | `useUnsavedGuard(isDirty, label, { leaves, onDiscard })` from `lib/unsavedChanges.js`. Navigation and page unload then ask through `DISCARD_CHANGES`. Custom Cancel or close controls inside a dirty `ModalDialog` use `ModalDismiss`. |
 | Counts | `pluralize(count, singular, plural?)` from `lib/text.js` |
-| Search and actions across the app | The command palette in `features/palette/` (⌘K / Ctrl+K, or **Search** in the sidebar). New actions join its fixed list in `paletteSearch.js` and, when they need a step, a flow in `flows/index.js`. |
+| Search and actions across the app | The command palette in `features/palette/` (⌘K / Ctrl+K, or **Search** in the sidebar). New actions join its fixed list in `paletteSearch.js` and, when they need a step, a flow in `flows/index.js`. The Documents, Templates and Workspaces lists have no search field of their own. |
 
 ### Command palette
 

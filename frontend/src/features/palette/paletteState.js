@@ -270,8 +270,9 @@ export function highlightParts(display, { condition, text } = {}) {
   ].filter((part) => part.text);
 }
 
-// The Documents list filters can take search text, upload dates and a model. Anything else
-// (field conditions, statuses, Templates, cost) has no equivalent there.
+// The Documents list filters can take upload dates and a model. Field conditions, statuses,
+// Templates and cost have no equivalent there, so those requests open the list unchanged.
+// The list has no text filter, so search text is left out rather than applied where it can't be seen.
 export function documentsListFilters(filter) {
   if (!filter) return null;
 
@@ -280,10 +281,7 @@ export function documentsListFilters(filter) {
 
   if (!representable) return null;
 
-  return {
-    search: filter.text || "",
-    filters: { dateFrom: filter.uploaded_from || "", dateTo: filter.uploaded_to || "", model: filter.model || "" },
-  };
+  return { dateFrom: filter.uploaded_from || "", dateTo: filter.uploaded_to || "", model: filter.model || "" };
 }
 
 /**

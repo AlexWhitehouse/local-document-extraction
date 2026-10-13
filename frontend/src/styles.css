@@ -619,12 +619,14 @@ button.danger:hover:not(:disabled) {
   position: relative;
 }
 
-.context-search-row {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+/* The Documents list's select-all checkbox and filter button. */
+.context-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 4px;
-  align-items: stretch;
+  padding: 9px 12px 10px;
+  border-bottom: 1px solid var(--rule);
 }
 
 .context-search-shell {
@@ -640,14 +642,9 @@ button.danger:hover:not(:disabled) {
   min-width: 0;
 }
 
-/* Only a search with a trailing filter or select joins it; a lone input keeps its right border. */
+/* A trailing select joins the search field; a lone input keeps its right border. */
 .context-search-shell:has(> :nth-child(2)) > :is(input, .ui-field > input) {
   border-right: 0;
-}
-
-/* A search with no trailing control (templates, workspaces, admin) uses the full width. */
-.context-search-shell:not(:has(> :nth-child(2))) {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 :is(.context-search-shell > input, .context-search-shell > .ui-field > input):focus {
@@ -658,8 +655,7 @@ button.danger:hover:not(:disabled) {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-:is(.context-search-shell:focus-within > input, .context-search-shell:focus-within > .ui-field > input),
-.context-search-shell:focus-within .context-filter-trigger {
+:is(.context-search-shell:focus-within > input, .context-search-shell:focus-within > .ui-field > input) {
   border-color: var(--accent);
 }
 

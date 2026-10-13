@@ -133,7 +133,6 @@ function createContext(overrides = {}) {
       toolbar: { documentCount: 2 },
       contextList: {
         documents: jobs,
-        onSearchChange: vi.fn(),
         onFiltersChange: vi.fn(),
         onRetryDocumentList: vi.fn(),
       },
@@ -418,6 +417,44 @@ describe("CommandPalette", () => {
     await user.click(screen.getByRole("button", { name: "Delete 2 documents" }));
     await waitFor(() => expect(context.notify).toHaveBeenCalledWith("document.bulkDelete", "success", { removed: 2 }));
     expect(context.request).toHaveBeenCalledWith("/jobs/job-1", { method: "DELETE" });
+    expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
+  });
+
+  it("opens the Documents list with the request's dates and leaves out search text the list can't show", async () => {
+    const searches = [];
+
+    const request = createRequest({
+      interpret: () => ({
+        interpretation: {
+          action: "find_documents",
+          args: {},
+          filter: { text: "hnh", uploaded_from: "2026-10-01" },
+          unrecognised: [],
+          notes: [],
+        },
+      }),
+      search: (body) => {
+        searches.push(body);
+
+        return body.ids_only
+          ? { job_ids: ["job-1"], statuses: { "job-1": "completed" }, total: 1, total_capped: false, has_more: false }
+          : { jobs: [jobs[0]], total: 1, total_capped: false, next_cursor: null, has_more: false };
+      },
+    });
+
+    const context = createContext({ request });
+    await openPalette(context, user);
+    await user.type(input(), "Find hnh documents uploaded since 2026-10-01");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    await user.click(await screen.findByRole("button", { name: "Open in Documents" }));
+
+    expect(searches[0].filter).toMatchObject({ text: "hnh", uploaded_from: "2026-10-01" });
+    expect(context.documentController.contextList.onFiltersChange).toHaveBeenCalledWith({
+      dateFrom: "2026-10-01",
+      dateTo: "",
+      model: "",
+    });
+    expect(context.navigate).toHaveBeenCalledWith("/workspaces/w1/documents");
     expect(screen.queryByRole("dialog", { name: "Search and actions" })).toBeNull();
   });
 

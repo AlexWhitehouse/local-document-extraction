@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -267,6 +267,13 @@ function seedCostWorkspace(store: LocalWorkspaceProductStore): string[] {
   return children;
 }
 
+/** A Workspace seeded like the primary one, for a test that changes its documents. */
+type PrimaryWorkspaceCopy = {
+  workspaceId: string;
+  apiKey: string;
+  liveMessages: string[];
+};
+
 type Fixture = {
   stateDirectory: string;
   database: Database;
@@ -282,8 +289,10 @@ type Fixture = {
   costApiKey: string;
   /** The packet's two documents: three pages, then one. */
   packetChildren: string[];
+  /** Jobs scheduled by the current test. Emptied before each test. */
   scheduled: LocalQueuedExtractionJob[];
-  liveMessages: string[];
+  /** Tests that retry or delete documents use their own copy, so the shared primary Workspace never changes. */
+  copyPrimaryWorkspace: () => PrimaryWorkspaceCopy;
 };
 
 const fixture: Fixture = {
@@ -301,7 +310,9 @@ const fixture: Fixture = {
   costApiKey: "",
   packetChildren: [],
   scheduled: [],
-  liveMessages: [],
+  copyPrimaryWorkspace: () => {
+    throw new Error("The fixture is not ready.");
+  },
 };
 
 beforeAll(async () => {
@@ -370,30 +381,42 @@ beforeAll(async () => {
     costStore.close();
   }
 
-  for (const [workspaceId, populate] of [
-    [fixture.workspaceId, seedPrimaryWorkspace],
-    [fixture.otherWorkspaceId, seedOtherWorkspace],
-  ] as const) {
+  const populate = (workspaceId: string, seedWorkspace: (store: LocalWorkspaceProductStore) => void) => {
     const store = createLocalWorkspaceProductStore({ stateDirectory: fixture.stateDirectory, workspaceId });
 
     try {
-      populate(store);
+      seedWorkspace(store);
     } finally {
       store.close();
     }
-  }
+  };
 
-  liveUpdateHub.subscribe({
-    workspaceId: fixture.workspaceId,
-    socket: {
-      data: { workspaceId: fixture.workspaceId, isAuthorized: () => true },
-      send: (message) => {
-        fixture.liveMessages.push(message);
+  populate(fixture.workspaceId, seedPrimaryWorkspace);
+  populate(fixture.otherWorkspaceId, seedOtherWorkspace);
 
-        return message.length;
+  fixture.copyPrimaryWorkspace = () => {
+    const workspaceId = workspaceControl.createWorkspace({ userId: owner.session.id, name: "Primary copy" }).workspace_id;
+    const liveMessages: string[] = [];
+
+    populate(workspaceId, seedPrimaryWorkspace);
+    liveUpdateHub.subscribe({
+      workspaceId,
+      socket: {
+        data: { workspaceId, isAuthorized: () => true },
+        send: (message) => {
+          liveMessages.push(message);
+
+          return message.length;
+        },
       },
-    },
-  });
+    });
+
+    return { workspaceId, apiKey: workspaceControl.rotateApiKey({ workspaceId, userId: owner.session.id }).api_key, liveMessages };
+  };
+});
+
+beforeEach(() => {
+  fixture.scheduled.splice(0);
 });
 
 afterAll(async () => {
@@ -869,17 +892,20 @@ describe("POST /v1/jobs/export formats", () => {
 
 describe("POST /v1/jobs/retry", () => {
   test("requires a trusted origin for session requests", async () => {
-    const response = await call("/jobs/retry", { job_ids: ["job_f"] }, { cookie: fixture.ownerCookie, workspaceId: fixture.workspaceId, origin: "https://evil.example" });
+    const { workspaceId } = fixture.copyPrimaryWorkspace();
+    const response = await call("/jobs/retry", { job_ids: ["job_f"] }, { cookie: fixture.ownerCookie, workspaceId, origin: "https://evil.example" });
 
     expect(response.status).toBe(403);
     expect(fixture.scheduled).toEqual([]);
   });
 
   test("requeues failed jobs on the current version, schedules and publishes them, and skips the rest", async () => {
+    const { workspaceId, apiKey, liveMessages } = fixture.copyPrimaryWorkspace();
+
     const response = await call(
       "/jobs/retry",
       { job_ids: ["job_f", "job_g", "job_b", "job_missing", "job_z"] },
-      { cookie: fixture.ownerCookie, workspaceId: fixture.workspaceId },
+      { cookie: fixture.ownerCookie, workspaceId },
     );
 
     expect(await readObjectResponse(response)).toEqual({
@@ -892,22 +918,24 @@ describe("POST /v1/jobs/retry", () => {
       ],
     });
     expect(fixture.scheduled).toEqual([
-      expect.objectContaining({ job_id: "job_f", workspace_id: fixture.workspaceId, template_id: "tpl_inv", template_version: 2, attempt: 1 }),
+      expect.objectContaining({ job_id: "job_f", workspace_id: workspaceId, template_id: "tpl_inv", template_version: 2, attempt: 1 }),
     ]);
-    expect(fixture.liveMessages.flatMap((message) => jsonArray(jsonObject(parseJson(message)).events))).toContainEqual(
+    expect(liveMessages.flatMap((message) => jsonArray(jsonObject(parseJson(message)).events))).toContainEqual(
       expect.objectContaining({ type: "extraction_job_lifecycle", job: expect.objectContaining({ job_id: "job_f", status: "queued" }) }),
     );
-    expect(await found({ statuses: ["queued"] })).toEqual(["job_f"]);
-    expect((await call("/jobs/retry", { job_ids: [] })).status).toBe(400);
+    expect(await found({ statuses: ["queued"] }, { apiKey })).toEqual(["job_f"]);
+    expect((await call("/jobs/retry", { job_ids: [] }, { apiKey })).status).toBe(400);
   });
 
   test("deleting a document removes it from field searches", async () => {
-    const deleted = await fixture.application(
-      new Request(`${BASE}/v1/jobs/job_b`, { method: "DELETE", headers: headersFor({ apiKey: fixture.apiKey }) }),
-    );
+    const { apiKey } = fixture.copyPrimaryWorkspace();
+
+    expect(await found({ conditions: [condition("invoice_number", "is", "hnh_200")] }, { apiKey })).toEqual(["job_b"]);
+
+    const deleted = await fixture.application(new Request(`${BASE}/v1/jobs/job_b`, { method: "DELETE", headers: headersFor({ apiKey }) }));
 
     expect(deleted.status).toBe(200);
-    expect(await found({ conditions: [condition("invoice_number", "is", "hnh_200")] })).toEqual([]);
-    expect(await found({ text: "quoted" })).toEqual([]);
+    expect(await found({ conditions: [condition("invoice_number", "is", "hnh_200")] }, { apiKey })).toEqual([]);
+    expect(await found({ text: "quoted" }, { apiKey })).toEqual([]);
   });
 });

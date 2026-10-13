@@ -201,7 +201,6 @@ describe("context list drawer below 1120px", () => {
         contextListLabel="Templates"
         contextSidebar={
           <ContextSidebar title="Templates">
-            <input aria-label="Search templates" />
             <button type="button" data-context-select onClick={onSelect}>
               Invoice template
             </button>
@@ -226,7 +225,7 @@ describe("context list drawer below 1120px", () => {
 
     expect(drawer().classList.contains("is-open")).toBe(true);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(document.activeElement).toBe(screen.getByLabelText("Search templates"));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Invoice template" }));
 
     fireEvent.keyDown(document.activeElement, { key: "Escape" });
 

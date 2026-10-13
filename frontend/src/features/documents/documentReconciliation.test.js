@@ -385,22 +385,21 @@ describe("Document reconciliation", () => {
     expect(snapshot()).toMatchObject({ hasMore: false, nextCursor: null, totalDocuments: 20, loadingMore: false });
   });
 
-  it("debounces search and rejects a list that started before the search changed", async () => {
-    vi.useFakeTimers();
+  it("rejects a list that started before the filters changed", async () => {
     const { module, requests, snapshot } = setup();
     const pending = deferred();
     requests.listDocuments.mockReturnValueOnce(pending.promise);
     const refresh = module.refresh();
-    module.setSearch("fir");
-    module.setSearch("first");
-    pending.resolve(page([job("stale")]));
+    requests.listDocuments.mockResolvedValue(page([job("current", { model_name: "model-a" })]));
+    module.setFilters({ model: "model-a" });
+    pending.resolve(page([job("stale", { model_name: "model-a" })]));
     await refresh;
-    expect(snapshot().documents).toEqual([]);
-    requests.listDocuments.mockResolvedValue(page([job("first")]));
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.waitFor(() => expect(snapshot().documents.map(({ job_id }) => job_id)).toEqual(["current"]));
     expect(requests.listDocuments).toHaveBeenCalledTimes(2);
-    expect(requests.listDocuments.mock.lastCall[0].search).toBe("first");
-    expect(snapshot().documents[0].job_id).toBe("first");
+    expect(requests.listDocuments.mock.lastCall[0]).toEqual({
+      filters: { dateFrom: "", dateTo: "", model: "model-a" },
+      cursor: null,
+    });
   });
 
   it("does not resurrect deleted Documents from pending reads or live updates and repairs selection/counts", async () => {

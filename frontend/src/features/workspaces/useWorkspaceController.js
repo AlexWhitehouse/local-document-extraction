@@ -52,7 +52,6 @@ export function useWorkspaceController({
   const [apiKey, setApiKey] = useState("");
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
-  const [workspaceSearch, setWorkspaceSearch] = useState("");
   const [userWorkspaces, setUserWorkspaces] = useState([]);
   const [userWorkspaceInvitations, setUserWorkspaceInvitations] = useState([]);
   const [workspaceResolutionStatus, setWorkspaceResolutionStatus] = useState("idle");
@@ -172,30 +171,6 @@ export function useWorkspaceController({
   const canManageWorkspaceInvitations = memberPermissions.canManage;
 
   const isWorkspaceNameDirty = Boolean(normalizedWorkspaceId) && workspaceName.trim() !== selectedWorkspaceName.trim();
-
-  const filteredWorkspaces = useMemo(() => {
-    const query = workspaceSearch.trim().toLowerCase();
-
-    if (!query) {
-      return availableWorkspaces;
-    }
-
-    return availableWorkspaces.filter((workspace) =>
-      [
-        workspace.id,
-        workspace.name,
-        workspace.inviter_name,
-        workspace.inviter_email,
-        workspace.inviter_display,
-        workspace.email,
-        workspace.role,
-      ].some((value) =>
-        String(value || "")
-          .toLowerCase()
-          .includes(query),
-      ),
-    );
-  }, [availableWorkspaces, workspaceSearch]);
 
   function clearWorkspaceScopedData({ isSwitchingAcceptedWorkspace = false, sessionEnded = false } = {}) {
     contextGenerationRef.current += 1;
@@ -960,13 +935,11 @@ export function useWorkspaceController({
       selectedWorkspaceRole,
     },
     sidebar: {
-      search: workspaceSearch,
-      workspaces: filteredWorkspaces,
+      workspaces: availableWorkspaces,
       selectedWorkspaceId: workspaceId,
       selectedWorkspaceInvitationId: effectiveSelectedWorkspaceInvitationId,
       isLoading: isWorkspaceContextLoading,
       hasResolutionError: hasWorkspaceResolutionError,
-      onSearchChange: setWorkspaceSearch,
       onSelectAcceptedWorkspace: selectAcceptedWorkspace,
       onSelectInvitedWorkspace: selectInvitedWorkspace,
       onRetryResolution: retryWorkspaceResolution,

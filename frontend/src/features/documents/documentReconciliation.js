@@ -34,8 +34,6 @@ function emptySnapshot(scopeKey = "") {
     selectedDocument: null,
     selectedDocumentId: "",
     selectedDocumentIds: [],
-    search: "",
-    debouncedSearch: "",
     filters: { ...EMPTY_FILTERS },
     availableModels: [],
     totalDocuments: 0,
@@ -104,9 +102,9 @@ export function createDocumentReconciliation({
     const next = { ...snapshot, ...patch };
     next.packets = [...ctx.packets.values()].sort(sortDocuments);
 
-    if (ctx.rowsDirty || next.debouncedSearch !== snapshot.debouncedSearch || next.filters !== snapshot.filters) {
+    if (ctx.rowsDirty || next.filters !== snapshot.filters) {
       next.documents = [...ctx.rows.values()]
-        .filter((job) => matchesQuery(job, next.debouncedSearch, next.filters))
+        .filter((job) => matchesFilters(job, next.filters))
         .sort(sortDocuments);
       ctx.visible = new Set(next.documents.map((job) => job.job_id));
       ctx.rowsDirty = false;
@@ -129,7 +127,6 @@ export function createDocumentReconciliation({
     context.active = false;
     clearTimeout(context.refreshTimer);
     clearTimeout(context.countsTimer);
-    clearTimeout(context.searchTimer);
 
     for (const url of context.previews.values()) revokePreview(url);
     context.previews.clear();
@@ -210,7 +207,6 @@ export function createDocumentReconciliation({
       hydrated: new Map(),
       modelsRequest: null,
       refreshTimer: null,
-      searchTimer: null,
       countsTimer: null,
       countsRequest: 0,
     };
@@ -344,7 +340,7 @@ export function createDocumentReconciliation({
     const requestId = ++ctx.listRequest;
     const countsRequestId = ++ctx.countsRequest;
     const revision = ctx.revision;
-    const { debouncedSearch: search, filters, nextCursor } = snapshot;
+    const { filters, nextCursor } = snapshot;
     publish(ctx, append ? { loadingMore: true, loadMoreError: null } : { loadingMore: false });
 
     try {
@@ -360,8 +356,8 @@ export function createDocumentReconciliation({
       do {
         visited.add(cursor);
         data = ctx.requests.listDocumentEntries
-          ? await ctx.requests.listDocumentEntries({ search, filters, cursor })
-          : await ctx.requests.listDocuments({ search, filters, cursor });
+          ? await ctx.requests.listDocumentEntries({ filters, cursor })
+          : await ctx.requests.listDocuments({ filters, cursor });
 
         if (!isCurrent(ctx) || queryRevision !== ctx.queryRevision || requestId !== ctx.listRequest) return;
         const pageJobs = Array.isArray(data?.jobs) ? data.jobs : [];
@@ -428,7 +424,7 @@ export function createDocumentReconciliation({
 
       if (!append && !data?.has_more && !overlap) {
         cached("pruneFromJobList", ctx.workspaceId, jobs, {
-          filtered: Boolean(search || Object.values(filters).some(Boolean)),
+          filtered: Object.values(filters).some(Boolean),
         });
       }
 
@@ -452,7 +448,6 @@ export function createDocumentReconciliation({
       if (
         !append &&
         !data?.has_more &&
-        !search &&
         !Object.values(filters).some(Boolean) &&
         ctx.routeDocumentId &&
         !listed.has(ctx.routeDocumentId)
@@ -482,20 +477,6 @@ export function createDocumentReconciliation({
     ctx.listBoundary = null;
     publish(ctx, { ...patch, nextCursor: null, hasMore: false, loadingMore: false });
     void refresh();
-  }
-
-  function setSearch(search) {
-    const ctx = context;
-
-    if (!ctx) return;
-    ctx.queryRevision += 1;
-    clearTimeout(ctx.searchTimer);
-    publish(ctx, { search, nextCursor: null, hasMore: false });
-    ctx.searchTimer = setTimeout(() => {
-      ctx.searchTimer = null;
-
-      if (isCurrent(ctx)) setQuery({ debouncedSearch: search.trim() });
-    }, 250);
   }
 
   function setFilters(filters) {
@@ -859,7 +840,6 @@ export function createDocumentReconciliation({
     loadDetails,
     loadModels,
     ensureSelectedDetails,
-    setSearch,
     setFilters,
     receiveLiveUpdates,
     receivePackets,
@@ -871,15 +851,9 @@ export function createDocumentReconciliation({
       if (!context) return;
 
       if (clearFilters) {
-        clearTimeout(context.searchTimer);
         context.queryRevision += 1;
         context.listBoundary = null;
-        publish(context, {
-          selectedDocumentId: normalizeId(id),
-          search: "",
-          debouncedSearch: "",
-          filters: { ...EMPTY_FILTERS },
-        });
+        publish(context, { selectedDocumentId: normalizeId(id), filters: { ...EMPTY_FILTERS } });
         scheduleRefresh(context);
       } else publish(context, { selectedDocumentId: normalizeId(id) });
     },
@@ -951,18 +925,7 @@ function isOlder(incoming, existing) {
   return rank[incoming?.status] < rank[existing.status];
 }
 
-function matchesQuery(job, search, filters) {
-  const query = search.trim().toLowerCase();
-
-  if (
-    query &&
-    ![job.job_id, job.source_name, job.template_id, job.status].some((value) =>
-      String(value || "")
-        .toLowerCase()
-        .includes(query),
-    )
-  )
-    return false;
+function matchesFilters(job, filters) {
   const date = String(job.created_at || job.queued_at || "").slice(0, 10);
 
   if (filters.dateFrom && (!date || date < filters.dateFrom)) return false;

@@ -250,9 +250,14 @@ function useContextDrawer(hasContextList) {
 
   useEffect(() => {
     if (isOpen) {
-      // The search field comes first when the list has one; otherwise the first control.
+      // The list's search field when it has one (admin), then the selected row, the first row, or the first control.
       const drawerEl = hostRef.current?.querySelector(".context-sidebar");
-      const target = drawerEl?.querySelector("input:not(:disabled)") ?? drawerEl?.querySelector("button:not(:disabled)");
+
+      const target =
+        drawerEl?.querySelector('input:not([type="checkbox"]):not(:disabled)') ??
+        drawerEl?.querySelector('[data-context-select][aria-current="true"]') ??
+        drawerEl?.querySelector("[data-context-select]") ??
+        drawerEl?.querySelector("button:not(:disabled)");
 
       target?.focus();
     } else if (wasOpenRef.current && openerRef.current?.isConnected) {

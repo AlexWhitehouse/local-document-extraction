@@ -34,28 +34,15 @@ export function singlePacketDocument(packet) {
     : null;
 }
 
-/** A packet is listed when no query is active, it matches the query itself, or one of its documents does. */
-export function isPacketListed(packet, documents, search, filters, hasActiveFilters) {
-  if (!search && !hasActiveFilters) return true;
+/** A packet is listed when no filter is active, it matches the filters itself, or one of its documents does. */
+export function isPacketListed(packet, documents, filters, hasActiveFilters) {
+  if (!hasActiveFilters) return true;
   const childIds = new Set((Array.isArray(packet.children) ? packet.children : []).map((child) => child.job_id));
 
   if (documents.some((job) => job.parent_packet_id === packet.packet_id || childIds.has(job.job_id))) return true;
 
   if (filters.model) return false;
 
-  const query = String(search || "")
-    .trim()
-    .toLowerCase();
-
-  if (
-    query &&
-    ![packet.packet_id, packet.source_name, packet.status].some((value) =>
-      String(value || "")
-        .toLowerCase()
-        .includes(query),
-    )
-  )
-    return false;
   const date = String(packet.created_at || "").slice(0, 10);
 
   if (filters.dateFrom && (!date || date < filters.dateFrom)) return false;
