@@ -790,9 +790,13 @@ Searches job metadata and extracted values. Every filter member narrows the resu
     "uploaded_to": "2026-10-11",
     "model": "provider/model",
     "conditions": [
-      {"template_id": "tpl_example", "field_id": "total", "op": "between", "value": 100, "value2": 500}
-    ],
-    "cost": {"op": "gt", "value": 0.03}
+      {"template_id": "tpl_example", "field_id": "total", "op": "between", "value": 100, "value2": 500},
+      {"any": [
+        {"template_id": "tpl_example", "field_id": "vendor", "op": "is", "value": "Acme"},
+        {"template_id": "tpl_example", "field_id": "vendor", "op": "is", "value": "Globex"}
+      ]},
+      {"cost": {"op": "gt", "value": 0.03}}
+    ]
   },
   "limit": 50
 }
@@ -800,9 +804,14 @@ Searches job metadata and extracted values. Every filter member narrows the resu
 
 - `text` matches the document name, the job ID and extracted text values. Matching is literal and case-insensitive. A term of one or two characters matches only the document name and job ID. In document names, only unaccented Latin letters (A–Z) match regardless of case, as in `GET /v1/jobs`.
 - `uploaded_from` and `uploaded_to` are inclusive UTC days.
-- `conditions` hold at most 10 field conditions. A condition names one template and one field of that template's current version. It only matches jobs of that template whose stored value has the field's current type, so fields with the same ID on other templates never match.
+- `conditions` is a list whose members must all hold. Each member is a field condition, a cost condition `{"cost": {...}}`, or a group:
+  - `{"any": [...]}` holds when at least one of its members does.
+  - `{"all": [...]}` holds when every member does.
+  - Groups nest at most 3 deep. The whole list holds at most 10 field and cost conditions, counted at every depth.
+- A field condition names one template and one field of that template's current version. It only matches jobs of that template whose stored value has the field's current type, so fields with the same ID on other templates never match. Alternatives in an `any` group may name different templates.
 - Only scalar fields can be searched: text, number, date and yes/no. Tables and nested fields can't be searched yet.
-- `cost` compares each document's total reported processing cost in USD, the same total as the document page and the Costs page. It is the sum of the document's model calls, plus its page share of its packet's splitting cost. Calls without a reported cost add nothing, so a document with no reported cost counts as 0. `op` is `eq`, `gt`, `gte`, `lt`, `lte` or `between`. `value` is a number of 0 or more, and only `between` takes `value2`, which must not be smaller. Totals are compared rounded to 10 decimal places. Only callers who can read the Costs page may use `cost`: Workspace owners and admins with a browser session. Others, including API keys, get `403 forbidden`.
+- A cost condition compares each document's total reported processing cost in USD, the same total as the document page and the Costs page. It is the sum of the document's model calls, plus its page share of its packet's splitting cost. Calls without a reported cost add nothing, so a document with no reported cost counts as 0. `op` is `eq`, `gt`, `gte`, `lt`, `lte` or `between`. `value` is a number of 0 or more, and only `between` takes `value2`, which must not be smaller. Totals are compared rounded to 10 decimal places. Only callers who can read the Costs page may use cost conditions, anywhere in the list: Workspace owners and admins with a browser session. Others, including API keys, get `403 forbidden`.
+- A `cost` member beside `conditions`, holding one cost condition or a list of them, is still accepted, as in v2.5.0. It's read as cost conditions added to `conditions`.
 
 | Field type | Operators | Value |
 | --- | --- | --- |
@@ -828,11 +837,11 @@ Searches job metadata and extracted values. Every filter member narrows the resu
 }
 ```
 
-Each job has the same summary fields as `GET /v1/jobs`, plus `template_name` and `matches`, the stored values of the fields the conditions used and the first text field that matched `text`. When the filter uses `cost`, `matches` ends with the document's cost: `{"kind": "cost", "amount": 0.0312, "currency": "USD", "complete": true, "display": "$0.0312"}`. `amount` is `null` when calls ran but none reported a cost, and `complete` is `false` when some calls didn't report one; `display` then ends with `+`. Field matches have no `kind`. `total` is capped at 10,000; `total_capped` is `true` above that. Pass `next_cursor` back as `cursor` with the same filter to read the next page. A cursor is only valid for the filter it was issued for and until the runtime restarts.
+Each job has the same summary fields as `GET /v1/jobs`, plus `template_name` and `matches`, the stored values of the fields the conditions used and the first text field that matched `text`. When the filter has a cost condition, `matches` ends with the document's cost: `{"kind": "cost", "amount": 0.0312, "currency": "USD", "complete": true, "display": "$0.0312"}`. `amount` is `null` when calls ran but none reported a cost, and `complete` is `false` when some calls didn't report one; `display` then ends with `+`. Field matches have no `kind`. `total` is capped at 10,000; `total_capped` is `true` above that. Pass `next_cursor` back as `cursor` with the same filter to read the next page. A cursor is only valid for the filter it was issued for and until the runtime restarts.
 
 With `"ids_only": true`, `limit` may be up to 500 and the response is `{"job_ids", "statuses", "total", "total_capped", "next_cursor", "has_more"}`.
 
-Invalid filters, unknown templates or fields, and operators that don't suit the field type return `400 invalid_search_filter`. A bad cursor returns `400 invalid_cursor`. A `cost` filter from a caller who can't read costs returns `403 forbidden` with the message "Only workspace owners and admins can search by cost."
+Invalid filters, unknown templates or fields, and operators that don't suit the field type return `400 invalid_search_filter`. A bad cursor returns `400 invalid_cursor`. A cost condition from a caller who can't read costs returns `403 forbidden` with the message "Only workspace owners and admins can search by cost."
 
 ### Read the search catalogue
 
@@ -890,7 +899,7 @@ Turns a plain-language request into one action from a fixed list, its arguments 
 The response is `{"interpretation": {"action", "args", "filter", "unrecognised", "notes"}}`:
 
 - `action` is one of `find_documents`, `find_templates`, `edit_template`, `create_template`, `upload`, `retry`, `export`, `delete`, `invite`, `switch_workspace`, `go_to` or `run_evaluation`.
-- `filter` uses the search filter above, checked against the catalogue. It contains `cost` only for callers whose catalogue has `capabilities.cost`; for others, cost words are listed in `unrecognised`.
+- `filter` uses the search filter above, checked against the catalogue, with cost conditions inside `conditions`. It contains cost conditions only for callers whose catalogue has `capabilities.cost`; for others, cost words are listed in `unrecognised`.
 - `unrecognised` lists words the model couldn't use.
 - `notes` explain ambiguous fields and give alternatives.
 
