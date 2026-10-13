@@ -22,6 +22,17 @@ import {
 import { createModelCostStore, initializeModelCostSchema } from "./localModelCosts";
 import { initializeWorkspaceCostSchema } from "./workspaceCostSchema";
 import { createWorkspaceCostStore } from "./workspaceCosts";
+import { createWorkspaceModelCostSchema, createWorkspaceModelCostStore } from "./workspaceModelCosts";
+import {
+  deleteJobFieldValues,
+  migrateJobFieldValueIndex,
+  readSearchCatalog,
+  readSearchFields,
+  replaceJobFieldValues,
+} from "./jobFieldValueIndex";
+import { searchJobs, type JobSearchInput, type JobSearchResult } from "./jobSearchQuery";
+import { retryFailedJobs, type JobRetryResult } from "./jobRetry";
+import type { SearchCatalog } from "../../shared/documentSearch";
 import type { ProcessingCosts } from "../../shared/processingCosts";
 import {
   createWorkspaceDocumentProcessingSettingsStore,
@@ -215,6 +226,7 @@ export type LocalWorkspaceProductStore = DocumentProcessingStore &
   ReturnType<typeof createMcpProductReceipts> &
   ReturnType<typeof createModelCostStore> &
   ReturnType<typeof createWorkspaceCostStore> &
+  ReturnType<typeof createWorkspaceModelCostStore> &
   ReturnType<typeof createWorkspaceDocumentProcessingSettingsStore> & {
     close(): void;
     /** Commits a complete save and its receipt together; an existing receipt wins and nothing is inserted. */
@@ -390,7 +402,36 @@ export type LocalWorkspaceProductStore = DocumentProcessingStore &
       status?: "completed";
     }): LocalWorkspaceExtractionJobSummary[];
     listRetainedTerminalSourceFiles(input: { failedBefore: string; limit?: number }): LocalRetainedTerminalSourceFile[];
-    markSourceFileCleaned(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): boolean;
+    /**
+     * Records a deleted local working copy and clears the deletion intent this cleanup handled: the
+     * local-only intent when `retainedObjectKey` is null, or the one naming that released remote original.
+     * An intent for a different remote original, such as one a concurrent Document deletion wrote, stays.
+     */
+    markSourceFileCleaned(input: {
+      jobId: string;
+      sourceFileKey: string;
+      cleanedAt: string;
+      retainedObjectKey: string | null;
+    }): boolean;
+    /**
+     * Marks a local working copy as removed before the sweep deletes it, so a retry can't queue a job
+     * whose original is about to go. Refuses while the job is queued or processing again. The claim
+     * records a deletion intent, which `markSourceFileCleaned` clears once the file is gone.
+     */
+    claimSourceFileCleanup(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): boolean;
+    /**
+     * Undoes the claim made with the same `cleanedAt` when its file deletion failed, so a later sweep
+     * lists it again. A claim from an earlier, interrupted sweep stays committed.
+     */
+    releaseSourceFileCleanup(input: { jobId: string; sourceFileKey: string; cleanedAt: string }): void;
+    /** Active Templates, their current fields and known text values, and the models used by jobs. */
+    getSearchCatalog(): Omit<SearchCatalog, "interpretation" | "capabilities">;
+    /** Active Templates and their current fields, without known values: enough to check a search filter. */
+    getSearchFields(): Pick<SearchCatalog, "templates">;
+    /** A page of jobs matching a catalogue-checked filter, answered from the field value index. */
+    searchExtractionJobs(input: JobSearchInput): JobSearchResult;
+    /** Moves failed jobs back to the queue on their Template's current version, in one transaction. */
+    retryFailedExtractionJobs(input: { jobIds: readonly string[]; retriedAt: string }): JobRetryResult;
   };
 
 type WorkspaceProductLocation = { stateDirectory: string; workspaceId: string };
@@ -779,6 +820,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
     ...processing,
     ...modelCosts,
     ...workspaceCosts,
+    ...createWorkspaceModelCostStore(database),
     ...createWorkspaceDocumentProcessingSettingsStore(database),
     close: () => {
       workspaceCosts.closeCostUpdates();
@@ -1291,7 +1333,10 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
               input.attempt,
             ).changes > 0;
 
-        if (completed) settleParentDocumentPacket(database, input.jobId, input.completedAt);
+        if (completed) {
+          replaceJobFieldValues(database, input.jobId);
+          settleParentDocumentPacket(database, input.jobId, input.completedAt);
+        }
 
         return completed;
       })(),
@@ -1453,6 +1498,7 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
           )
           .run(job.job_id, job.source_file_key, job.retained_object_key ?? null);
         database.query("DELETE FROM job_results WHERE job_id = ?").run(job.job_id);
+        deleteJobFieldValues(database, job.job_id);
         database.query("DELETE FROM source_files WHERE job_id = ?").run(job.job_id);
         database.query("UPDATE document_packet_children SET state='deleted' WHERE job_id=?").run(job.job_id);
         database.query("DELETE FROM document_routing WHERE job_id=?").run(job.job_id);
@@ -1630,6 +1676,10 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
 
       return { total: Object.values(status_counts).reduce((sum, count) => sum + count, 0), status_counts };
     },
+    getSearchCatalog: () => readSearchCatalog(database, store.listExtractionJobModels()),
+    getSearchFields: () => ({ templates: readSearchFields(database) }),
+    searchExtractionJobs: (input) => searchJobs(database, input),
+    retryFailedExtractionJobs: (input) => database.transaction(() => retryFailedJobs(database, input)).immediate(),
     listExtractionJobModels: () =>
       database
         .query<{ model_name: string }, SQLQueryBindings[]>(
@@ -1750,10 +1800,50 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
           .run(input.cleanedAt, input.jobId, input.sourceFileKey);
 
         const intent = database
-          .query("DELETE FROM source_file_deletion_intents WHERE job_id = ? AND source_file_key = ?")
-          .run(input.jobId, input.sourceFileKey);
+          .query(
+            "DELETE FROM source_file_deletion_intents WHERE job_id = ? AND source_file_key = ? AND retained_key IS ?",
+          )
+          .run(input.jobId, input.sourceFileKey, input.retainedObjectKey);
 
         return source.changes > 0 || intent.changes > 0;
+      })(),
+    claimSourceFileCleanup: (input) =>
+      database
+        .transaction(() => {
+          const job = database
+            .query<{ status: string }, SQLQueryBindings[]>("SELECT status FROM jobs WHERE id = ?")
+            .get(input.jobId);
+
+          if (job && job.status !== "completed" && job.status !== "failed") return false;
+
+          const claimed = database
+            .query("UPDATE source_files SET deleted_at = COALESCE(deleted_at, ?) WHERE job_id = ? AND key = ?")
+            .run(input.cleanedAt, input.jobId, input.sourceFileKey);
+
+          // The intent outlives a crash before the unlink, so the next sweep finishes the deletion.
+          // It names no retained object: only the local working copy goes. An existing intent wins.
+          if (claimed.changes > 0)
+            database
+              .query(
+                "INSERT OR IGNORE INTO source_file_deletion_intents (job_id, source_file_key, retained_key) VALUES (?, ?, NULL)",
+              )
+              .run(input.jobId, input.sourceFileKey);
+
+          return true;
+        })
+        .immediate(),
+    releaseSourceFileCleanup: (input) =>
+      database.transaction(() => {
+        const released = database
+          .query("UPDATE source_files SET deleted_at = NULL WHERE job_id = ? AND key = ? AND deleted_at = ?")
+          .run(input.jobId, input.sourceFileKey, input.cleanedAt);
+
+        if (released.changes > 0)
+          database
+            .query(
+              "DELETE FROM source_file_deletion_intents WHERE job_id = ? AND source_file_key = ? AND retained_key IS NULL",
+            )
+            .run(input.jobId, input.sourceFileKey);
       })(),
   };
 
@@ -1856,6 +1946,10 @@ const LATE_PRODUCT_MIGRATIONS: Array<[version: number, migrate: (database: Datab
   ],
   // Packet completion is now persisted by the write that finishes the last child.
   [16, (database) => reconcileFinishedDocumentPackets(database, new Date().toISOString())],
+  // Typed field values for document search, backfilled from completed jobs.
+  [17, migrateJobFieldValueIndex],
+  // Search interpretation spend, which belongs to the Workspace rather than a Document.
+  [18, createWorkspaceModelCostSchema],
 ];
 
 // Versions 11 to 14 are recorded by the document processing, model cost and Workspace cost

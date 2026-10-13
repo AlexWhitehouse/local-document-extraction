@@ -756,7 +756,7 @@ describe("useDocumentController Workspace live updates", () => {
     });
   });
 
-  it("reloads paginated Documents with applied advanced filters and exposes model choices", async () => {
+  it("exposes the workspace's models for evaluations, including ones seen in live updates", async () => {
     const WebSocketStub = installWebSocketStub();
     const listDocuments = vi.fn(async () => jobList([], { total: 4 }));
 
@@ -767,47 +767,126 @@ describe("useDocumentController Workspace live updates", () => {
     const { controller } = renderController({ documentRequests: { getFilterOptions, listDocuments } });
 
     await waitFor(() => {
-      expect(listDocuments).toHaveBeenCalledWith({
-        search: "",
-        filters: { dateFrom: "", dateTo: "", model: "" },
-        cursor: null,
-      });
-      expect(controller().contextList.availableModels).toEqual(["provider/model-b", "provider/model-a"]);
-      expect(getFilterOptions).toHaveBeenCalledOnce();
-    });
-
-    const filters = { dateFrom: "2026-08-01", dateTo: "2026-08-16", model: "provider/model-b" };
-    act(() => {
-      controller().contextList.onFiltersChange(filters);
-    });
-
-    await waitFor(() => {
-      expect(listDocuments).toHaveBeenLastCalledWith({ search: "", filters, cursor: null });
-      expect(controller().contextList.hasActiveFilters).toBe(true);
-      expect(getFilterOptions).toHaveBeenCalledOnce();
+      expect(listDocuments).toHaveBeenCalledWith({ cursor: null });
+      expect(controller().availableModels).toEqual(["provider/model-b", "provider/model-a"]);
     });
 
     act(() => {
       WebSocketStub.instances[0].onmessage(
-        liveMessage(
-          lifecycle(
-            completedJob({
-              job_id: "job_new_model",
-              source_name: "new-model.pdf",
-              model_name: "provider/model-c",
-              created_at: "2026-08-16T12:00:00.000Z",
-              updated_at: "2026-08-16T12:01:00.000Z",
-            }),
-          ),
-        ),
+        liveMessage(lifecycle(completedJob({ job_id: "job_new_model", model_name: "provider/model-c" }))),
       );
     });
-    expect(controller().contextList.availableModels).toEqual([
-      "provider/model-c",
-      "provider/model-b",
-      "provider/model-a",
-    ]);
+    expect(controller().availableModels).toEqual(["provider/model-c", "provider/model-b", "provider/model-a"]);
     expect(getFilterOptions).toHaveBeenCalledOnce();
+  });
+
+  it("lists only a search's matches, runs it again on live updates, and Clear restores the full list", async () => {
+    const WebSocketStub = installWebSocketStub();
+    const all = [completedJob({ job_id: "job_a", source_name: "a.pdf" }), completedJob({ job_id: "job_b", source_name: "b.pdf" })];
+    const listDocuments = vi.fn(async () => jobList(all, { total: 2 }));
+    let matches = [all[1]];
+    const searchDocuments = vi.fn(async () => ({ jobs: matches, total: matches.length, total_capped: false, has_more: false }));
+
+    const { controller, getAllByRole, getByRole } = renderController({
+      showList: true,
+      documentRequests: { listDocuments, searchDocuments },
+    });
+
+    await waitFor(() => expect(getAllByRole("listitem")).toHaveLength(2));
+    const filter = { statuses: ["completed"], text: "b" };
+    act(() => controller().actions.applySearchFilter({ filter, summary: "Completed · text “b”" }));
+
+    await waitFor(() => expect(getAllByRole("listitem")).toHaveLength(1));
+    expect(searchDocuments).toHaveBeenCalledWith({ filter, cursor: null, limit: 50 });
+    expect(getByRole("group", { name: "Search filter" }).textContent).toContain("1 match");
+    expect(getByRole("button", { name: /b\.pdf/ })).toBeTruthy();
+    expect(controller().toolbar.documentCount).toBe(2);
+
+    matches = all;
+    act(() => {
+      WebSocketStub.instances[0].onmessage(liveMessage(lifecycle({ ...all[0], updated_at: "2026-05-06T12:03:00.000Z" })));
+    });
+    await waitFor(() => expect(getAllByRole("listitem")).toHaveLength(2));
+    expect(searchDocuments).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(getByRole("button", { name: "Clear search" }));
+    await waitFor(() => expect(controller().contextList.searchFilter).toBeNull());
+    expect(getByRole("heading", { name: "Documents" }).className).toBe("");
+    expect(listDocuments).toHaveBeenCalledTimes(2);
+  });
+
+  it("selects every match of a search, loaded or not, and exports only the ready ones", async () => {
+    installWebSocketStub();
+    const loaded = completedJob({ job_id: "match_1", source_name: "match-1.pdf" });
+    const listDocuments = vi.fn(async () => jobList([loaded, completedJob({ job_id: "other" })], { total: 9 }));
+    const exportDocuments = vi.fn(async () => ({ blob: new Blob(), filename: "export.xlsx", exportedCount: 2 }));
+
+    const searchDocuments = vi.fn(async ({ idsOnly, cursor }) => {
+      if (!idsOnly) return { jobs: [loaded], total: 3, total_capped: false, has_more: true, next_cursor: "more" };
+
+      return cursor
+        ? { job_ids: ["match_3"], statuses: { match_3: "processing" }, has_more: false, next_cursor: null }
+        : { job_ids: ["match_1", "match_2"], statuses: { match_1: "completed", match_2: "failed" }, has_more: true, next_cursor: "ids" };
+    });
+
+    const { controller, getByRole } = renderController({
+      showList: true,
+      documentRequests: { listDocuments, searchDocuments, exportDocuments },
+    });
+
+    await waitFor(() => expect(controller().contextList.documents).toHaveLength(2));
+    act(() => controller().actions.applySearchFilter({ filter: { text: "match" }, summary: "text “match”" }));
+    await waitFor(() => expect(controller().contextList.documents).toHaveLength(1));
+
+    fireEvent.click(getByRole("checkbox", { name: "Select document match_1" }));
+    fireEvent.click(getByRole("button", { name: "Select all 3" }));
+    await waitFor(() => expect(controller().contextList.selectedDocumentIds).toEqual(["match_1", "match_2", "match_3"]));
+    expect(controller().toolbar).toMatchObject({ selectedDocumentCount: 3, exportableDocumentCount: 2 });
+    expect(controller().contextList.selectedDocumentIds).not.toContain("other");
+
+    await act(async () => controller().toolbar.onExportDocuments());
+    expect(exportDocuments).toHaveBeenCalledWith(["match_1", "match_2", "match_3"]);
+  });
+
+  it("loads every page for Select all N and selects packets as rows", async () => {
+    installWebSocketStub();
+    const packet = { packet_id: "packet_1", source_name: "bundle.pdf", status: "completed", children: [{ job_id: "child_1" }, { job_id: "child_2" }] };
+
+    const listDocumentEntries = vi.fn(async ({ cursor }) =>
+      cursor
+        ? { jobs: [completedJob({ job_id: "older", created_at: "2026-05-01T00:00:00.000Z" })], packets: [packet], total: 4, has_more: false }
+        : { jobs: [completedJob({ job_id: "newer" })], packets: [], total: 4, has_more: true, next_cursor: "p2" },
+    );
+
+    const { controller, getByRole } = renderController({ showList: true, documentRequests: { listDocumentEntries } });
+
+    await waitFor(() => expect(controller().contextList.documents).toHaveLength(1));
+    fireEvent.click(getByRole("checkbox", { name: "Select document newer" }));
+    fireEvent.click(getByRole("button", { name: "Select all 4" }));
+    await waitFor(() => expect(controller().contextList.selectedPacketIds).toEqual(["packet_1"]));
+    expect(controller().contextList.selectedDocumentIds.sort()).toEqual(["newer", "older"]);
+    // The packet row stands for both of its documents.
+    expect(controller().toolbar.selectedDocumentCount).toBe(4);
+    expect(listDocumentEntries.mock.calls.map(([options]) => options.cursor)).toEqual([null, "p2"]);
+  });
+
+  it("exports the first 500 ready documents of a larger selection and says so", async () => {
+    installWebSocketStub();
+    const jobs = Array.from({ length: 501 }, (_, i) => completedJob({ job_id: `job_${i}` }));
+    const listDocuments = vi.fn(async () => jobList(jobs, { total: 501 }));
+    const exportDocuments = vi.fn(async () => ({ blob: new Blob(), filename: "export.xlsx", exportedCount: 500 }));
+    const showActionToast = vi.fn();
+
+    const { controller } = renderController({ documentRequests: { listDocuments, exportDocuments }, showActionToast });
+
+    await waitFor(() => expect(controller().contextList.documents).toHaveLength(501));
+    act(() => controller().contextList.onToggleAllDocumentSelections(jobs.map((job) => job.job_id), true));
+    globalThis.URL.createObjectURL ??= () => "blob:export";
+    globalThis.URL.revokeObjectURL ??= () => {};
+
+    await act(async () => controller().toolbar.onExportDocuments());
+    expect(exportDocuments.mock.calls[0][0]).toHaveLength(500);
+    expect(showActionToast).toHaveBeenCalledWith("document.export", "success", expect.objectContaining({ selectedCount: 501, limit: 500 }));
   });
 
   it("appends a cursor page without duplicates while retaining the selected Document", async () => {
@@ -936,6 +1015,7 @@ function DocumentControllerHarness({
   documentRequests,
   onController,
   showList = false,
+  showActionToast = vi.fn(),
   onWorkspaceCapacityRefresh,
   onModelConfigurationInvalidation,
   request = vi.fn(async () => jobList([])),
@@ -943,10 +1023,8 @@ function DocumentControllerHarness({
   const resolvedDocumentRequests = {
     deleteDocument: vi.fn(async () => ({ deleted: true, job_id: "" })),
     getFilterOptions: () => request("/jobs/filter-options", { method: "GET" }),
-    listDocuments: async ({ search = "", cursor = null } = {}) => {
+    listDocuments: async ({ cursor = null } = {}) => {
       const params = new URLSearchParams();
-
-      if (search) params.set("search", search);
 
       if (cursor) params.set("cursor", cursor);
       const result = await request(`/jobs${params.size ? `?${params}` : ""}`, { method: "GET" });
@@ -971,7 +1049,7 @@ function DocumentControllerHarness({
     selectedUploadTemplateId: "",
     onSelectedUploadTemplateChange: vi.fn(),
     documentRequests: resolvedDocumentRequests,
-    showActionToast: vi.fn(),
+    showActionToast,
     showDocumentUploadToast: vi.fn(),
     hasApiAccess: true,
     hasWorkspaceApiAccess: true,

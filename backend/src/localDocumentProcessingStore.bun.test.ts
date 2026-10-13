@@ -401,7 +401,7 @@ test("held originals survive cleanup, failed packets get ordinary failure retent
 test("deleting a cleaned packet still records a durable original cleanup pointer", async () => {
   const h = await harness();
   packet(h.store);
-  h.store.markSourceFileCleaned({ jobId: "packet", sourceFileKey: "packet/source.pdf", cleanedAt: at });
+  h.store.markSourceFileCleaned({ jobId: "packet", sourceFileKey: "packet/source.pdf", cleanedAt: at, retainedObjectKey: null });
   expect(h.store.getProcessingSource("packet")).toBeNull();
   expect(h.store.deleteDocumentPacket({ packetId: "packet" })?.sources).toContainEqual({
     job_id: "packet",

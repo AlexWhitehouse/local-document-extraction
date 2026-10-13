@@ -36,10 +36,13 @@ export function WorkspacePageHeader({
   isDownloadingOriginal = false,
   onDownloadOriginal,
 }) {
+  // The export route's limit; the document controller exports the first 500 ready documents of a larger selection.
   const exportHint =
     exportableDocumentCount === 0
       ? "Select a completed or failed document to export"
-      : selectedDocumentCount > exportableDocumentCount
+      : exportableDocumentCount > 500
+        ? "One export holds up to 500 documents. The first 500 that are ready are exported."
+        : selectedDocumentCount > exportableDocumentCount
         ? `${exportableDocumentCount} of ${selectedDocumentCount} selected documents are ready to export. In-progress documents will be skipped.`
         : undefined;
 

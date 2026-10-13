@@ -52,6 +52,14 @@ Use these before writing new markup. Most live in `frontend/src/features/ui/`.
 | Copy to clipboard | `copyWithFeedback` from `lib/copyWithFeedback.js` |
 | Unsaved edits | `useUnsavedGuard(isDirty, label, { leaves, onDiscard })` from `lib/unsavedChanges.js`. Navigation and page unload then ask through `DISCARD_CHANGES`. Custom Cancel or close controls inside a dirty `ModalDialog` use `ModalDismiss`. |
 | Counts | `pluralize(count, singular, plural?)` from `lib/text.js` |
+| Search and actions across the app | The command palette in `features/palette/` (⌘K / Ctrl+K, or **Search** in the sidebar). New actions join its fixed list in `paletteSearch.js` and, when they need a step, a flow in `flows/index.js`. The Documents, Templates and Workspaces lists have no search field of their own. |
+
+### Command palette
+
+- Flows finish inside the palette. A completed action shows its toast through `context.notify`, then calls `onFinish` so the palette closes.
+- The palette is an open modal, so request failures inside it are inline (`Callout` or `ErrorState`), never toasts.
+- Destructive steps use a danger panel inside the palette rather than `confirmDialog`. The same confirmation rules apply: Cancel has focus, Enter never confirms, and the body ends "This can't be undone."
+- Esc steps back once (flow, then pills, then text) before it closes. A flow with internal steps registers its own back handler with `registerBack`.
 
 ## CSS and tokens
 
@@ -65,6 +73,7 @@ Use these before writing new markup. Most live in `frontend/src/features/ui/`.
   - layers: `--z-*`
   - control heights: `--control-h-sm|md`
   - focus ring: `--focus-ring`
+  - command palette pills: `--pill-{action|quantity|subject|field|condition|date|status|instruction}-{fg|bg|border}`. Template, page and workspace pills use `subject`; value uses `condition`; person, role and format use `quantity`. They're only for the palette's request pills and their legend. Use the tones for everything else.
 - `bun run lint` runs `scripts/checkCssTokens.ts`. It fails on hex, rgb, rgba or hsl colours and numeric z-index outside `:root`. A justified exception needs `/* token-exempt: reason */` on the same line.
 - Breakpoints are 600, 900, 1120 and 1440 px.
 - Utilities: `.sr-only`.
@@ -123,7 +132,7 @@ Use these before writing new markup. Most live in `frontend/src/features/ui/`.
 ## Accessibility baseline
 
 - Modals use `ModalDialog`. Tabs and segmented controls use a roving tabindex with Arrow, Home and End.
-- Every interactive element shows a 2px `:focus-visible` ring.
+- Every interactive element shows a 2px `:focus-visible` ring. One exception: the command palette's request field is always focused while the palette is open, so its bar shows a 1px ring at reduced opacity instead.
 - Never convey status by colour alone.
 - Icon buttons have a label, used for both `aria-label` and the tooltip. Labels name their target ("Remove invoice.pdf").
 - Use `role="status"` only for content that changes. Static text never gets a live region.

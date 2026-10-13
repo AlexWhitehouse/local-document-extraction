@@ -28,6 +28,8 @@ import { useEvaluations } from "./features/evaluations/useEvaluations.js";
 import { MainLayout } from "./features/layout/MainLayout.jsx";
 import { WorkspacePageHeader } from "./features/layout/WorkspacePageHeader.jsx";
 import { OnboardingTour } from "./features/onboarding/OnboardingTour.jsx";
+import { CommandPalette } from "./features/palette/CommandPalette.jsx";
+import { parseSearchCatalog, usePaletteShortcut, utcToday } from "./features/palette/paletteState.js";
 import { ProfileMenu } from "./features/profile/ProfileMenu.jsx";
 import { TemplateContextList } from "./features/templates/TemplateContextList.jsx";
 import { TemplateGenerationModal } from "./features/templates/TemplateGenerationModal.jsx";
@@ -299,6 +301,102 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
   evaluationRef.current = evaluation;
   const documentToolbar = documentController.toolbar;
 
+  // The command palette (⌘K / Ctrl+K and the sidebar Search button). Its catalogue of Templates
+  // and fields loads when it opens, and again on each open. A closing palette stays mounted while
+  // it animates out; each opening gets a new `key`, so ⌘K during that animation reopens it fresh.
+  const [palette, setPalette] = useState({ status: "closed", key: 0, workspaceId: "" });
+  // A closing palette keeps the context it was open with, so the fade-out never shows (or acts
+  // on) the workspace it is leaving behind.
+  const paletteContextRef = useRef(null);
+  const [paletteCatalog, setPaletteCatalog] = useState({ status: "idle", catalog: null, workspaceId: "" });
+  const catalogRequest = useRef(null);
+  const catalogWorkspaceRef = useRef(workspaceId);
+  catalogWorkspaceRef.current = workspaceId;
+  const workspaceRequest = documentRequests.request;
+
+  const loadCatalog = useCallback(() => {
+    if (catalogRequest.current?.workspaceId === workspaceId) return catalogRequest.current.promise;
+    const requestedFor = workspaceId;
+
+    setPaletteCatalog((current) =>
+      current.workspaceId === requestedFor && current.catalog
+        ? current
+        : { status: "loading", catalog: null, workspaceId: requestedFor },
+    );
+
+    const promise = workspaceRequest("/search/catalog", { method: "GET" })
+      .then((value) => {
+        const catalog = parseSearchCatalog(value);
+
+        if (catalogWorkspaceRef.current === requestedFor)
+          setPaletteCatalog({ status: "ready", catalog, workspaceId: requestedFor });
+
+        return catalog;
+      })
+      .catch(() => {
+        if (catalogWorkspaceRef.current === requestedFor)
+          setPaletteCatalog((current) =>
+            current.workspaceId === requestedFor && current.catalog
+              ? current
+              : { status: "error", catalog: null, workspaceId: requestedFor },
+          );
+
+        return null;
+      })
+      .finally(() => {
+        if (catalogRequest.current?.promise === promise) catalogRequest.current = null;
+      });
+
+    catalogRequest.current = { workspaceId: requestedFor, promise };
+
+    return promise;
+  }, [workspaceRequest, workspaceId]);
+
+  const canUsePalette = hasSession && hasWorkspaceApiAccess;
+  // The palette's results, targets and flows belong to one workspace: changing workspace closes it.
+  const isPaletteOpen = palette.status === "open" && palette.workspaceId === workspaceId && canUsePalette;
+
+  const togglePalette = useCallback(() => {
+    if (isPaletteOpen) {
+      setPalette((current) => ({ ...current, status: "closing" }));
+
+      return;
+    }
+
+    void loadCatalog();
+    setPalette((current) => ({ status: "open", key: current.key + 1, workspaceId }));
+  }, [isPaletteOpen, loadCatalog, workspaceId]);
+
+  const requestPaletteClose = useCallback(
+    () => setPalette((current) => (current.status === "open" ? { ...current, status: "closing" } : current)),
+    [],
+  );
+
+  // Only the palette that finished closing unmounts; one reopened since stays.
+  const closePalette = useCallback(
+    (key) => setPalette((current) => (current.key === key ? { ...current, status: "closed" } : current)),
+    [],
+  );
+
+  usePaletteShortcut({ enabled: canUsePalette, onToggle: togglePalette });
+
+  // Changing workspace, or losing access to it (a switch passes through that), closes it too.
+  useEffect(() => {
+    setPalette((current) =>
+      current.status === "open" && (!canUsePalette || current.workspaceId !== workspaceId)
+        ? { ...current, status: "closing" }
+        : current,
+    );
+  }, [canUsePalette, workspaceId]);
+
+  const acceptedWorkspaces = useMemo(
+    () =>
+      workspaceContext.availableWorkspaces.flatMap((workspace) =>
+        workspace.type === "workspace" ? [{ id: workspace.id, name: workspace.name }] : [],
+      ),
+    [workspaceContext.availableWorkspaces],
+  );
+
   function pagePath(page) {
     const target = { page, workspaceId: hasApiAccess ? workspaceId : route.workspaceId };
 
@@ -327,13 +425,19 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     return navigate(pagePath(page));
   }
 
+  // Asks the navigation guard (for example "Discard changes?") about `path` without navigating.
+  // Resolves true once leaving is approved and the edits it loses are discarded; then navigate
+  // with { force: true }. `navigate` itself only reports false while a confirmation is pending.
+  function confirmNavigation(path) {
+    return Promise.resolve(navigation.guard.current?.(parseAppRoute(new URL(path, window.location.origin).pathname)) ?? true);
+  }
+
   // "Improve template" on a completed document: open its Template with the assistant, this job and
   // its retained original as evidence. The request is held in memory only after navigation is approved.
   function improveTemplate(job) {
     const path = appPath({ workspaceId, page: "templates", templateId: job.template_id });
-    const verdict = navigation.guard.current?.(parseAppRoute(new URL(path, window.location.origin).pathname));
 
-    void Promise.resolve(verdict ?? true).then((allowed) => {
+    void confirmNavigation(path).then((allowed) => {
       if (!allowed) return;
       templateController.actions.prepareAssistant({
         templateId: job.template_id,
@@ -696,6 +800,31 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         workspace: visiblePage === "workspace" || ACCOUNT_PAGES.has(visiblePage) ? "" : workspaceName,
       };
 
+  // A closing palette keeps the context it was open with (see paletteContextRef).
+  if (isPaletteOpen || !paletteContextRef.current)
+    paletteContextRef.current = {
+      workspaceId,
+      workspaceName,
+      role: workspaceContext.selectedWorkspaceRole,
+      workspaces: acceptedWorkspaces,
+      request: workspaceRequest,
+      notify: showActionToast,
+      navigate,
+      confirmNavigation,
+      appPath,
+      catalog: paletteCatalog.workspaceId === workspaceId ? paletteCatalog.catalog : null,
+      catalogStatus: paletteCatalog.workspaceId === workspaceId ? paletteCatalog.status : "loading",
+      refreshCatalog: loadCatalog,
+      today: utcToday(),
+      templateController,
+      documentController,
+      workspaceController,
+      evaluation,
+      modelReady: workspaceModel.ready,
+    };
+
+  const paletteContext = paletteContextRef.current;
+
   return (
     <>
       <DocumentTitle {...documentTitle} />
@@ -745,6 +874,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         onNavigate={handleSidebarNavigation}
         navigationHref={pagePath}
         onUploadDocument={documentToolbar.onUploadDocument}
+        onOpenSearch={togglePalette}
+        isSearchDisabled={!canUsePalette}
         profileSlot={
           isImpersonating ? (
             <ProfileMenu ref={profileMenu.panelRef} {...profileMenuProps} />
@@ -774,7 +905,15 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         }
         contextListLabel={CONTEXT_SIDEBAR_TITLES[visiblePage === "costs" ? "workspace" : visiblePage] || ""}
         contextSidebar={
-          visiblePage === "evaluations" || visiblePage === "connected-apps" ? null : (
+          visiblePage === "evaluations" || visiblePage === "connected-apps" ? null : visiblePage === "documents" &&
+            hasApiAccess ? (
+            // The Documents list renders its own sidebar so a selection or search can take the heading's place.
+            <DocumentContextList
+              {...documentController.contextList}
+              title={CONTEXT_SIDEBAR_TITLES.documents}
+              workspaceId={workspaceId}
+            />
+          ) : (
             <ContextSidebar
               title={CONTEXT_SIDEBAR_TITLES[visiblePage === "costs" ? "workspace" : visiblePage]}
               footer={visiblePage === "admin" ? <AdminContextFooter admin={adminController} /> : null}
@@ -787,8 +926,6 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
                     ? "Loading…"
                     : "Choose a workspace you can access."}
                 </p>
-              ) : visiblePage === "documents" ? (
-                <DocumentContextList {...documentController.contextList} workspaceId={workspaceId} />
               ) : visiblePage === "templates" ? (
                 <TemplateContextList {...templateController.contextList} workspaceId={workspaceId} />
               ) : (
@@ -803,6 +940,15 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             {activePage === "templates" ? <TemplateGenerationModal {...templateController.generationModal} /> : null}
             {activePage === "templates" ? <TemplateJsonModal {...templateController.jsonModal} /> : null}
             <DocumentUploadModal {...documentController.uploadModal} />
+            {palette.status !== "closed" ? (
+              <CommandPalette
+                key={palette.key}
+                context={paletteContext}
+                closing={!isPaletteOpen}
+                onRequestClose={requestPaletteClose}
+                onClose={() => closePalette(palette.key)}
+              />
+            ) : null}
           </>
         }
       >
@@ -923,7 +1069,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             enabled={hasApiAccess}
             onTemplateSaved={templateController.actions.listTemplates}
             maxSourceFileBytes={maxSourceFileBytes}
-            suggestedModels={documentController.contextList.availableModels}
+            suggestedModels={documentController.availableModels}
             workspaceCrumb={workspaceCrumb}
             onOpenWorkspace={() => setActivePage("workspace")}
             modelConfiguration={workspaceModel}

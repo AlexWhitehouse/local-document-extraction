@@ -225,7 +225,8 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
 
     try {
       await options.sourceFiles.delete(source.source_file_key);
-      await write(() => store.markSourceFileCleaned({ jobId: ownerId, sourceFileKey: source.source_file_key, cleanedAt: now() }));
+      // Only the local working copy goes; an intent naming a remote original stays for the sweep.
+      await write(() => store.markSourceFileCleaned({ jobId: ownerId, sourceFileKey: source.source_file_key, cleanedAt: now(), retainedObjectKey: null }));
     } catch {
       // The durable retention sweep retries interrupted cleanup.
     }

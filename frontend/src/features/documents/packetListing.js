@@ -34,31 +34,17 @@ export function singlePacketDocument(packet) {
     : null;
 }
 
-/** A packet is listed when no query is active, it matches the query itself, or one of its documents does. */
-export function isPacketListed(packet, documents, search, filters, hasActiveFilters) {
-  if (!search && !hasActiveFilters) return true;
-  const childIds = new Set((Array.isArray(packet.children) ? packet.children : []).map((child) => child.job_id));
+/**
+ * The IDs behind the Documents list's rows: documents of their own and packets. A packet's
+ * documents are covered by its row.
+ */
+export function listedEntryIds(packets, documents) {
+  const childIds = new Set(
+    packets.flatMap((packet) => (Array.isArray(packet.children) ? packet.children : []).map((child) => child.job_id)),
+  );
 
-  if (documents.some((job) => job.parent_packet_id === packet.packet_id || childIds.has(job.job_id))) return true;
-
-  if (filters.model) return false;
-
-  const query = String(search || "")
-    .trim()
-    .toLowerCase();
-
-  if (
-    query &&
-    ![packet.packet_id, packet.source_name, packet.status].some((value) =>
-      String(value || "")
-        .toLowerCase()
-        .includes(query),
-    )
-  )
-    return false;
-  const date = String(packet.created_at || "").slice(0, 10);
-
-  if (filters.dateFrom && (!date || date < filters.dateFrom)) return false;
-
-  return !filters.dateTo || Boolean(date && date <= filters.dateTo);
+  return {
+    documentIds: documents.flatMap((job) => (job.parent_packet_id || childIds.has(job.job_id) ? [] : [job.job_id])),
+    packetIds: packets.map((packet) => packet.packet_id),
+  };
 }

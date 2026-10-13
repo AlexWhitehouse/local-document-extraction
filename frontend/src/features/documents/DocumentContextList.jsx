@@ -1,24 +1,23 @@
 import { statusLabel, statusTone } from "../../lib/status.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollArea } from "../layout/ScrollArea.jsx";
+import { ContextSidebar } from "../context/ContextSidebar.jsx";
 import { ContextCopyButton } from "../context/ContextCopyButton.jsx";
 import { useRowMotion } from "../context/useRowMotion.js";
 import { NavigationLink } from "../context/NavigationLink.jsx";
 import { appPath } from "../../lib/appRoutes";
-import { isPacketListed, isSingleDocumentPacket, singlePacketDocument, PACKET_STATUS_LABELS } from "./packetListing.js";
+import { isSingleDocumentPacket, singlePacketDocument, PACKET_STATUS_LABELS } from "./packetListing.js";
 import { EmptyState, ErrorState, Skeleton } from "../ui/States.jsx";
 import { Button } from "../ui/Button.jsx";
-import { Field, Select, TextInput } from "../ui/Field.jsx";
-import { Popover } from "../ui/Popover.jsx";
 import { LoadMore } from "../ui/Pager.jsx";
 import { describeError } from "../../lib/describeError";
-import { DocumentIcon, FilterIcon, PacketIcon } from "../layout/Icons.jsx";
+import { DocumentIcon, PacketIcon } from "../layout/Icons.jsx";
 
-const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
+const NOT_TEXT_ENTRY = new Set(["checkbox", "radio", "button", "submit", "reset"]);
 
 export function DocumentContextList({
+  title = "Documents",
   workspaceId,
-  search,
   packets = [],
   selectedPacketId = "",
   packetError = "",
@@ -32,10 +31,15 @@ export function DocumentContextList({
   documents,
   selectedDocumentId,
   selectedDocumentIds = [],
-  debouncedSearch,
-  filters = EMPTY_FILTERS,
-  availableModels = [],
-  hasActiveFilters = false,
+  selectedDocumentCount,
+  totalDocuments = 0,
+  searchFilter = null,
+  matchTotal = 0,
+  matchTotalCapped = false,
+  onClearSearchFilter = () => {},
+  isSelectingAll = false,
+  onSelectAllDocuments = () => {},
+  onClearSelection = () => {},
   hasMoreDocuments,
   isLoadingMoreDocuments,
   listStatus = "ready",
@@ -44,18 +48,15 @@ export function DocumentContextList({
   onRetryDocumentList,
   isDeletingDocuments = false,
   isExportingDocuments = false,
-  onSearchChange,
-  onFiltersChange = () => {},
   onSelectDocument,
   onToggleAllDocumentSelections = () => {},
   onToggleDocumentSelection = () => {},
   onLoadMoreDocuments,
 }) {
   // Keep packet ownership for actions even when its sole document is displayed as a normal row.
-  const items = useMemo(
-    () => buildListItems(packets, documents, debouncedSearch, filters, hasActiveFilters),
-    [packets, documents, debouncedSearch, filters, hasActiveFilters],
-  );
+  // A search lists its matching documents on their own, packet documents included.
+  const isSearching = Boolean(searchFilter);
+  const items = useMemo(() => buildListItems(packets, documents, !isSearching), [packets, documents, isSearching]);
 
   const availableDocumentIds = useMemo(
     () => items.flatMap((item) => (item.kind === "document" ? [String(item.id)] : [])),
@@ -73,20 +74,19 @@ export function DocumentContextList({
   );
 
   const isItemChecked = (item) => selectedIds.has(item.kind === "packet" ? item.key : item.id);
-  const selectedAvailableCount = items.filter(isItemChecked).length;
+  const checkedItemCount = items.filter(isItemChecked).length;
+  const hasSelection = selectedIds.size > 0;
+  const selectedCount = selectedDocumentCount ?? selectedIds.size;
+  const areAllLoadedChecked = items.length > 0 && checkedItemCount === items.length;
+  const hasMore = Boolean(hasMoreDocuments || hasMorePackets);
 
-  const areAllAvailableDocumentsSelected = items.length > 0 && selectedAvailableCount === items.length;
+  // Everything is selected once every row is ticked and nothing is left to load, or every match is picked by ID.
+  const isEverythingSelected = areAllLoadedChecked && (!hasMore || (isSearching && selectedCount >= matchTotal));
 
-  const areSomeAvailableDocumentsSelected = selectedAvailableCount > 0 && !areAllAvailableDocumentsSelected;
-
-  const selectAllLabel = areAllAvailableDocumentsSelected
-    ? "Deselect all available documents"
-    : "Select all available documents";
-
+  const selectAllTotal = isSearching ? matchTotal : totalDocuments;
   const isSelectionLocked = isDeletingDocuments || isExportingDocuments;
-  const isFiltered = Boolean(search || debouncedSearch || hasActiveFilters);
-  // An empty workspace has nothing to search or select; the page body offers the upload.
-  const isWorkspaceEmpty = !items.length && listStatus === "ready" && !isFiltered;
+  // An empty workspace has nothing to select; the page body offers the upload.
+  const isWorkspaceEmpty = !items.length && listStatus === "ready" && !isSearching;
 
   const rowMotion = useRowMotion(
     items,
@@ -101,6 +101,9 @@ export function DocumentContextList({
       : "";
 
   const listRef = useRef(null);
+  const barRef = useRef(null);
+  const selectAllRef = useRef(null);
+  const refocusAfterSelectAll = useRef(false);
   const lastScrolledSelection = useRef(null);
   const focusSelection = useRef(false);
   const [viewport, setViewport] = useState({ top: 0, height: 600 });
@@ -144,42 +147,139 @@ export function DocumentContextList({
     }
   }, [selectedKey, start, end]);
 
-  return (
-    <>
-      {isWorkspaceEmpty ? null : (
-        <div className="context-search-field">
-          <div className="context-search-row">
-            <label className="context-select-all-control" title={selectAllLabel}>
-              <input
-                ref={(checkbox) => {
-                  if (checkbox) {
-                    checkbox.indeterminate = areSomeAvailableDocumentsSelected;
-                  }
-                }}
-                type="checkbox"
-                aria-label={selectAllLabel}
-                checked={areAllAvailableDocumentsSelected}
-                disabled={!items.length || isSelectionLocked}
-                onChange={(event) => {
-                  onToggleAllDocumentSelections(availableDocumentIds, event.target.checked);
+  // "Select all N" goes away once everything is selected; focus moves to the bar's checkbox unless it moved on.
+  useEffect(() => {
+    if (!refocusAfterSelectAll.current || isSelectingAll) return;
+    refocusAfterSelectAll.current = false;
 
-                  for (const id of availablePacketIds) onTogglePacketSelection(id, event.target.checked);
-                }}
-              />
-            </label>
-            <div className="context-search-shell">
-              <Field label="Search documents" labelHidden>
-                <TextInput
-                  value={search}
-                  onChange={(event) => onSearchChange(event.target.value)}
-                  placeholder="e.g. invoice.pdf"
-                />
-              </Field>
-              <AdvancedJobFilters filters={filters} availableModels={availableModels} onFiltersChange={onFiltersChange} />
-            </div>
-          </div>
-        </div>
-      )}
+    if (!document.activeElement || document.activeElement === document.body) selectAllRef.current?.focus();
+  });
+
+  function selectAllLoaded() {
+    onToggleAllDocumentSelections(availableDocumentIds, true);
+
+    for (const id of availablePacketIds) onTogglePacketSelection(id, true);
+  }
+
+  // The bar that held focus goes away with the selection or search, so focus moves to the list.
+  function clearSelection({ refocus = true } = {}) {
+    onClearSelection();
+
+    if (refocus) listRef.current?.focus();
+  }
+
+  function selectEverything() {
+    refocusAfterSelectAll.current = true;
+    onSelectAllDocuments();
+  }
+
+  // ⌘A / Ctrl+A selects every loaded row and Esc clears the selection, unless focus is in a text field.
+  function handleSelectionKeys(event) {
+    if (isTextEntry(event.target) || event.nativeEvent?.isComposing) return;
+
+    const isSelectAll =
+      (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "a";
+
+    if (isSelectAll && items.length && !isSelectionLocked) {
+      event.preventDefault();
+      selectAllLoaded();
+    } else if (event.key === "Escape" && hasSelection && !isSelectionLocked) {
+      event.preventDefault();
+      event.stopPropagation();
+      clearSelection({ refocus: Boolean(barRef.current?.contains(event.target)) });
+    }
+  }
+
+  let head = null;
+
+  if (hasSelection) {
+    head = (
+      <div ref={barRef} className="context-head-bar" role="group" aria-label="Selection" onKeyDown={handleSelectionKeys}>
+        <label className="context-head-check">
+          <input
+            ref={(checkbox) => {
+              selectAllRef.current = checkbox;
+
+              if (checkbox) checkbox.indeterminate = !areAllLoadedChecked;
+            }}
+            type="checkbox"
+            aria-label="Select all documents"
+            checked={areAllLoadedChecked}
+            disabled={!items.length || isSelectionLocked}
+            onChange={() => (areAllLoadedChecked ? clearSelection() : selectAllLoaded())}
+          />
+        </label>
+        <span className="context-head-count" role="status">
+          {formatCount(selectedCount)} selected
+        </span>
+        <span className="context-head-actions">
+          {!isEverythingSelected && selectAllTotal > 0 ? (
+            <>
+              <Button
+                variant="text"
+                size="sm"
+                pending={isSelectingAll}
+                pendingLabel="Selecting…"
+                disabled={isSelectionLocked}
+                onClick={selectEverything}
+              >
+                Select all {formatCount(selectAllTotal)}
+                {isSearching && matchTotalCapped ? "+" : ""}
+              </Button>
+              <span className="context-head-separator" aria-hidden="true">
+                ·
+              </span>
+            </>
+          ) : null}
+          <Button
+            variant="text"
+            size="sm"
+            aria-label="Clear selection"
+            disabled={isSelectionLocked}
+            onClick={() => clearSelection()}
+          >
+            Clear
+          </Button>
+        </span>
+      </div>
+    );
+  } else if (isSearching) {
+    const summary = searchFilter.summary;
+
+    head = (
+      <div className="context-head-bar" role="group" aria-label="Search filter">
+        <span className="context-head-count" role="status">
+          {listStatus === "loading" ? "Searching…" : matchLabel(matchTotal, matchTotalCapped)}
+        </span>
+        {summary ? (
+          <>
+            <span className="context-head-separator" aria-hidden="true">
+              ·
+            </span>
+            <span className="context-head-summary" title={summary}>
+              {summary}
+            </span>
+          </>
+        ) : null}
+        <span className="context-head-actions">
+          <Button
+            variant="text"
+            size="sm"
+            aria-label="Clear search"
+            onClick={() => {
+              onClearSearchFilter();
+              listRef.current?.focus();
+            }}
+          >
+            Clear
+          </Button>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <ContextSidebar title={title} head={head}>
       {packetError ? <ErrorState variant="inline" message={packetError} onRetry={onRetryPackets} /> : null}
       <ScrollArea
         className="context-list"
@@ -188,6 +288,7 @@ export function DocumentContextList({
         aria-label="Document list"
         tabIndex={0}
         style={virtual ? { display: "block" } : undefined}
+        onKeyDown={handleSelectionKeys}
         onScroll={
           virtual
             ? (event) =>
@@ -276,11 +377,20 @@ export function DocumentContextList({
           })}
         </div>
         {listStatus === "error" ? (
-          <ErrorState variant="inline" error={listError} onRetry={onRetryDocumentList} />
+          <ErrorState
+            variant="inline"
+            error={listError}
+            message={
+              isSearching && listError?.code === "invalid_search_filter"
+                ? "This search uses a template or field that's no longer available. Clear it to see every document."
+                : undefined
+            }
+            onRetry={onRetryDocumentList}
+          />
         ) : null}
         {!items.length && listStatus === "loading" ? <Skeleton rows={4} height={44} /> : null}
-        {!items.length && listStatus === "ready" && isFiltered ? (
-          <EmptyState variant="inline" message="No documents match these filters." />
+        {!items.length && listStatus === "ready" && isSearching ? (
+          <EmptyState variant="inline" message="No documents match this search." />
         ) : null}
         {isWorkspaceEmpty ? <EmptyDocumentList /> : null}
         {hasMoreDocuments || hasMorePackets || loadMoreError ? (
@@ -296,8 +406,22 @@ export function DocumentContextList({
           />
         ) : null}
       </ScrollArea>
-    </>
+    </ContextSidebar>
   );
+}
+
+function isTextEntry(target) {
+  if (target?.isContentEditable || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT") return true;
+
+  return target?.tagName === "INPUT" && !NOT_TEXT_ENTRY.has(target.type);
+}
+
+function formatCount(count) {
+  return count.toLocaleString("en-GB");
+}
+
+function matchLabel(total, capped) {
+  return `${formatCount(total)}${capped ? "+" : ""} ${total === 1 && !capped ? "match" : "matches"}`;
 }
 
 // Shaped like the list it stands in for: one row that explains, then faded rows where documents will land.
@@ -326,7 +450,8 @@ function EmptyDocumentList() {
   );
 }
 
-function buildListItems(packets, documents, search, filters, hasActiveFilters) {
+// Grouped lists show a packet's documents in its row; ungrouped ones list every document on its own.
+function buildListItems(packets, documents, grouped) {
   // The packet's child list also identifies children in older cached summaries.
   const childIds = new Set(
     packets.flatMap((packet) => (Array.isArray(packet.children) ? packet.children : []).map((child) => child.job_id)),
@@ -336,7 +461,6 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
   const items = [];
 
   for (const packet of packets) {
-    if (!isPacketListed(packet, documents, search, filters, hasActiveFilters)) continue;
     const childCount = Array.isArray(packet.children) ? packet.children.length : 0;
     const single = isSingleDocumentPacket(packet);
     const child = singlePacketDocument(packet);
@@ -376,7 +500,7 @@ function buildListItems(packets, documents, search, filters, hasActiveFilters) {
   }
 
   for (const job of documents) {
-    if (job.parent_packet_id || childIds.has(job.job_id)) continue;
+    if (grouped && (job.parent_packet_id || childIds.has(job.job_id))) continue;
     items.push({
       kind: "document",
       id: job.job_id,
@@ -402,146 +526,6 @@ function packetTone(status, childStatuses) {
   if (childTones.includes("warning")) return "warning";
 
   return statusTone(status);
-}
-
-function AdvancedJobFilters({ filters, availableModels, onFiltersChange }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [draftFilters, setDraftFilters] = useState(() => ({ ...filters }));
-
-  const activeFilterCount = [filters.dateFrom, filters.dateTo, filters.model].filter(Boolean).length;
-
-  const hasInvalidDateRange = Boolean(
-    draftFilters.dateFrom && draftFilters.dateTo && draftFilters.dateFrom > draftFilters.dateTo,
-  );
-
-  const modelOptions = [
-    ...new Set(
-      [...availableModels.map((model) => String(model || "").trim()), String(draftFilters.model || "").trim()].filter(
-        Boolean,
-      ),
-    ),
-  ].sort((left, right) => left.localeCompare(right));
-
-  useEffect(() => {
-    setDraftFilters(toDraftFilters(filters));
-  }, [filters]);
-
-  function updateDraftFilter(name, value) {
-    setDraftFilters((current) => ({ ...current, [name]: value }));
-  }
-
-  function applyFilters(event) {
-    event.preventDefault();
-
-    if (hasInvalidDateRange) {
-      return;
-    }
-
-    onFiltersChange(draftFilters);
-    setIsOpen(false);
-  }
-
-  function clearFilters() {
-    setDraftFilters(EMPTY_FILTERS);
-    onFiltersChange(EMPTY_FILTERS);
-    setIsOpen(false);
-  }
-
-  function toggleFilters() {
-    if (!isOpen) {
-      setDraftFilters(toDraftFilters(filters));
-    }
-
-    setIsOpen((current) => !current);
-  }
-
-  return (
-    <Popover
-      className="context-filter-control"
-      panelClassName="context-filter-popover"
-      label="Advanced filters"
-      open={isOpen}
-      onClose={() => setIsOpen(false)}
-      trigger={(triggerProps) => (
-        <button
-          type="button"
-          className={`context-filter-trigger${activeFilterCount ? " active" : ""}`}
-          aria-haspopup="dialog"
-          aria-label={`Advanced document filters${activeFilterCount ? `, ${activeFilterCount} active` : ""}`}
-          title="Advanced document filters"
-          onClick={toggleFilters}
-          {...triggerProps}
-        >
-          <FilterIcon />
-          {activeFilterCount ? (
-            <span className="context-filter-count" aria-hidden="true">
-              {activeFilterCount}
-            </span>
-          ) : null}
-        </button>
-      )}
-    >
-      <form className="context-filter-form" onSubmit={applyFilters}>
-        <div className="context-filter-popover-head">
-          <div>
-            <strong>Advanced filters</strong>
-          </div>
-          {activeFilterCount ? <span className="context-filter-active-label">{activeFilterCount} active</span> : null}
-        </div>
-
-        <div className="context-filter-date-grid">
-          <Field label="Date from">
-            <TextInput
-              type="date"
-              value={draftFilters.dateFrom}
-              max={draftFilters.dateTo || undefined}
-              onChange={(event) => updateDraftFilter("dateFrom", event.target.value)}
-            />
-          </Field>
-          <Field label="Date to" error={hasInvalidDateRange ? "Date from must be on or before date to." : ""}>
-            <TextInput
-              type="date"
-              value={draftFilters.dateTo}
-              min={draftFilters.dateFrom || undefined}
-              onChange={(event) => updateDraftFilter("dateTo", event.target.value)}
-            />
-          </Field>
-        </div>
-
-        <Field label="Model used">
-          <Select value={draftFilters.model} onChange={(event) => updateDraftFilter("model", event.target.value)}>
-            <option value="">Any model</option>
-            {modelOptions.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <div className="context-filter-actions">
-          <Button
-            variant="secondary"
-            disabled={!activeFilterCount && !draftFilters.dateFrom && !draftFilters.dateTo && !draftFilters.model}
-            onClick={clearFilters}
-          >
-            Clear
-          </Button>
-          <Button type="submit" disabled={hasInvalidDateRange}>
-            Apply filters
-          </Button>
-        </div>
-      </form>
-    </Popover>
-  );
-}
-
-function toDraftFilters(filters) {
-  return {
-    dateFrom: String(filters.dateFrom || ""),
-    dateTo: String(filters.dateTo || ""),
-    model: String(filters.model || ""),
-  };
 }
 
 function defaultUploadedName(sourceMimeType) {

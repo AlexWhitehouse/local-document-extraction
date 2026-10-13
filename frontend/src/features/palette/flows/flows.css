@@ -1,0 +1,46 @@
+/* Action flows inside the command palette (variant A). Colours come from tokens only. */
+.palette-flow { display: grid; gap: 12px; padding: 12px 14px 14px; }
+.palette-flow-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.palette-flow-head h3 { margin: 0; font-size: var(--font-size-6); font-weight: 600; color: var(--text-0); }
+.palette-flow-sub { min-width: 0; color: var(--text-2); font-size: var(--font-size-4); overflow-wrap: anywhere; }
+.palette-flow-stack { display: grid; gap: 10px; min-width: 0; }
+.palette-flow-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.palette-flow-note { margin-right: auto; color: var(--text-3); font-size: var(--font-size-3); line-height: 1.45; }
+.palette-flow-actions .palette-flow-back { margin-right: auto; }
+.palette-flow-muted { margin: 0; color: var(--text-3); font-size: var(--font-size-3); line-height: 1.45; }
+.palette-flow-explain { margin: 0; color: var(--text-1); font-size: var(--font-size-5); line-height: 1.5; }
+
+/* Loading step at a fixed height. */
+.palette-flow-thinking { display: grid; gap: 10px; min-height: 96px; padding: 14px; color: var(--text-2); font-size: var(--font-size-4); }
+.palette-flow-skeleton { position: relative; display: block; height: 10px; overflow: hidden; background: var(--pane-overlay); }
+.palette-flow-skeleton::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--wash-3), transparent); transform: translateX(-100%); }
+@media (prefers-reduced-motion: no-preference) {
+  .palette-flow-skeleton::before { animation: status-shimmer 1.4s ease-in-out infinite; }
+}
+
+/* Filterable, keyboard-navigable list. */
+.palette-flow-pick { display: grid; gap: 4px; padding: 10px 8px; }
+.palette-flow-group { margin: 6px 0 0; padding: 0 6px; color: var(--text-3); font: var(--font-size-1) var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.palette-flow-options { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.palette-flow-option { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px; color: var(--text-1); cursor: pointer; }
+.palette-flow-option.is-active { background: var(--pane-active); color: var(--text-0); }
+.palette-flow-option-icon { display: grid; flex: none; place-items: center; width: 22px; height: 22px; background: var(--pane-overlay); color: var(--text-2); }
+.palette-flow-option-text { flex: 1; min-width: 0; }
+.palette-flow-option-text strong, .palette-flow-option-text span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-flow-option-text strong { font-size: var(--font-size-5); font-weight: 500; }
+.palette-flow-option-text span { color: var(--text-2); font-size: var(--font-size-3); }
+.palette-flow-option-badge { flex: none; margin-left: auto; }
+
+/* Suggested requests. */
+.palette-flow-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.palette-flow-chip { padding: 4px 9px; border: 1px solid var(--rule-strong); border-radius: 999px; background: transparent; color: var(--text-1); font: inherit; font-size: var(--font-size-4); text-align: left; cursor: pointer; }
+.palette-flow-chip:hover, .palette-flow-chip[aria-pressed="true"] { border-color: var(--tone-success-border); color: var(--text-0); }
+.palette-flow-chip:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+
+/* Forms. */
+.palette-flow-form { display: grid; gap: 10px; }
+.palette-flow-control { display: grid; gap: 4px; justify-items: start; }
+.palette-flow-inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.palette-flow-fields { display: grid; gap: 2px; margin: 0; padding: 6px 8px; border: 1px solid var(--rule-strong); background: var(--pane-raised); }
+.palette-flow-fields legend { padding: 0 4px; color: var(--text-label); font-size: var(--font-size-3); }
+.palette-flow-field { padding: 4px 0; }

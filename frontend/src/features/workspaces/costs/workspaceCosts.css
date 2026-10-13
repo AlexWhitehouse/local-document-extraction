@@ -164,6 +164,7 @@
 .cp-page-excluded { background: repeating-linear-gradient(135deg, var(--rule-strong) 0 1.5px, transparent 1.5px 5px); }
 .table.cp-anatomy-table :is(th, td) { padding-left: 6px; padding-right: 6px; }
 .cp-note { margin: 0; color: var(--text-2); font-size: var(--font-size-3); line-height: 1.5; text-wrap: pretty; }
+.cp-search-spend strong { color: var(--text-0); font-weight: 500; }
 
 /* Tooltip */
 .cp-tip-title { overflow: hidden; color: var(--text-0); font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }

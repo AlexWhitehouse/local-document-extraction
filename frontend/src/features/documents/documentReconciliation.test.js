@@ -39,6 +39,7 @@ function setup(options = {}) {
     listDocuments: vi.fn(async () => page([])),
     getDocument: vi.fn(async (id) => job(id)),
     getFilterOptions: vi.fn(async () => ({ available_models: [] })),
+    searchDocuments: vi.fn(async () => page([])),
     submitDocument: vi.fn(async () => ({ job_id: "new", status: "queued" })),
     deleteDocument: vi.fn(async () => ({ deleted: true })),
     exportDocuments: vi.fn(async () => ({ blob: new Blob() })),
@@ -67,7 +68,31 @@ const entries = () =>
   ["first", "second"].map((id) => ({ id, file: new File([id], `${id}.png`, { type: "image/png" }) }));
 
 describe("Document reconciliation", () => {
-  it("pages packets and documents together, preserves loaded entries on refresh, and resets the range for filters", async () => {
+  it("deletes a large selection a few documents at a time and reports every result", async () => {
+    const { module, requests } = setup();
+    let inFlight = 0;
+    let peak = 0;
+
+    requests.deleteDocument.mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight -= 1;
+
+      return { deleted: true };
+    });
+
+    const ids = Array.from({ length: 30 }, (_, i) => `doc_${i}`);
+    let outcome = [];
+
+    await module.deleteDocuments(ids, { onComplete: (results) => (outcome = results) });
+    expect(requests.deleteDocument).toHaveBeenCalledTimes(30);
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(outcome.map((result) => result.documentId)).toEqual(ids);
+    expect(outcome.every((result) => result.removed)).toBe(true);
+  });
+
+  it("pages packets and documents together, preserves loaded entries on refresh, and lists only matches for a search", async () => {
     const { module, requests, snapshot } = setup();
 
     const children = Array.from({ length: 50 }, (_, i) =>
@@ -102,12 +127,91 @@ describe("Document reconciliation", () => {
     await module.refresh();
     expect(snapshot().documents.filter((job) => !job.parent_packet_id)).toHaveLength(50);
     expect(requests.listDocumentEntries).toHaveBeenCalledTimes(4);
-    requests.listDocumentEntries.mockResolvedValue({ jobs: [], packets: [], total: 100 });
-    module.setFilters({ model: "other" });
-    await Promise.resolve();
+    const filter = { statuses: ["completed"], text: "ordinary" };
+    requests.searchDocuments.mockResolvedValue({ jobs: [children[3], ordinary[7]], total: 2, total_capped: false });
+    module.setSearchFilter({ filter, summary: "Completed · text “ordinary”" });
+    expect(snapshot()).toMatchObject({ documents: [], listStatus: "loading", searchFilter: { filter } });
+    await vi.waitFor(() => expect(snapshot().listStatus).toBe("ready"));
+    // Packet documents are listed on their own; the workspace total stays apart from the match total.
     expect(snapshot().packets).toEqual([]);
-    expect(snapshot().documents).toEqual([]);
+    expect(snapshot().documents.map((row) => row.job_id).sort()).toEqual(["child_3", "ordinary_07"]);
+    expect(snapshot()).toMatchObject({ matchTotal: 2, matchTotalCapped: false, totalDocuments: 100 });
+    expect(requests.searchDocuments).toHaveBeenCalledWith({ filter, cursor: null, limit: 50 });
     expect(requests.listDocuments).not.toHaveBeenCalled();
+    module.setSearchFilter(null);
+    await vi.waitFor(() => expect(snapshot().packets).toEqual([packet]));
+    expect(snapshot().searchFilter).toBeNull();
+  });
+
+  it("runs an applied search again on live updates and never lists a document it didn't match", async () => {
+    const { module, requests, snapshot } = setup();
+    requests.searchDocuments.mockResolvedValueOnce(page([job("match")]));
+    module.setSearchFilter({ filter: { statuses: ["failed"] }, summary: "Failed" });
+    await vi.waitFor(() => expect(snapshot().documents.map((row) => row.job_id)).toEqual(["match"]));
+
+    requests.searchDocuments.mockResolvedValueOnce(page([job("match"), job("now_failed", { status: "failed" })]));
+    module.receiveLiveUpdates([job("other", { status: "queued" }), job("now_failed", { status: "failed" })]);
+    expect(snapshot().documents.map((row) => row.job_id)).toEqual(["match"]);
+    await vi.waitFor(() =>
+      expect(snapshot().documents.map((row) => row.job_id).sort()).toEqual(["match", "now_failed"]),
+    );
+    expect(requests.searchDocuments).toHaveBeenCalledTimes(2);
+  });
+
+  it("selects every match by ID across pages, keeping their statuses for bulk actions", async () => {
+    const { module, requests, snapshot } = setup();
+    requests.searchDocuments.mockImplementation(async ({ idsOnly, cursor }) => {
+      if (!idsOnly) return page([job("a")], { total: 3, has_more: true, next_cursor: "list-2" });
+
+      return cursor
+        ? { job_ids: ["c"], statuses: { c: "processing" }, has_more: false, next_cursor: null }
+        : { job_ids: ["a", "b"], statuses: { a: "completed", b: "failed" }, has_more: true, next_cursor: "ids-2" };
+    });
+    const filter = { text: "acme" };
+    module.setSearchFilter({ filter, summary: "text “acme”" });
+    await vi.waitFor(() => expect(snapshot().documents).toHaveLength(1));
+
+    await expect(module.selectAllMatches()).resolves.toBe(true);
+    expect(requests.searchDocuments).toHaveBeenCalledWith({ filter, cursor: null, limit: 500, idsOnly: true });
+    expect(requests.searchDocuments).toHaveBeenCalledWith({ filter, cursor: "ids-2", limit: 500, idsOnly: true });
+    expect(snapshot().selectedDocumentIds).toEqual(["a", "b", "c"]);
+    expect(snapshot().selectionStatuses).toEqual({ a: "completed", b: "failed", c: "processing" });
+
+    module.toggleSelection(["b"], false);
+    expect(snapshot().selectedDocumentIds).toEqual(["a", "c"]);
+    await module.deleteDocuments(["c"]);
+    expect(snapshot().selectedDocumentIds).toEqual(["a"]);
+    module.clearSelection();
+    expect(snapshot()).toMatchObject({ selectedDocumentIds: [], selectionStatuses: {} });
+  });
+
+  it("loads every remaining page for a select-all and shares a page already loading", async () => {
+    const { module, requests, snapshot } = setup();
+    const second = deferred();
+    requests.listDocuments
+      .mockResolvedValueOnce(page([job("a")], { total: 3, has_more: true, next_cursor: "p2" }))
+      .mockReturnValueOnce(second.promise)
+      .mockResolvedValueOnce(page([job("c")], { total: 3 }));
+    await module.refresh();
+    const loadMore = module.refresh({ append: true });
+    const all = module.loadAll();
+    second.resolve(page([job("b")], { total: 3, has_more: true, next_cursor: "p3" }));
+    await loadMore;
+    await expect(all).resolves.toBe(true);
+    expect(requests.listDocuments).toHaveBeenCalledTimes(3);
+    expect(requests.listDocuments.mock.calls.map(([options]) => options.cursor)).toEqual([null, "p2", "p3"]);
+    expect(snapshot().documents.map((row) => row.job_id).sort()).toEqual(["a", "b", "c"]);
+    expect(snapshot().hasMore).toBe(false);
+  });
+
+  it("throws a failed page from a select-all load", async () => {
+    const { module, requests } = setup();
+    const failure = Object.assign(new Error("Page failed"), { status: 500 });
+    requests.listDocuments
+      .mockResolvedValueOnce(page([job("a")], { has_more: true, next_cursor: "p2" }))
+      .mockRejectedValueOnce(failure);
+    await module.refresh();
+    await expect(module.loadAll()).rejects.toBe(failure);
   });
 
   it("does not overwrite packet admissions or resurrect packet deletions with an overlapping list", async () => {
@@ -126,7 +230,7 @@ describe("Document reconciliation", () => {
     expect(snapshot().packets.map((packet) => packet.packet_id)).toEqual(["admitted"]);
   });
 
-  it("keeps an explicit Document outside list pages and filters, then confirms remote deletion by detail", async () => {
+  it("keeps an explicit Document outside list pages and searches, then confirms remote deletion by detail", async () => {
     const { module, requests, snapshot, configure } = setup();
     configure({ routeDocumentId: "linked" });
     requests.getDocument.mockResolvedValue(job("linked", { status: "completed", model_name: "original" }));
@@ -135,14 +239,14 @@ describe("Document reconciliation", () => {
     await module.refresh();
     expect(snapshot().selectedDocumentId).toBe("linked");
     expect(requests.getDocument).toHaveBeenCalledTimes(1);
-    module.setFilters({ model: "other" });
+    module.setSearchFilter({ filter: { model: "other" }, summary: "model “other”" });
     requests.listDocuments.mockResolvedValue(page([]));
     await module.refresh();
     expect(snapshot().selectedDocument?.job_id).toBe("linked");
     expect(snapshot().documents).toEqual([]);
     expect(requests.getDocument).toHaveBeenCalledTimes(1);
     requests.getDocument.mockRejectedValue(Object.assign(new Error("Deleted"), { status: 404 }));
-    module.setFilters({});
+    module.setSearchFilter(null);
     await module.refresh();
     expect(snapshot().selectedDocumentId).toBe("linked");
     expect(snapshot().selectedDocument).toBeNull();
@@ -376,31 +480,33 @@ describe("Document reconciliation", () => {
     requests.listDocuments.mockReturnValueOnce(more.promise);
     const append = module.refresh({ append: true });
     expect(requests.listDocuments.mock.lastCall[0].cursor).toBe("page-2");
-    requests.listDocuments.mockResolvedValueOnce(page([job("filtered", { model_name: "other" })], { total: 20 }));
-    module.setFilters({ model: "other" });
+    requests.searchDocuments.mockResolvedValueOnce(page([job("filtered", { model_name: "other" })], { total: 3 }));
+    module.setSearchFilter({ filter: { model: "other" }, summary: "model “other”" });
     await Promise.resolve();
     more.resolve(page([job("old-page", { model_name: "other" })], { has_more: true, next_cursor: "page-3" }));
     await append;
-    expect(snapshot().documents.map(({ job_id }) => job_id)).toEqual(["filtered"]);
-    expect(snapshot()).toMatchObject({ hasMore: false, nextCursor: null, totalDocuments: 20, loadingMore: false });
+    await vi.waitFor(() => expect(snapshot().documents.map(({ job_id }) => job_id)).toEqual(["filtered"]));
+    expect(snapshot()).toMatchObject({
+      hasMore: false,
+      nextCursor: null,
+      totalDocuments: 20,
+      matchTotal: 3,
+      loadingMore: false,
+    });
   });
 
-  it("debounces search and rejects a list that started before the search changed", async () => {
-    vi.useFakeTimers();
+  it("rejects a list that started before a search was applied", async () => {
     const { module, requests, snapshot } = setup();
     const pending = deferred();
     requests.listDocuments.mockReturnValueOnce(pending.promise);
     const refresh = module.refresh();
-    module.setSearch("fir");
-    module.setSearch("first");
-    pending.resolve(page([job("stale")]));
+    requests.searchDocuments.mockResolvedValue(page([job("current", { model_name: "model-a" })]));
+    module.setSearchFilter({ filter: { model: "model-a" }, summary: "model “model-a”" });
+    pending.resolve(page([job("stale", { model_name: "model-a" })]));
     await refresh;
-    expect(snapshot().documents).toEqual([]);
-    requests.listDocuments.mockResolvedValue(page([job("first")]));
-    await vi.advanceTimersByTimeAsync(250);
-    expect(requests.listDocuments).toHaveBeenCalledTimes(2);
-    expect(requests.listDocuments.mock.lastCall[0].search).toBe("first");
-    expect(snapshot().documents[0].job_id).toBe("first");
+    await vi.waitFor(() => expect(snapshot().documents.map(({ job_id }) => job_id)).toEqual(["current"]));
+    expect(requests.listDocuments).toHaveBeenCalledTimes(1);
+    expect(requests.searchDocuments.mock.lastCall[0]).toEqual({ filter: { model: "model-a" }, cursor: null, limit: 50 });
   });
 
   it("does not resurrect deleted Documents from pending reads or live updates and repairs selection/counts", async () => {
@@ -506,7 +612,7 @@ describe("Document reconciliation", () => {
     expect(requests.getFilterOptions).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps cached completed details on initial resolution and prunes only complete unfiltered lists", async () => {
+  it("keeps cached completed details on initial resolution and prunes only complete lists without a search", async () => {
     const { module, requests, cache, configure, snapshot } = setup();
     cache.store("workspace-a", job("a", { status: "completed", results: [{ answer: "42" }] }));
     cache.store("workspace-a", job("b", { status: "completed", results: [{ answer: "other" }] }));
@@ -519,12 +625,11 @@ describe("Document reconciliation", () => {
     expect(requests.getDocument).not.toHaveBeenCalled();
     expect(cache.get("workspace-a", "b")).not.toBeNull();
     requests.listDocuments.mockResolvedValue(page([]));
-    module.setFilters({ model: "other" });
-    await Promise.resolve();
+    module.setSearchFilter({ filter: { model: "other" }, summary: "model “other”" });
+    await vi.waitFor(() => expect(snapshot().listStatus).toBe("ready"));
     expect(cache.get("workspace-a", "b")).not.toBeNull();
-    module.setFilters({});
-    await Promise.resolve();
-    expect(cache.get("workspace-a", "b")).toBeNull();
+    module.setSearchFilter(null);
+    await vi.waitFor(() => expect(cache.get("workspace-a", "b")).toBeNull());
     cache.store("workspace-a", job("a", { status: "completed" }));
     configure({ workspaceId: "workspace-b" });
     expect(cache.get("workspace-a", "a")).toBeNull();

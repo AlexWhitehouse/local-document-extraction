@@ -6,13 +6,11 @@ import { WorkspaceContextList } from "./WorkspaceContextList.jsx";
 function listProps(overrides = {}) {
   return {
     routed: false,
-    search: "",
     workspaces: [{ id: "workspace_a", name: "Intake" }],
     selectedWorkspaceId: "",
     selectedWorkspaceInvitationId: "",
     isLoading: false,
     hasResolutionError: false,
-    onSearchChange: vi.fn(),
     onSelectAcceptedWorkspace: vi.fn(),
     onSelectInvitedWorkspace: vi.fn(),
     onRetryResolution: vi.fn(),
@@ -39,15 +37,10 @@ describe("WorkspaceContextList", () => {
     expect(onRetryResolution).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the empty message for a search with no matches", () => {
-    render(<WorkspaceContextList {...listProps({ workspaces: [], search: "nope" })} />);
-
-    expect(screen.getByText("No workspaces match this search.")).toBeTruthy();
-  });
-
-  it("labels the search field", () => {
+  it("has no search field; search lives in the command palette", () => {
     render(<WorkspaceContextList {...listProps()} />);
 
-    expect(screen.getByLabelText("Search workspaces")).toBeTruthy();
+    expect(screen.queryByRole("search")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 });

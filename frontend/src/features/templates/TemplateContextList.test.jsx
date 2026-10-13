@@ -8,11 +8,9 @@ const templates = Array.from({ length: 30 }, (_, index) => ({ id: `template_${in
 function listProps(overrides = {}) {
   return {
     workspaceId: "",
-    search: "",
     templates,
     selectedTemplateId: "",
     isEditingTemplate: false,
-    onSearchChange: vi.fn(),
     onSelectDraftTemplate: vi.fn(),
     onSelectTemplate: vi.fn(),
     onCreateTemplate: vi.fn(),
@@ -24,11 +22,9 @@ function listProps(overrides = {}) {
 function renderList(overrides = {}) {
   const props = {
     workspaceId: "",
-    search: "",
     templates,
     selectedTemplateId: "",
     isEditingTemplate: false,
-    onSearchChange: vi.fn(),
     onSelectDraftTemplate: vi.fn(),
     onSelectTemplate: vi.fn(),
     ...overrides,
@@ -54,16 +50,6 @@ describe("TemplateContextList", () => {
     await user.click(screen.getByRole("button", { name: /Load more templates/ }));
     expect(listedTemplates()).toHaveLength(30);
     expect(screen.queryByRole("button", { name: /Load more templates/ })).toBeNull();
-  });
-
-  it("returns to the first page when the search changes", async () => {
-    const user = userEvent.setup();
-    renderList();
-
-    await user.click(screen.getByRole("button", { name: /Load more templates/ }));
-    expect(listedTemplates()).toHaveLength(24);
-    await user.type(screen.getByLabelText("Search templates"), "2");
-    expect(listedTemplates()).toHaveLength(12);
   });
 
   it("shows loading as a skeleton and errors with Try again in place of the rows", async () => {
@@ -98,10 +84,10 @@ describe("TemplateContextList", () => {
     expect(onAutoGenerateTemplate).toHaveBeenCalledTimes(1);
   });
 
-  it("does not offer create actions when a search matches nothing", () => {
-    render(<TemplateContextList {...listProps({ templates: [], search: "zzz" })} />);
+  it("has no search field; search lives in the command palette", () => {
+    renderList();
 
-    expect(screen.getByText("No templates match this search.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Create template" })).toBeNull();
+    expect(screen.queryByRole("search")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { HttpError, toHttpError } from "./lib/http";
 import type { LocalAuth } from "./localAuth";
-import { authorizeWorkspaceUser, type DelegatedProductAccess } from "./localActor";
+import { authorizeWorkspaceUser, canReadCosts, type DelegatedProductAccess } from "./localActor";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import {
   LocalWorkspaceProductDataAccessError,
@@ -23,7 +23,7 @@ export async function handleWorkspaceCosts(input: {
   try {
     const { workspace, assertAuthorized } = await authorizeWorkspaceUser(input);
 
-    if (!workspace || !["owner", "admin"].includes(workspace.role))
+    if (!canReadCosts(workspace))
       throw new HttpError(403, "forbidden", "Costs are visible to Workspace owners and admins.");
 
     if (input.request.method !== "GET")

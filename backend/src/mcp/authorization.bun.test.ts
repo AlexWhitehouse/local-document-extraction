@@ -9,6 +9,7 @@ import { parseJson, type JsonObject } from "../../../shared/json";
 import type { LocalMailMessage } from "../localMailSink";
 import { createMcpOperationStore } from "./operations";
 import { actorFor } from "./grants";
+import { actorCanReadCosts } from "../localActor";
 import { createLocalWorkspaceProductStore } from "../localWorkspaceProductStore";
 import { createLocalAuth } from "../localAuth";
 import { createLocalApplication } from "../localApplication";
@@ -583,4 +584,30 @@ test("discovery, modern protocol and request limits use protocol responses", asy
   const large = await fetch(`${app.origin}/mcp`, { method: "POST", headers, body: JSON.stringify({ padding: "x".repeat(270_000) }) });
   expect(large.status).toBe(413);
   expect((await app.request("/mcp")).status).toBe(405);
+});
+
+test("a delegated connection may read costs for search only with the costs scope and an owner or admin role", async () => {
+  const app = await fixture();
+  await app.connect("workspace:read workspace:costs offline_access");
+  const grants = app.auth.mcp!.grants;
+  const grant = grants.list(app.userId)[0]!;
+
+  const canRead = (scopes?: string[]) => {
+    const actor = actorFor(grant, scopes);
+
+    return actorCanReadCosts({
+      actor,
+      workspaceId: app.workspace.id,
+      workspaceControl: app.control,
+      delegation: { actor, grants, scope: "workspace:read" },
+    });
+  };
+
+  expect(canRead()).toBe(true);
+  // The token in use doesn't carry the costs scope.
+  expect(canRead(["workspace:read", "offline_access"])).toBe(false);
+  app.database.query("UPDATE workspace_memberships SET role = 'admin' WHERE workspace_id = ? AND user_id = ?").run(app.workspace.id, app.userId);
+  expect(canRead()).toBe(true);
+  app.database.query("UPDATE workspace_memberships SET role = 'member' WHERE workspace_id = ? AND user_id = ?").run(app.workspace.id, app.userId);
+  expect(canRead()).toBe(false);
 });

@@ -129,14 +129,6 @@ export function ExternalIcon(props) {
   );
 }
 
-export function FilterIcon(props) {
-  return (
-    <Icon {...props}>
-      <path d="M4 5h16M7 12h10M10 19h4" />
-    </Icon>
-  );
-}
-
 export function PacketIcon(props) {
   return (
     <Icon {...props}>
@@ -239,6 +231,15 @@ export function AdminIcon(props) {
   return (
     <Icon {...props}>
       <path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6Z" />
+    </Icon>
+  );
+}
+
+export function SearchIcon(props) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="11" r="6" />
+      <path d="m20 20-4.5-4.5" />
     </Icon>
   );
 }

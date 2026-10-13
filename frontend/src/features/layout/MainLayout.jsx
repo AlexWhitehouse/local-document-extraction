@@ -3,10 +3,12 @@ import { NavigationLink } from "../context/NavigationLink.jsx";
 import { IconButton } from "../ui/Button.jsx";
 import { Tooltip } from "../ui/Tooltip.jsx";
 import { ContextDrawerContext } from "./ContextDrawerContext.js";
+import { paletteShortcutLabel } from "../palette/paletteState.js";
 import {
   AdminIcon,
   DocumentIcon,
   EvaluationIcon,
+  SearchIcon,
   SidebarIcon,
   TemplateIcon,
   UploadIcon,
@@ -60,6 +62,8 @@ export function MainLayout({
   onNavigate,
   navigationHref,
   onUploadDocument,
+  onOpenSearch,
+  isSearchDisabled = false,
   profileSlot,
   contextSidebar,
   contextListLabel = "",
@@ -112,6 +116,35 @@ export function MainLayout({
     uploadButton
   );
 
+  const searchShortcut = paletteShortcutLabel();
+
+  const searchButton = onOpenSearch ? (
+    <button
+      type="button"
+      className="sidebar-search-button"
+      aria-haspopup="dialog"
+      aria-keyshortcuts={searchShortcut.aria}
+      disabled={isSearchDisabled}
+      onClick={onOpenSearch}
+    >
+      <span className="sidebar-search-icon" aria-hidden="true">
+        <SearchIcon />
+      </span>
+      <span className="sidebar-search-label">Search</span>
+      <kbd aria-hidden="true">{searchShortcut.text}</kbd>
+    </button>
+  ) : null;
+
+  // The collapsed rail shows the label and shortcut as a tooltip; the button keeps its name.
+  const searchControl =
+    searchButton && isSidebarCollapsed ? (
+      <Tooltip content={`Search (${searchShortcut.text})`} placement="right" describe={false}>
+        {searchButton}
+      </Tooltip>
+    ) : (
+      searchButton
+    );
+
   const drawerValue = contextSidebar ? { ...contextDrawer, label: contextListLabel } : null;
 
   return (
@@ -136,6 +169,8 @@ export function MainLayout({
               onClick={toggleSidebar}
             />
           </div>
+
+          {searchControl}
 
           <SidebarNavigation
             activePage={activePage}
@@ -215,9 +250,14 @@ function useContextDrawer(hasContextList) {
 
   useEffect(() => {
     if (isOpen) {
-      // The search field comes first when the list has one; otherwise the first control.
+      // The list's search field when it has one (admin), then the selected row, the first row, or the first control.
       const drawerEl = hostRef.current?.querySelector(".context-sidebar");
-      const target = drawerEl?.querySelector("input:not(:disabled)") ?? drawerEl?.querySelector("button:not(:disabled)");
+
+      const target =
+        drawerEl?.querySelector('input:not([type="checkbox"]):not(:disabled)') ??
+        drawerEl?.querySelector('[data-context-select][aria-current="true"]') ??
+        drawerEl?.querySelector("[data-context-select]") ??
+        drawerEl?.querySelector("button:not(:disabled)");
 
       target?.focus();
     } else if (wasOpenRef.current && openerRef.current?.isConnected) {

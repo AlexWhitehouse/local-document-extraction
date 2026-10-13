@@ -5,7 +5,10 @@ const LIVE_STATUSES = new Set(["queued", "processing"]);
 
 const TERMINAL_STATUSES = new Set(["completed", "failed"]);
 
-const EMPTY_FILTERS = { dateFrom: "", dateTo: "", model: "" };
+// Search pages match the palette's result pages; ID pages are the search route's largest.
+const SEARCH_PAGE_SIZE = 50;
+
+const SEARCH_IDS_PAGE_SIZE = 500;
 
 const normalizeId = (value) => String(value || "").trim();
 
@@ -34,9 +37,12 @@ function emptySnapshot(scopeKey = "") {
     selectedDocument: null,
     selectedDocumentId: "",
     selectedDocumentIds: [],
-    search: "",
-    debouncedSearch: "",
-    filters: { ...EMPTY_FILTERS },
+    // Statuses of selected documents picked by ID, which may not be loaded as rows.
+    selectionStatuses: {},
+    // A palette search applied to the list: { filter, summary }, or null for every document.
+    searchFilter: null,
+    matchTotal: 0,
+    matchTotalCapped: false,
     availableModels: [],
     totalDocuments: 0,
     nextCursor: null,
@@ -104,9 +110,10 @@ export function createDocumentReconciliation({
     const next = { ...snapshot, ...patch };
     next.packets = [...ctx.packets.values()].sort(sortDocuments);
 
-    if (ctx.rowsDirty || next.debouncedSearch !== snapshot.debouncedSearch || next.filters !== snapshot.filters) {
+    if (ctx.rowsDirty || next.searchFilter !== snapshot.searchFilter) {
+      // While a search is applied, only its matches are listed; other rows stay for details and live updates.
       next.documents = [...ctx.rows.values()]
-        .filter((job) => matchesQuery(job, next.debouncedSearch, next.filters))
+        .filter((job) => !next.searchFilter || ctx.matches.has(job.job_id))
         .sort(sortDocuments);
       ctx.visible = new Set(next.documents.map((job) => job.job_id));
       ctx.rowsDirty = false;
@@ -114,10 +121,10 @@ export function createDocumentReconciliation({
 
     next.selectedDocument = ctx.routeDocumentId
       ? ctx.rows.get(ctx.routeDocumentId) || null
-      : next.documents.find((job) => job.job_id === next.selectedDocumentId) || next.documents[0] || null;
+      : (next.selectedDocumentId && ctx.rows.get(next.selectedDocumentId)) || next.documents[0] || null;
     next.selectedDocumentId = ctx.routeDocumentId || next.selectedDocument?.job_id || "";
     next.selectedDocumentError = ctx.detailErrors.get(next.selectedDocumentId) || "";
-    const selected = next.selectedDocumentIds.filter((id) => ctx.visible.has(id));
+    const selected = next.selectedDocumentIds.filter((id) => ctx.visible.has(id) || ctx.selectionStatuses.has(id));
 
     if (selected.length !== next.selectedDocumentIds.length) next.selectedDocumentIds = selected;
     snapshot = next;
@@ -129,7 +136,6 @@ export function createDocumentReconciliation({
     context.active = false;
     clearTimeout(context.refreshTimer);
     clearTimeout(context.countsTimer);
-    clearTimeout(context.searchTimer);
 
     for (const url of context.previews.values()) revokePreview(url);
     context.previews.clear();
@@ -197,8 +203,11 @@ export function createDocumentReconciliation({
       packets: new Map(),
       deletedPackets: new Set(),
       listBoundary: null,
+      appending: null,
       rowsDirty: true,
       visible: new Set(),
+      matches: new Set(),
+      selectionStatuses: new Map(),
       routeDocumentId,
       detailErrors: new Map(),
       revision: 0,
@@ -210,7 +219,6 @@ export function createDocumentReconciliation({
       hydrated: new Map(),
       modelsRequest: null,
       refreshTimer: null,
-      searchTimer: null,
       countsTimer: null,
       countsRequest: 0,
     };
@@ -334,9 +342,21 @@ export function createDocumentReconciliation({
     return next;
   }
 
-  async function refresh({ append = false } = {}) {
+  // A page append already in flight is shared, so "Load more" and a select-all never read the same page twice.
+  function refresh({ append = false } = {}) {
     const ctx = context;
 
+    if (!append || !ctx) return readList(ctx, { append });
+
+    if (!ctx.appending)
+      ctx.appending = readList(ctx, { append: true }).finally(() => {
+        ctx.appending = null;
+      });
+
+    return ctx.appending;
+  }
+
+  async function readList(ctx, { append }) {
     if (!ctx || !isCurrent(ctx)) return;
 
     if (append && (!snapshot.hasMore || !snapshot.nextCursor || snapshot.loadingMore)) return;
@@ -344,7 +364,9 @@ export function createDocumentReconciliation({
     const requestId = ++ctx.listRequest;
     const countsRequestId = ++ctx.countsRequest;
     const revision = ctx.revision;
-    const { debouncedSearch: search, filters, nextCursor } = snapshot;
+    const { searchFilter, nextCursor } = snapshot;
+    // Grouped entries and searches page by a cursor, so a refresh rereads every page it had loaded.
+    const rereadsPages = Boolean(searchFilter || ctx.requests.listDocumentEntries);
     publish(ctx, append ? { loadingMore: true, loadMoreError: null } : { loadingMore: false });
 
     try {
@@ -359,9 +381,13 @@ export function createDocumentReconciliation({
 
       do {
         visited.add(cursor);
-        data = ctx.requests.listDocumentEntries
-          ? await ctx.requests.listDocumentEntries({ search, filters, cursor })
-          : await ctx.requests.listDocuments({ search, filters, cursor });
+
+        if (searchFilter)
+          data = await ctx.requests.searchDocuments({ filter: searchFilter.filter, cursor, limit: SEARCH_PAGE_SIZE });
+        else
+          data = ctx.requests.listDocumentEntries
+            ? await ctx.requests.listDocumentEntries({ cursor })
+            : await ctx.requests.listDocuments({ cursor });
 
         if (!isCurrent(ctx) || queryRevision !== ctx.queryRevision || requestId !== ctx.listRequest) return;
         const pageJobs = Array.isArray(data?.jobs) ? data.jobs : [];
@@ -377,13 +403,12 @@ export function createDocumentReconciliation({
         last = entries.at(-1);
         cursor = data?.next_cursor;
 
-        if (!ctx.requests.listDocumentEntries || append || !boundary || !last || compareEntries(last, boundary) >= 0)
-          break;
+        if (!rereadsPages || append || !boundary || !last || compareEntries(last, boundary) >= 0) break;
       } while (data?.has_more && cursor && !visited.has(cursor));
 
       if (!isCurrent(ctx) || queryRevision !== ctx.queryRevision || requestId !== ctx.listRequest) return;
 
-      if (ctx.requests.listDocumentEntries) ctx.listBoundary = last || null;
+      if (rereadsPages) ctx.listBoundary = last || null;
       const listedPackets = new Set(packets.map((packet) => packet.packet_id));
 
       for (const packet of packets) {
@@ -406,6 +431,8 @@ export function createDocumentReconciliation({
       const listed = new Set(jobs.map((job) => normalizeId(job.job_id)));
       let overlap = ctx.revision !== revision;
 
+      if (searchFilter) ctx.matches = append ? new Set([...ctx.matches, ...listed]) : listed;
+
       for (const job of jobs) {
         const id = normalizeId(job.job_id);
 
@@ -427,15 +454,16 @@ export function createDocumentReconciliation({
       }
 
       if (!append && !data?.has_more && !overlap) {
-        cached("pruneFromJobList", ctx.workspaceId, jobs, {
-          filtered: Boolean(search || Object.values(filters).some(Boolean)),
-        });
+        cached("pruneFromJobList", ctx.workspaceId, jobs, { filtered: Boolean(searchFilter) });
       }
 
       const total = Number.isFinite(data?.total) ? data.total : jobs.length;
+      // A search total counts matches; the workspace total keeps coming from lists and counts.
+      const keepsTotal = searchFilter || ctx.countRevision > revision || countsRequestId !== ctx.countsRequest;
       publish(ctx, {
-        totalDocuments:
-          ctx.countRevision > revision || countsRequestId !== ctx.countsRequest ? snapshot.totalDocuments : total,
+        matchTotal: searchFilter ? total : 0,
+        matchTotalCapped: Boolean(searchFilter) && data?.total_capped === true,
+        totalDocuments: keepsTotal ? snapshot.totalDocuments : total,
         statusCounts:
           !overlap && countsRequestId === ctx.countsRequest && data?.status_counts
             ? data.status_counts
@@ -447,13 +475,12 @@ export function createDocumentReconciliation({
         listError: append ? snapshot.listError : null,
       });
 
-      // Partial/filtered lists cannot disprove a deep link. A complete list
+      // Partial or searched lists cannot disprove a deep link. A complete list
       // missing it warrants an authoritative detail read (for remote deletion).
       if (
         !append &&
         !data?.has_more &&
-        !search &&
-        !Object.values(filters).some(Boolean) &&
+        !searchFilter &&
         ctx.routeDocumentId &&
         !listed.has(ctx.routeDocumentId)
       )
@@ -484,23 +511,23 @@ export function createDocumentReconciliation({
     void refresh();
   }
 
-  function setSearch(search) {
+  // Lists the documents matching a palette search ({ filter, summary }), or every document again
+  // for null. A new search starts with nothing selected.
+  function setSearchFilter(search) {
     const ctx = context;
 
     if (!ctx) return;
-    ctx.queryRevision += 1;
-    clearTimeout(ctx.searchTimer);
-    publish(ctx, { search, nextCursor: null, hasMore: false });
-    ctx.searchTimer = setTimeout(() => {
-      ctx.searchTimer = null;
-
-      if (isCurrent(ctx)) setQuery({ debouncedSearch: search.trim() });
-    }, 250);
-  }
-
-  function setFilters(filters) {
+    const filter = search?.filter;
+    ctx.matches = new Set();
+    ctx.selectionStatuses.clear();
     setQuery({
-      filters: Object.fromEntries(Object.keys(EMPTY_FILTERS).map((key) => [key, normalizeId(filters?.[key])])),
+      searchFilter: filter && Object.keys(filter).length ? { filter, summary: String(search.summary || "") } : null,
+      selectedDocumentIds: [],
+      selectionStatuses: {},
+      matchTotal: 0,
+      matchTotalCapped: false,
+      listStatus: "loading",
+      listError: null,
     });
   }
 
@@ -511,6 +538,74 @@ export function createDocumentReconciliation({
 
     for (const job of jobs) merge(ctx, job, { countNew: true });
     publish(ctx);
+
+    // A change can add or remove matches, so an applied search runs again.
+    if (jobs.length && snapshot.searchFilter) scheduleRefresh(ctx);
+  }
+
+  // Reads every list page still to load, so a selection can cover every document. Resolves true once
+  // nothing is left, false when the list moved to another workspace or search. A failed page throws.
+  async function loadAll() {
+    const ctx = context;
+
+    if (!ctx) return false;
+    const queryRevision = ctx.queryRevision;
+    let stalled = 0;
+
+    while (isCurrent(ctx) && queryRevision === ctx.queryRevision && snapshot.listStatus === "ready") {
+      if (!snapshot.hasMore) return true;
+      const cursor = snapshot.nextCursor;
+      await refresh({ append: true });
+
+      if (snapshot.loadMoreError) throw snapshot.loadMoreError;
+
+      // A refresh that replaced the page in flight leaves the cursor in place; give up if that keeps happening.
+      stalled = snapshot.nextCursor === cursor && snapshot.hasMore ? stalled + 1 : 0;
+
+      if (stalled > 2) return false;
+    }
+
+    return false;
+  }
+
+  // Selects every document matching the applied search, loaded or not. The search route lists their
+  // IDs and statuses in pages of 500; the statuses let bulk actions skip in-progress documents.
+  async function selectAllMatches() {
+    const ctx = context;
+    const search = snapshot.searchFilter;
+
+    if (!ctx || !isCurrent(ctx) || !search) return false;
+    const queryRevision = ctx.queryRevision;
+    const statuses = new Map();
+    const visited = new Set();
+    let cursor = null;
+
+    do {
+      visited.add(cursor);
+      let data;
+
+      try {
+        data = await ctx.requests.searchDocuments({
+          filter: search.filter,
+          cursor,
+          limit: SEARCH_IDS_PAGE_SIZE,
+          idsOnly: true,
+        });
+      } catch (error) {
+        if (isCurrent(ctx) && error.status === 403) emit(ctx, "onAccessDenied");
+        throw error;
+      }
+
+      if (!isCurrent(ctx) || queryRevision !== ctx.queryRevision) return false;
+
+      for (const id of data.job_ids) if (!ctx.deleted.has(id)) statuses.set(id, String(data.statuses[id] || ""));
+      cursor = data.has_more ? data.next_cursor : null;
+    } while (cursor && !visited.has(cursor));
+
+    ctx.selectionStatuses = statuses;
+    publish(ctx, { selectedDocumentIds: [...statuses.keys()], selectionStatuses: Object.fromEntries(statuses) });
+
+    return true;
   }
 
   function receivePackets(packets) {
@@ -550,6 +645,7 @@ export function createDocumentReconciliation({
     ctx.detailErrors.set(id, "missing");
     scheduleCountsRefresh(ctx);
     ctx.rows.delete(id);
+    ctx.selectionStatuses.delete(id);
     ctx.rowsDirty = true;
 
     if (ctx.known.delete(id)) {
@@ -798,8 +894,11 @@ export function createDocumentReconciliation({
     publish(ctx, { deleting: true });
 
     try {
-      const results = await Promise.all(
-        [...new Set(ids.map(normalizeId))].map(async (id) => {
+      // "Select all" can reach every document, so deletions run a few at a time rather than all at once.
+      const results = await mapWithConcurrency(
+        [...new Set(ids.map(normalizeId))],
+        DELETE_CONCURRENCY,
+        async (id) => {
           let alreadyRemoved = false;
 
           try {
@@ -817,7 +916,7 @@ export function createDocumentReconciliation({
           if (isCurrent(ctx)) remove(ctx, id);
 
           return { documentId: id, removed: true, alreadyRemoved };
-        }),
+        },
       );
 
       if (!isCurrent(ctx)) return;
@@ -858,30 +957,18 @@ export function createDocumentReconciliation({
     refresh,
     loadDetails,
     loadModels,
+    loadAll,
+    selectAllMatches,
     ensureSelectedDetails,
-    setSearch,
-    setFilters,
+    setSearchFilter,
     receiveLiveUpdates,
     receivePackets,
     removePackets,
     submitBatch,
     deleteDocuments,
     exportDocuments,
-    selectDocument: (id, { clearFilters = false } = {}) => {
-      if (!context) return;
-
-      if (clearFilters) {
-        clearTimeout(context.searchTimer);
-        context.queryRevision += 1;
-        context.listBoundary = null;
-        publish(context, {
-          selectedDocumentId: normalizeId(id),
-          search: "",
-          debouncedSearch: "",
-          filters: { ...EMPTY_FILTERS },
-        });
-        scheduleRefresh(context);
-      } else publish(context, { selectedDocumentId: normalizeId(id) });
+    selectDocument: (id) => {
+      if (context) publish(context, { selectedDocumentId: normalizeId(id) });
     },
     toggleSelection: (ids, selected) => {
       if (!context) return;
@@ -889,10 +976,21 @@ export function createDocumentReconciliation({
 
       for (const id of ids.map(normalizeId)) {
         if (selected) selection.add(id);
-        else selection.delete(id);
+        else {
+          selection.delete(id);
+          context.selectionStatuses.delete(id);
+        }
       }
 
-      publish(context, { selectedDocumentIds: [...selection] });
+      publish(context, {
+        selectedDocumentIds: [...selection],
+        selectionStatuses: Object.fromEntries(context.selectionStatuses),
+      });
+    },
+    clearSelection: () => {
+      if (!context) return;
+      context.selectionStatuses.clear();
+      publish(context, { selectedDocumentIds: [], selectionStatuses: {} });
     },
     getSnapshot: () => snapshot,
     subscribe: (listener) => {
@@ -951,23 +1049,22 @@ function isOlder(incoming, existing) {
   return rank[incoming?.status] < rank[existing.status];
 }
 
-function matchesQuery(job, search, filters) {
-  const query = search.trim().toLowerCase();
+const DELETE_CONCURRENCY = 4;
 
-  if (
-    query &&
-    ![job.job_id, job.source_name, job.template_id, job.status].some((value) =>
-      String(value || "")
-        .toLowerCase()
-        .includes(query),
-    )
-  )
-    return false;
-  const date = String(job.created_at || job.queued_at || "").slice(0, 10);
+/** Runs `work` over `items` with at most `limit` in flight, keeping results in input order. */
+async function mapWithConcurrency(items, limit, work) {
+  const results = new Array(items.length);
+  let next = 0;
 
-  if (filters.dateFrom && (!date || date < filters.dateFrom)) return false;
+  async function worker() {
+    while (next < items.length) {
+      const index = next++;
 
-  if (filters.dateTo && (!date || date > filters.dateTo)) return false;
+      results[index] = await work(items[index]);
+    }
+  }
 
-  return !filters.model || job.model_name === filters.model;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+
+  return results;
 }

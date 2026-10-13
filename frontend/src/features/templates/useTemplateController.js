@@ -158,7 +158,6 @@ export function useTemplateController({
   const [templateJsonError, setTemplateJsonError] = useState("");
   const [templateJsonDiagnostics, setTemplateJsonDiagnostics] = useState([]);
   const [templateJsonCopied, setTemplateJsonCopied] = useState(false);
-  const [templateSearch, setTemplateSearch] = useState("");
   const [showDraftTemplateNav, setShowDraftTemplateNav] = useState(false);
   const draftRevisionRef = useRef(0);
   const [draftRevision, setDraftRevision] = useState(0);
@@ -289,34 +288,61 @@ export function useTemplateController({
     assistantRef.current?.openWith(intent);
   }, [activePage, routeTemplateId, updateTemplateId, routeLoad.status]);
 
-  const filteredTemplates = useMemo(() => {
-    const query = templateSearch.trim().toLowerCase();
+  // "Open in editor" from the command palette: { templateId, draft } replaces the editor draft once that
+  // Template is open, leaving it unsaved. State, not a ref, so an already open Template applies at once.
+  // Prepare it once navigation to the Template is approved and under way (with the navigation, or
+  // after it): a draft found on any other route is dropped, so a cancelled navigation leaves nothing
+  // for a later visit to apply.
+  const [draftIntent, setDraftIntent] = useState(null);
+  const draftIntentContextRef = useRef(null);
+  const routeKey = activePage === "templates" ? `templates:${routeTemplateId ?? ""}` : String(activePage);
 
-    if (!query) {
-      return templates;
+  const prepareDraft = useCallback((intent) => setDraftIntent(intent), []);
+
+  useEffect(() => {
+    if (!draftIntent) return;
+
+    if (routeKey !== `templates:${draftIntent.templateId}`) {
+      setDraftIntent(null);
+
+      return;
     }
 
-    return templates.filter((template) => {
-      const name = String(template.name || "").toLowerCase();
-      const id = String(template.id || "").toLowerCase();
-      const description = String(template.description || "").toLowerCase();
+    if (updateTemplateId !== draftIntent.templateId || routeLoad.status === "loading") return;
+    const intent = draftIntent;
+    const { hasUnsavedChanges: dirty, showActionToast: notify } = draftIntentContextRef.current;
+    setDraftIntent(null);
 
-      return name.includes(query) || id.includes(query) || description.includes(query);
-    });
-  }, [templateSearch, templates]);
+    const apply = () => {
+      touchDraft();
+      setTemplateName(intent.draft.name);
+      setTemplateDescription(intent.draft.description ?? "");
+      setTemplateFields(intent.draft.fields);
+      setHasNewDraftEdits(true);
+      notify?.("template.applyDraft", "success", { targetName: intent.draft.name });
+    };
+
+    // Edits made in the editor since the palette read the saved Template are only replaced on request.
+    if (!dirty) apply();
+    else
+      void confirmDialog({ ...DISCARD_CHANGES }).then((discard) => {
+        if (discard) apply();
+      });
+  }, [draftIntent, routeKey, updateTemplateId, routeLoad.status, touchDraft]);
 
   const contextTemplates = useMemo(() => {
     const hasDraft = showDraftTemplateNav && activePage === "templates";
 
     const draftItem = hasDraft ? [{ id: DRAFT_TEMPLATE_NAV_ID, name: "New template", is_draft: true }] : [];
 
-    return [...draftItem, ...filteredTemplates];
-  }, [activePage, filteredTemplates, showDraftTemplateNav]);
+    return [...draftItem, ...templates];
+  }, [activePage, templates, showDraftTemplateNav]);
 
   const clearWorkspaceScopedTemplates = useCallback(() => {
     generationRef.current += 1;
     saveRequestRef.current += 1;
     setRouteLoad({ id: "", status: "idle" });
+    setDraftIntent(null);
     setIsJsonDraftDirty(false);
     tagListRequestRef.current?.abort();
     tagMutationRef.current?.abort();
@@ -348,7 +374,6 @@ export function useTemplateController({
     setTemplateJsonError("");
     setTemplateJsonDiagnostics([]);
     setTemplateJsonCopied(false);
-    setTemplateSearch("");
     setShowDraftTemplateNav(false);
   }, [cancelGeneration, cancelAssistant, touchDraft]);
 
@@ -915,6 +940,8 @@ export function useTemplateController({
   const hasUnsavedChanges =
     (isEditingTemplate ? isEditedTemplateDirty : hasNewDraftEdits) || (showTemplateJsonModal && isJsonDraftDirty);
 
+  draftIntentContextRef.current = { hasUnsavedChanges, showActionToast };
+
   // Returns the editor to its saved state: the loaded Template, or no draft at all.
   function discardTemplateEdits() {
     saveRequestRef.current += 1;
@@ -1024,14 +1051,12 @@ export function useTemplateController({
     selectedUploadTemplateId,
     setSelectedUploadTemplateId,
     contextList: {
-      search: templateSearch,
       templates: contextTemplates,
       status: listStatus,
       error: listError,
       onRetry: () => listTemplates(),
       selectedTemplateId: updateTemplateId,
       isEditingTemplate,
-      onSearchChange: setTemplateSearch,
       onCreateTemplate: () => createTemplate(),
       onAutoGenerateTemplate: () => autoGenerateTemplate(),
       onSelectDraftTemplate: onTemplateNavigation ? () => onTemplateNavigation("new") : startNewTemplateDraft,
@@ -1136,6 +1161,8 @@ export function useTemplateController({
       prepareAssistant: (intent) => {
         assistantIntentRef.current = intent;
       },
+      // { templateId, draft: { name, description, fields } }; applied as unsaved edits when that Template is open.
+      prepareDraft,
     },
   };
 }

@@ -548,7 +548,7 @@ function EvidenceList({ kind, tone, label, title, items }) {
   );
 }
 
-function ChangeGroup({ base, group, groups, selected, disabled, isConflicting, onToggle }) {
+export function ChangeGroup({ base, group, groups, selected, disabled, isConflicting, onToggle }) {
   const rows = previewRows(base, group);
   const impacts = identityImpacts(base, group);
   const id = `template-assistant-group-${group.id}`;
@@ -661,7 +661,7 @@ function IdentityImpacts({ impacts }) {
   );
 }
 
-function SelectionCheck({ selection, baseHadIssues }) {
+export function SelectionCheck({ selection, baseHadIssues }) {
   if (selection.dependencyErrors?.length) {
     return (
       <div className="template-assistant-check bad" role="alert">

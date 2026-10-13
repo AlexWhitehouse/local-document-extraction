@@ -8,6 +8,7 @@ import {
   type CostUpload,
 } from "../../shared/workspaceCosts";
 import { addMetrics, emptyMetrics, readCostDocuments, readCostUpload } from "./workspaceCostProjection";
+import { readWorkspaceModelCosts } from "./workspaceModelCosts";
 
 export type CostListQuery = CostRange & {
   sort: "recent" | "total" | "perPage";
@@ -182,6 +183,9 @@ export function createCostQueries(db: Database) {
         buckets,
         samples,
         sampled: samples.length < totals.fullyCostedDocuments,
+        // Search interpretation spend is the Workspace's, not any Document's, so it stays out of totals.
+        searches: readWorkspaceModelCosts(db, "search", range),
+        previous_searches: previous ? readWorkspaceModelCosts(db, "search", previousRange) : null,
       };
     },
     listCostUploads(query: CostListQuery) {

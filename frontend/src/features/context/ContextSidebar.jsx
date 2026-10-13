@@ -4,13 +4,15 @@ import { CloseIcon } from "../layout/Icons.jsx";
 import { ContextDrawerContext } from "../layout/ContextDrawerContext.js";
 
 // The context list. Below 1120px MainLayout shows it as a drawer; the close button only shows there.
-export function ContextSidebar({ title, children, footer }) {
+// `head` takes the heading's place, such as a selection bar; the heading stays for screen readers.
+export function ContextSidebar({ title, head = null, children, footer }) {
   const drawer = useContext(ContextDrawerContext);
 
   return (
     <aside className={drawer?.isOpen ? "context-sidebar is-open" : "context-sidebar"}>
-      <div className="context-head">
-        <h2>{title}</h2>
+      <div className={head ? "context-head has-bar" : "context-head"}>
+        <h2 className={head ? "sr-only" : undefined}>{title}</h2>
+        {head}
         {drawer ? (
           <IconButton
             label="Hide list"

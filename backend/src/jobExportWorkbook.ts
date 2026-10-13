@@ -706,7 +706,7 @@ function replaceControlCharacters(value: string): string {
   return [...value].map((character) => (character.charCodeAt(0) < 32 ? " " : character)).join("");
 }
 
-function exportFilename(workspaceName: string, generatedAt: Date): string {
+export function exportFilename(workspaceName: string, generatedAt: Date, extension = "xlsx"): string {
   const workspaceSlug =
     workspaceName
       .normalize("NFKD")
@@ -717,7 +717,7 @@ function exportFilename(workspaceName: string, generatedAt: Date): string {
 
   const timestamp = generatedAt.toISOString().slice(0, 16).replace("T", "-").replace(":", "");
 
-  return `${workspaceSlug}-job-export-${timestamp}.xlsx`;
+  return `${workspaceSlug}-job-export-${timestamp}.${extension}`;
 }
 
 function pathKey(path: string[]): string {

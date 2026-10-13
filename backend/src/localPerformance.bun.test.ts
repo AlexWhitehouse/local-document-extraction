@@ -160,7 +160,7 @@ test("reopening a current product database runs no schema DDL, while an older on
     expect(hasIndex()).toBe(true);
 
     const versions = new Database(path);
-    expect(versions.query("SELECT MAX(version) AS version FROM product_schema_version").get()).toEqual({ version: 16 });
+    expect(versions.query("SELECT MAX(version) AS version FROM product_schema_version").get()).toEqual({ version: 18 });
     versions.close();
   } finally {
     await rm(dir, { recursive: true, force: true });

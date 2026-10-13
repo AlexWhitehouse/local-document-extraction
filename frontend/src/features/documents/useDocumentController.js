@@ -2,7 +2,7 @@ import { isString } from "../../../../shared/json.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { documentScopeKey } from "./documentReconciliation";
 import { usePacketController } from "./usePacketController.js";
-import { isPacketListed, isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
+import { isSingleDocumentPacket, listedEntryIds, singlePacketDocument } from "./packetListing.js";
 import { useDocumentReconciliation } from "./useDocumentReconciliation";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { validateSourceFiles } from "./sourceFileValidation.js";
@@ -11,6 +11,9 @@ import { downloadBlob } from "../../lib/download.js";
 const LIVE_DOCUMENT_STATUSES = new Set(["queued", "processing"]);
 
 const EXPORTABLE_DOCUMENT_STATUSES = new Set(["completed", "failed"]);
+
+// The export route takes at most this many documents at a time.
+const EXPORT_LIMIT = 500;
 
 const FALLBACK_POLL_INITIAL_DELAY_MS = 5000;
 
@@ -78,6 +81,7 @@ export function useDocumentController({
   const automaticSingleDocumentRef = useRef("");
   // Ticked packet rows; bulk actions apply to a packet and all of its documents.
   const [selectedPacketIds, setSelectedPacketIds] = useState([]);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
   const liveUpdateSocketRef = useRef(null);
   const liveUpdateReconnectTimerRef = useRef(null);
   const liveUpdateAccessRevalidationPendingRef = useRef(false);
@@ -378,6 +382,37 @@ export function useDocumentController({
     });
   }
 
+  // Uploads entries ({ id, file }) picked outside the modal, e.g. in the command palette. Reports and
+  // navigates like the modal. Resolves with { queued, failed }; { interrupted: true } when the batch was
+  // cancelled, e.g. by a workspace change; or null when it couldn't start because another upload is running.
+  async function uploadEntries({ entries, templateId = "", templateTags, onProgress }) {
+    if (!modelReady || isUploadingDocuments || !entries.length) return null;
+    let lastSelection;
+    let outcome = { interrupted: true };
+    await reconciliation.submitBatch({
+      templateId,
+      templateTags,
+      entries,
+      onPacket: (packet) => {
+        lastSelection = { packetId: packet.packet_id };
+        packetController.admitted(packet);
+      },
+      onDocument: (documentId) => {
+        lastSelection = { documentId };
+      },
+      onProgress,
+      onComplete: (result) => {
+        outcome = result;
+        showDocumentUploadToast(result);
+
+        if (lastSelection && onDocumentNavigation) onDocumentNavigation(lastSelection);
+        else onActivePageChange("documents");
+      },
+    });
+
+    return outcome;
+  }
+
   async function resolveTemplate(documentId, templateId) {
     if (isResolvingTemplate) return;
     const scope = actionScopeRef.current;
@@ -453,11 +488,10 @@ export function useDocumentController({
         return;
       }
 
-      // A child hidden by the list filters can only become the selection once the filters clear.
-      reconciliation.selectDocument(id, { clearFilters: !documents.some((row) => row.job_id === id) });
+      reconciliation.selectDocument(id);
       setPacketChildId(id);
     },
-    [reconciliation, documents],
+    [reconciliation],
   );
 
   useEffect(() => {
@@ -523,21 +557,27 @@ export function useDocumentController({
     }
   }, [automaticSingleDocumentKey, singleDocumentId, packetChildId, pendingPacketTab?.id, selectPacketChild]);
 
-  // Selection is limited to rows the list currently shows, like document selection.
-  const checkedPackets = packetController.packets.filter(
-    (packet) =>
-      selectedPacketIds.includes(packet.packet_id) &&
-      isPacketListed(
-        packet,
-        documents,
-        snapshot.debouncedSearch,
-        snapshot.filters,
-        Object.values(snapshot.filters).some(Boolean),
-      ),
-  );
-
+  const { searchFilter } = snapshot;
+  // A search lists matching documents on their own, so packet rows only show without one.
+  const listedPackets = searchFilter ? [] : packetController.packets;
+  const checkedPackets = listedPackets.filter((packet) => selectedPacketIds.includes(packet.packet_id));
   const checkedDocumentIds = selectedDocumentIds;
   const checkedRowCount = checkedDocumentIds.length + checkedPackets.length;
+  const checkedDocumentIdSet = new Set(checkedDocumentIds);
+  const listedDocumentIds = new Set(documents.map((job) => job.job_id));
+
+  // Loaded rows first, newest first, then documents picked by ID from a search that aren't loaded yet.
+  const checkedDocuments = [
+    ...documents.filter((job) => checkedDocumentIdSet.has(job.job_id)),
+    ...checkedDocumentIds.flatMap((id) =>
+      listedDocumentIds.has(id) ? [] : [{ job_id: id, status: snapshot.selectionStatuses[id] || "" }],
+    ),
+  ];
+
+  // The documents a selection covers: a packet row stands for each of its documents.
+  const selectedDocumentCount =
+    checkedDocumentIds.length +
+    checkedPackets.reduce((sum, packet) => sum + Math.max(1, packet.children?.length || 0), 0);
 
   const packetChildren = (packet) =>
     (Array.isArray(packet?.children) ? packet.children : []).map(
@@ -546,7 +586,7 @@ export function useDocumentController({
 
   // Export covers ticked rows; otherwise the open document, or every document in the open packet.
   const exportCandidates = checkedRowCount
-    ? [...documents.filter((job) => checkedDocumentIds.includes(job.job_id)), ...checkedPackets.flatMap(packetChildren)]
+    ? [...checkedDocuments, ...checkedPackets.flatMap(packetChildren)]
     : actionDocument
       ? [actionDocument]
       : packetChildren(openPacket);
@@ -559,6 +599,43 @@ export function useDocumentController({
     setSelectedPacketIds((current) =>
       selected ? [...new Set([...current, id])] : current.filter((value) => value !== id),
     );
+  }
+
+  function clearSelection() {
+    reconciliation.clearSelection();
+    setSelectedPacketIds([]);
+  }
+
+  // Selects every document, loaded or not. With a search applied that's every match, picked by ID;
+  // otherwise the remaining list pages load so packets keep their own rows and bulk actions.
+  async function selectAllDocuments() {
+    if (isSelectingAll) return;
+    const scope = actionScopeRef.current;
+    setIsSelectingAll(true);
+
+    try {
+      if (searchFilter) {
+        await reconciliation.selectAllMatches();
+
+        return;
+      }
+
+      if (!(await reconciliation.loadAll()) || scope !== actionScopeRef.current) return;
+      const current = reconciliation.getSnapshot();
+      const packets = documentRequests.listDocumentEntries ? current.packets : packetControllerRef.current.packets;
+      const listed = listedEntryIds(packets, current.documents);
+      reconciliation.toggleSelection(listed.documentIds, true);
+      setSelectedPacketIds(listed.packetIds);
+    } catch (error) {
+      if (scope === actionScopeRef.current) showActionToast("document.selectAll", "failure", { error });
+    } finally {
+      setIsSelectingAll(false);
+    }
+  }
+
+  function applySearchFilter(search) {
+    setSelectedPacketIds([]);
+    reconciliation.setSearchFilter(search);
   }
 
   async function deleteSelectedPacket() {
@@ -598,10 +675,7 @@ export function useDocumentController({
       return;
     }
 
-    await deleteDocuments(
-      documents.filter((job) => checkedDocumentIds.includes(job.job_id)),
-      checkedPackets,
-    );
+    await deleteDocuments(checkedDocuments, checkedPackets);
   }
 
   async function deleteDocuments(targetDocuments, targetPackets) {
@@ -711,17 +785,21 @@ export function useDocumentController({
     if (!exportableSelectedDocumentIds.length || isExportingDocuments) return;
 
     // Ticked rows send every id so the export can report skipped in-progress documents.
-    const ids = checkedRowCount
+    const candidateIds = checkedRowCount
       ? [...new Set(exportCandidates.map((job) => job.job_id))]
       : exportableSelectedDocumentIds;
+
+    // Past the export limit, only the first documents that are ready go, and the toast says how many of the selection.
+    const isLimited = candidateIds.length > EXPORT_LIMIT;
+    const ids = isLimited ? exportableSelectedDocumentIds.slice(0, EXPORT_LIMIT) : candidateIds;
 
     await reconciliation.exportDocuments(ids, {
       onComplete: (exported) => {
         downloadBlob(exported.blob, exported.filename);
-        showActionToast("document.export", "success", {
-          exportedCount: exported.exportedCount,
-          skippedCount: exported.skippedCount,
-        });
+        const outcome = { exportedCount: exported.exportedCount, skippedCount: exported.skippedCount };
+
+        if (isLimited) Object.assign(outcome, { selectedCount: candidateIds.length, limit: EXPORT_LIMIT });
+        showActionToast("document.export", "success", outcome);
       },
       onError: () => showActionToast("document.export", "failure"),
     });
@@ -945,24 +1023,28 @@ export function useDocumentController({
       retry: () => reconciliation.loadDetails(routeDocumentId, { showLoading: true }),
     },
     contextList: {
-      search: snapshot.search,
       documents,
       selectedDocumentId: packetController.selectedId ? "" : selectedDocument?.job_id || "",
-      packets: packetController.packets,
+      packets: listedPackets,
       selectedPacketId: packetController.selectedId,
       packetError: packetController.error,
       onRetryPackets: () => packetController.refresh(),
       onSelectPacket: selectPacket,
       selectedPacketIds: checkedPackets.map((packet) => packet.packet_id),
       onTogglePacketSelection: togglePacketSelection,
-      hasMorePackets: packetController.hasMore,
+      hasMorePackets: !searchFilter && packetController.hasMore,
       loadingPackets: packetController.loading,
       onLoadMorePackets: () => packetController.refresh({ append: true }),
       selectedDocumentIds,
-      debouncedSearch: snapshot.debouncedSearch,
-      filters: snapshot.filters,
-      availableModels: snapshot.availableModels,
-      hasActiveFilters: Object.values(snapshot.filters).some(Boolean),
+      selectedDocumentCount,
+      totalDocuments,
+      searchFilter,
+      matchTotal: snapshot.matchTotal,
+      matchTotalCapped: snapshot.matchTotalCapped,
+      onClearSearchFilter: () => reconciliation.setSearchFilter(null),
+      isSelectingAll,
+      onSelectAllDocuments: selectAllDocuments,
+      onClearSelection: clearSelection,
       hasMoreDocuments: snapshot.hasMore,
       isLoadingMoreDocuments: snapshot.loadingMore,
       listStatus: snapshot.listStatus,
@@ -973,8 +1055,6 @@ export function useDocumentController({
       onUploadDocument: openUploadModal,
       isDeletingDocuments: isDeletingDocument,
       isExportingDocuments,
-      onSearchChange: reconciliation.setSearch,
-      onFiltersChange: reconciliation.setFilters,
       onSelectDocument: selectDocument,
       onToggleAllDocumentSelections: reconciliation.toggleSelection,
       onToggleDocumentSelection: (id, selected) => reconciliation.toggleSelection([id], selected),
@@ -1008,7 +1088,7 @@ export function useDocumentController({
       isDeletingDocument: isDeletingDocument || packetController.busy,
       isExportingDocuments,
       selectedDocumentId: actionDocument?.job_id || openPacket?.packet_id || "",
-      selectedDocumentCount: checkedRowCount,
+      selectedDocumentCount,
       exportableDocumentCount: exportableSelectedDocumentIds.length,
       onExportDocuments: exportSelectedDocuments,
       onUploadDocument: openUploadModal,
@@ -1045,14 +1125,13 @@ export function useDocumentController({
         showActionToast,
       },
       hasDocuments: documents.length > 0 || packetController.packets.length > 0,
-      // Only an unfiltered, loaded list with nothing in it means the workspace has no documents.
+      // Only a loaded list with no search and nothing in it means the workspace has no documents.
       isWorkspaceEmpty:
         snapshot.listStatus === "ready" &&
         !packetController.loading &&
         documents.length === 0 &&
         packetController.packets.length === 0 &&
-        !snapshot.debouncedSearch &&
-        !Object.values(snapshot.filters).some(Boolean),
+        !searchFilter,
       canUploadDocuments: hasWorkspaceApiAccess && modelReady,
       onUploadDocument: openUploadModal,
       selectedDocumentTemplateName,
@@ -1062,9 +1141,13 @@ export function useDocumentController({
     // True while the live-update socket is down and reconnecting (the polling fallback).
     liveUpdatesPaused: canOpenLiveUpdates && liveUpdatesDisconnected,
     statusCounts: snapshot.statusCounts,
+    // Models the workspace's documents used, suggested when setting up an evaluation.
+    availableModels: snapshot.availableModels,
     actions: {
       cancelPendingSubmissions: reconciliation.cancelPendingSubmissions,
       clearWorkspaceScopedDocuments,
+      uploadEntries,
+      applySearchFilter,
     },
   };
 }
