@@ -92,13 +92,16 @@
   max-height: 136px;
   overflow-y: auto;
   padding: 2px 0;
+  /* Words and pills share one size and sit on one baseline, so text never steps up or down. */
+  align-items: baseline;
   font-size: var(--font-size-6);
-  line-height: 26px;
+  line-height: 24px;
   cursor: text;
 }
 
 .command-palette-crumb {
   flex: none;
+  font-size: var(--font-size-6);
 }
 
 .command-palette kbd {
@@ -124,16 +127,16 @@
 .palette-pill {
   position: relative;
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
-  min-height: 26px;
   padding: 0 8px;
   overflow: hidden;
   border: 1px solid var(--pill-quantity-border);
   border-radius: 5px;
   background: var(--pill-quantity-bg);
   color: var(--pill-quantity-fg);
-  font-size: var(--font-size-5);
+  font-size: inherit;
+  line-height: 24px;
   white-space: nowrap;
 }
 
@@ -145,13 +148,11 @@
 .palette-pill-status { border-color: var(--pill-status-border); background: var(--pill-status-bg); color: var(--pill-status-fg); }
 
 .palette-pill-instruction {
-  min-height: 26px;
-  padding: 3px 8px;
+  padding: 0 8px;
   border-style: dashed;
   border-color: var(--pill-instruction-border);
   background: var(--pill-instruction-bg);
   color: var(--pill-instruction-fg);
-  line-height: 1.35;
   white-space: normal;
 }
 
@@ -163,10 +164,19 @@
 }
 
 /* What the pill matched, after a divider: "invoice number │ Invoice". */
+/* The divider is centred in the pill; the label shares the pill's baseline. */
+.palette-pill-divider {
+  align-self: center;
+  width: 1px;
+  height: 14px;
+  background: currentColor;
+  opacity: 0.6;
+}
+
 .palette-pill-match {
-  padding-left: 6px;
-  border-left: 1px solid currentColor;
-  font: var(--font-size-2)/14px var(--font-mono);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-3);
+  line-height: 1;
   opacity: 0.85;
 }
 

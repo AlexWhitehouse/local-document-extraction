@@ -68,10 +68,13 @@ export function PalettePills({ segments, labels = [], unused = [], pending = fal
         <span className="sr-only">{typeLabel}: </span>
         {segment.text}
         {label ? (
-          <span className="palette-pill-match">
-            <span className="sr-only">, matched </span>
-            {label}
-          </span>
+          <>
+            <span className="palette-pill-divider" aria-hidden="true" />
+            <span className="palette-pill-match">
+              <span className="sr-only">, matched </span>
+              {label}
+            </span>
+          </>
         ) : null}
       </span>
     );
