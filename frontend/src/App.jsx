@@ -905,7 +905,15 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
         }
         contextListLabel={CONTEXT_SIDEBAR_TITLES[visiblePage === "costs" ? "workspace" : visiblePage] || ""}
         contextSidebar={
-          visiblePage === "evaluations" || visiblePage === "connected-apps" ? null : (
+          visiblePage === "evaluations" || visiblePage === "connected-apps" ? null : visiblePage === "documents" &&
+            hasApiAccess ? (
+            // The Documents list renders its own sidebar so a selection or search can take the heading's place.
+            <DocumentContextList
+              {...documentController.contextList}
+              title={CONTEXT_SIDEBAR_TITLES.documents}
+              workspaceId={workspaceId}
+            />
+          ) : (
             <ContextSidebar
               title={CONTEXT_SIDEBAR_TITLES[visiblePage === "costs" ? "workspace" : visiblePage]}
               footer={visiblePage === "admin" ? <AdminContextFooter admin={adminController} /> : null}
@@ -918,8 +926,6 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
                     ? "Loading…"
                     : "Choose a workspace you can access."}
                 </p>
-              ) : visiblePage === "documents" ? (
-                <DocumentContextList {...documentController.contextList} workspaceId={workspaceId} />
               ) : visiblePage === "templates" ? (
                 <TemplateContextList {...templateController.contextList} workspaceId={workspaceId} />
               ) : (
@@ -1063,7 +1069,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             enabled={hasApiAccess}
             onTemplateSaved={templateController.actions.listTemplates}
             maxSourceFileBytes={maxSourceFileBytes}
-            suggestedModels={documentController.contextList.availableModels}
+            suggestedModels={documentController.availableModels}
             workspaceCrumb={workspaceCrumb}
             onOpenWorkspace={() => setActivePage("workspace")}
             modelConfiguration={workspaceModel}

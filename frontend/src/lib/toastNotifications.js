@@ -33,7 +33,10 @@ const successMessages = {
   "applicationUser.stopImpersonating": () => "Impersonation stopped",
   "document.delete": ({ target }) => withTarget("Document deleted", target),
   "document.bulkDelete": ({ removed = 0 }) => `Deleted ${pluralize(removed, "document")}`,
-  "document.export": ({ exportedCount = 0, skippedCount = 0 }) => {
+  "document.export": ({ exportedCount = 0, skippedCount = 0, selectedCount = 0, limit = 0 }) => {
+    // A selection past the export limit names how much of it went.
+    if (selectedCount) return `Exported ${exportedCount} of ${selectedCount} selected documents. One export holds up to ${limit}.`;
+
     const exported = `Exported ${pluralize(exportedCount, "document")}`;
 
     return skippedCount ? `${exported}. Skipped ${skippedCount} that can't be exported.` : exported;
@@ -113,6 +116,7 @@ const failureMessages = {
   "document.delete": ({ target }) => (target ? `Couldn't delete ${target}.` : "Couldn't delete document."),
   "document.bulkDelete": ({ removed = 0, total = 0 }) => `Deleted ${removed} of ${total}. Couldn't delete ${total - removed}.`,
   "document.export": () => "Couldn't export selected documents.",
+  "document.selectAll": () => "Couldn't select every document.",
   "document.retry": ({ skipped = 0 }) =>
     skipped
       ? `Couldn't try ${pluralize(skipped, "document")} again. They're no longer failed, or their template or original is gone.`

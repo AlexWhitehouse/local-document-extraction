@@ -33,38 +33,52 @@ describe("DocumentContextList states", () => {
     expect(onRetryDocumentList).toHaveBeenCalledTimes(1);
   });
 
-  it("hides the toolbar in an empty Workspace and leaves the upload to the page body", () => {
+  it("shows only the heading over an empty Workspace and leaves the upload to the page body", () => {
     render(<DocumentContextList {...baseProps} listStatus="ready" />);
 
+    expect(screen.getByRole("heading", { name: "Documents" }).className).toBe("");
     expect(screen.getByText("No documents yet")).toBeTruthy();
     expect(screen.getByText("Uploads appear here")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Advanced document filters/ })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("button", { name: "Upload documents" })).toBeNull();
   });
 
-  it("keeps the filter message without an upload action when filters find nothing", () => {
+  it("says a search found nothing without an upload action", () => {
     render(
       <DocumentContextList
         {...baseProps}
         listStatus="ready"
-        filters={{ dateFrom: "2026-01-01", dateTo: "", model: "" }}
-        hasActiveFilters
+        searchFilter={{ filter: { statuses: ["failed"] }, summary: "Failed" }}
       />,
     );
 
-    expect(screen.getByText("No documents match these filters.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Advanced document filters, 1 active/ })).toBeTruthy();
+    expect(screen.getByText("No documents match this search.")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Search filter" }).textContent).toContain("0 matches");
+    expect(screen.queryByText("No documents yet")).toBeNull();
     expect(screen.queryByRole("button", { name: "Upload documents" })).toBeNull();
   });
 
-  it("has no search field; search lives in the command palette", () => {
+  it("explains a search whose template or field has gone", () => {
+    render(
+      <DocumentContextList
+        {...baseProps}
+        listStatus="error"
+        listError={Object.assign(new Error("Bad filter"), { code: "invalid_search_filter" })}
+        searchFilter={{ filter: { template_ids: ["gone"] }, summary: "gone" }}
+      />,
+    );
+
+    expect(screen.getByRole("alert").textContent).toContain("no longer available. Clear it to see every document.");
+  });
+
+  it("has no search field or filters; search lives in the command palette", () => {
     render(
       <DocumentContextList {...baseProps} documents={[{ job_id: "a", source_name: "a.pdf", status: "completed" }]} />,
     );
 
     expect(screen.queryByRole("search")).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.getByRole("button", { name: "Advanced document filters" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /filter/i })).toBeNull();
   });
 
   it("reports a load-more failure inline with Try again", () => {

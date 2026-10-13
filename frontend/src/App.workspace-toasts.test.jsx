@@ -1634,7 +1634,10 @@ describe("Workspace action toast feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(navLink(/Documents/));
-    await user.click(screen.getByRole("checkbox", { name: "Select all available documents" }));
+    // Ticking one row brings up the selection bar; Ctrl+A in the list ticks the rest.
+    await user.click(await screen.findByRole("checkbox", { name: "Select document job_failed_1" }));
+    await user.keyboard("{Control>}a{/Control}");
+    expect(within(screen.getByRole("group", { name: "Selection" })).getByRole("status").textContent).toBe("2 selected");
     await chooseMoreAction(user, "Delete 2 documents");
     expect(await screen.findByRole("alertdialog", { name: "Delete 2 selected documents?" })).toBeTruthy();
     await confirmInDialog(user, "Delete 2 documents");
@@ -1711,7 +1714,8 @@ describe("Workspace action toast feedback", () => {
     render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
 
     await user.click(navLink(/Documents/));
-    await user.click(await screen.findByRole("checkbox", { name: "Select all available documents" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Select document job_completed_1" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select all documents" }));
     const exportButton = screen.getByRole("button", { name: "Export 3" });
     expect(exportButton.title).toContain("2 of 3 selected documents are ready");
     expect(await moreActionDisabled(user, "Delete 3 documents")).toBe(false);

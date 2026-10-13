@@ -114,6 +114,45 @@ test("the command palette searches extracted values, exports and deletes results
     await expect(page.getByText("Exported 2 documents", { exact: true })).toBeVisible();
     await expect(palette).toBeHidden();
 
+    // Open in Documents lists only the matches until the search is cleared. A receipt shows the narrowing.
+    const receiptTemplate = await page.request.post(`${harness.origin}/v1/templates`, {
+      headers,
+      data: { name: "Receipt", fields: [{ name: "Total", description: "Amount paid", data_type: "string" }] },
+    });
+
+    expect(receiptTemplate.ok()).toBe(true);
+
+    const receipt = await page.request.post(`${harness.origin}/v1/extract`, {
+      headers,
+      multipart: {
+        template_id: (await receiptTemplate.json()).template_id,
+        document: { name: "palette-receipt.png", mimeType: "image/png", buffer: ONE_PIXEL_PNG },
+      },
+    });
+
+    expect(receipt.status()).toBe(202);
+    await page.keyboard.press("ControlOrMeta+k");
+    await input.fill('Find invoices where the invoice number starts with "inv-e2e"');
+    await input.press("Enter");
+    await expect(palette.locator("strong", { hasText: /^2 documents$/ })).toBeVisible();
+    await palette.getByRole("button", { name: "Open in Documents", exact: true }).click();
+    await expect(palette).toBeHidden();
+    await expect(page).toHaveURL(new RegExp(`/workspaces/${workspace}/documents`));
+    const searchBar = page.getByRole("group", { name: "Search filter" });
+    const documentRows = page.getByRole("list", { name: "Documents" }).getByRole("listitem");
+    const listHeading = page.locator(".context-sidebar").getByRole("heading", { name: "Documents" });
+    await expect(searchBar.getByRole("status")).toHaveText("2 matches");
+    await expect(searchBar).toContainText("starts with");
+    await expect(listHeading).toHaveClass(/sr-only/);
+    await expect(documentRows).toHaveCount(2);
+    await expect(documentRows.filter({ hasText: "palette-receipt.png" })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("documents-search.png") });
+    await searchBar.getByRole("button", { name: "Clear search" }).click();
+    await expect(searchBar).toBeHidden();
+    await expect(documentRows).toHaveCount(3);
+    await expect(documentRows.filter({ hasText: "palette-receipt.png" })).toHaveCount(1);
+    await expect(listHeading).not.toHaveClass(/sr-only/);
+
     // A sentence with unknown words is interpreted once by the assistant model; unused words are flagged.
     await page.keyboard.press("ControlOrMeta+k");
     await input.fill("Find invoices billed to Leeds");

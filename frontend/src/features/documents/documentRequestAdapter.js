@@ -1,3 +1,4 @@
+import { isJsonObject, isString } from "../../../../shared/json.ts";
 import { createByteBoundedCache } from "../../lib/byteBoundedCache";
 
 export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
@@ -118,6 +119,40 @@ export function createDocumentRequestAdapter({ request, cacheMaxBytes }) {
       return listDocuments({ ...options, groupPackets: true });
     },
     listDocuments,
+    /**
+     * One page of `POST /v1/jobs/search`: the matching documents, or with `idsOnly` only their IDs
+     * and statuses. `total` stops counting at the search's count cap and then sets `total_capped`.
+     */
+    async searchDocuments({ filter, cursor = null, limit = 50, idsOnly = false }) {
+      const body = { filter, limit };
+
+      if (cursor) body.cursor = cursor;
+
+      if (idsOnly) body.ids_only = true;
+
+      const result = await documentRequest("/jobs/search", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const total = Number(result?.total);
+
+      const page = {
+        total: Number.isSafeInteger(total) && total >= 0 ? total : 0,
+        total_capped: result?.total_capped === true,
+        next_cursor: isString(result?.next_cursor) && result.next_cursor ? result.next_cursor : null,
+        has_more: result?.has_more === true,
+      };
+
+      if (!idsOnly) return { ...page, jobs: Array.isArray(result?.jobs) ? result.jobs : [] };
+
+      return {
+        ...page,
+        job_ids: Array.isArray(result?.job_ids) ? result.job_ids.filter(isString) : [],
+        statuses: isJsonObject(result?.statuses) ? result.statuses : {},
+      };
+    },
     /** Fetches a retained original into memory; errors carry `source_*` codes for availability messages. */
     async getOriginal(documentId, { signal } = {}) {
       const normalizedId = normalizedDocumentId(documentId);

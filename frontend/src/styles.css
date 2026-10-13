@@ -530,6 +530,68 @@ button.danger:hover:not(:disabled) {
   font-size: var(--font-size-6);
 }
 
+/* A selection or an applied search takes the heading's place. */
+.context-head-bar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-4);
+  color: var(--text-1);
+  white-space: nowrap;
+}
+
+.context-head-check {
+  width: 18px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.context-head-count {
+  flex: 0 0 auto;
+  font-weight: 500;
+  color: var(--text-0);
+  font-variant-numeric: tabular-nums;
+}
+
+.context-head-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-2);
+}
+
+.context-head-separator {
+  color: var(--text-3);
+}
+
+.context-head-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.context-head-bar button.studio-text-button {
+  min-height: var(--control-h-sm);
+  padding: 0 2px;
+  font-size: var(--font-size-4);
+  color: var(--accent-strong);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .context-head-bar {
+    animation: context-head-swap 120ms ease-out;
+  }
+}
+
+@keyframes context-head-swap {
+  from {
+    opacity: 0;
+  }
+}
+
 .context-search-field {
   padding: 9px 12px 10px;
   border-bottom: 1px solid var(--rule);
@@ -619,16 +681,6 @@ button.danger:hover:not(:disabled) {
   position: relative;
 }
 
-/* The Documents list's select-all checkbox and filter button. */
-.context-list-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-  padding: 9px 12px 10px;
-  border-bottom: 1px solid var(--rule);
-}
-
 .context-search-shell {
   min-width: 0;
   height: var(--control-h-sm);
@@ -657,168 +709,6 @@ button.danger:hover:not(:disabled) {
 
 :is(.context-search-shell:focus-within > input, .context-search-shell:focus-within > .ui-field > input) {
   border-color: var(--accent);
-}
-
-.context-filter-control {
-  min-width: 0;
-  width: var(--control-h-sm);
-  height: var(--control-h-sm);
-}
-
-.context-filter-trigger {
-  position: relative;
-  width: var(--control-h-sm);
-  height: var(--control-h-sm);
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--rule-strong);
-  background: var(--field-bg);
-  color: var(--text-3);
-}
-
-.context-filter-trigger:hover:not(:disabled) {
-  border-color: var(--rule-subtle);
-  background: var(--row-hover);
-  color: var(--text-1);
-}
-
-.context-filter-trigger.active {
-  border-color: var(--tone-success-border);
-  background: var(--tone-success-bg);
-  color: var(--accent-strong);
-}
-
-.context-filter-trigger svg {
-  display: block;
-}
-
-.context-filter-count {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  min-width: 11px;
-  height: 11px;
-  padding: 0 2px;
-  display: grid;
-  place-items: center;
-  background: var(--accent-strong);
-  color: var(--text-on-accent);
-  font: 700 0.5rem/1 var(--font-mono);
-}
-
-/* Surface chrome comes from .ui-popover; this only sets the filter's size and type. */
-.ui-popover.context-filter-popover {
-  right: 12px;
-  width: min(280px, calc(100vw - 40px));
-  padding: 0;
-  font-family: var(--font-body);
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.context-filter-form {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-}
-
-.context-filter-popover-head {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.context-filter-popover-head > div {
-  display: grid;
-  gap: 2px;
-}
-
-.context-filter-popover-head .eyebrow {
-  font: var(--font-size-1) var(--font-mono);
-}
-
-.context-filter-popover-head strong {
-  color: var(--text-0);
-  font-family: var(--font-body);
-  font-size: var(--font-size-5);
-}
-
-.context-filter-active-label {
-  flex: 0 0 auto;
-  padding: 2px 6px;
-  border: 1px solid var(--tone-success-border);
-  background: var(--tone-success-bg);
-  color: var(--accent-strong);
-  font: var(--font-size-2) var(--font-mono);
-}
-
-.context-filter-date-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.context-filter-popover label {
-  min-width: 0;
-  font-size: var(--font-size-3);
-}
-
-.context-filter-popover input,
-.context-filter-popover select {
-  min-width: 0;
-  height: var(--control-h-sm);
-  padding: 4px 8px;
-  font-size: var(--font-size-4);
-}
-
-.context-filter-popover select {
-  padding-right: 26px;
-}
-
-.context-filter-popover input[aria-invalid="true"] {
-  border-color: var(--rose);
-}
-
-.context-filter-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.context-filter-actions button {
-  height: 26px;
-  padding: 0 10px;
-  font-size: var(--font-size-3);
-}
-
-.context-select-all-control {
-  width: var(--control-h-sm);
-  height: var(--control-h-sm);
-  min-height: var(--control-h-sm);
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--rule-strong);
-  background: var(--field-bg);
-  cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-
-.context-select-all-control:hover:has(input:not(:disabled)) {
-  border-color: var(--rule-subtle);
-  background: var(--row-hover);
-}
-
-.context-select-all-control:has(input:disabled) {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.context-select-all-control:has(input:checked),
-.context-select-all-control:has(input:indeterminate) {
-  border-color: var(--tone-success-border);
-  background: var(--tone-success-bg);
 }
 
 /* List rows: no card chrome, a rule between rows, a 2px marker for state. */
@@ -3124,6 +3014,11 @@ input.upload-input-hidden {
     position: absolute;
     top: 16px;
     right: 10px;
+  }
+
+  /* Leaves room for the close button beside a selection or search bar. */
+  .context-head.has-bar {
+    padding-right: 44px;
   }
 
   .context-drawer-scrim {

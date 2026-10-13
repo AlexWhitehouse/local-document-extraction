@@ -133,9 +133,9 @@ function createContext(overrides = {}) {
       toolbar: { documentCount: 2 },
       contextList: {
         documents: jobs,
-        onFiltersChange: vi.fn(),
         onRetryDocumentList: vi.fn(),
       },
+      actions: { applySearchFilter: vi.fn() },
     },
     workspaceController: {},
     evaluation: {},
@@ -435,7 +435,7 @@ describe("CommandPalette", () => {
     await paletteClosed();
   });
 
-  it("opens the Documents list with the request's dates and leaves out search text the list can't show", async () => {
+  it("opens the Documents list on the request's whole search, text included", async () => {
     const searches = [];
 
     const request = createRequest({
@@ -464,10 +464,9 @@ describe("CommandPalette", () => {
     await user.click(await screen.findByRole("button", { name: "Open in Documents" }));
 
     expect(searches[0].filter).toMatchObject({ text: "hnh", uploaded_from: "2026-10-01" });
-    expect(context.documentController.contextList.onFiltersChange).toHaveBeenCalledWith({
-      dateFrom: "2026-10-01",
-      dateTo: "",
-      model: "",
+    expect(context.documentController.actions.applySearchFilter).toHaveBeenCalledWith({
+      filter: { text: "hnh", uploaded_from: "2026-10-01" },
+      summary: "uploaded since 1 Oct · text “hnh”",
     });
     expect(context.navigate).toHaveBeenCalledWith("/workspaces/w1/documents");
     await paletteClosed();
@@ -897,12 +896,12 @@ describe("CommandPalette review regressions", () => {
     expect(bodies.flatMap((body) => (body.ids_only ? [] : [body.limit]))).toEqual([50, 50, 20]);
   });
 
-  async function openInDocuments(filter) {
+  async function openInDocuments(filter, overrides = {}) {
     const request = createRequest({
       interpret: () => ({ interpretation: { action: "find_documents", args: {}, filter, unrecognised: [], notes: [] } }),
     });
 
-    const context = createContext({ request });
+    const context = createContext({ request, ...overrides });
     await openPalette(context, user);
     // Unknown words, so the model reads the request.
     await user.type(input(), "Find the paperwork from the usual supplier");
@@ -912,25 +911,25 @@ describe("CommandPalette review regressions", () => {
     return context;
   }
 
-  it("carries the dates of a request over to the Documents list, even with criteria the list can't show", async () => {
-    const context = await openInDocuments({
+  it("carries every part of a request over to the Documents list: conditions, statuses, templates, cost and dates", async () => {
+    const filter = {
+      template_ids: ["invoice"],
+      conditions: [{ template_id: "invoice", field_id: "invoice_number", op: "starts_with", value: "hnh" }],
       statuses: ["failed"],
+      cost: { op: "gt", value: 0.5 },
       uploaded_from: "2026-10-01",
       uploaded_to: "2026-10-10",
-    });
+    };
 
-    expect(context.documentController.contextList.onFiltersChange).toHaveBeenCalledWith({
-      dateFrom: "2026-10-01",
-      dateTo: "2026-10-10",
-      model: "",
+    // Cost criteria are only for people who may read costs.
+    const context = await openInDocuments(filter, { catalog: { ...catalog, capabilities: { cost: true } } });
+
+    expect(context.documentController.actions.applySearchFilter).toHaveBeenCalledWith({
+      filter,
+      summary: expect.stringMatching(/^Invoice · Invoice › Invoice number starts with “hnh” · .*failed.* · uploaded 1 Oct – 10 Oct$/i),
     });
     expect(context.navigate).toHaveBeenCalledWith("/workspaces/w1/documents");
-  });
-
-  it("clears earlier list filters when nothing in the request carries over", async () => {
-    const context = await openInDocuments({ statuses: ["failed"], text: "hnh" });
-
-    expect(context.documentController.contextList.onFiltersChange).toHaveBeenCalledWith({ dateFrom: "", dateTo: "", model: "" });
+    await paletteClosed();
   });
 });
 

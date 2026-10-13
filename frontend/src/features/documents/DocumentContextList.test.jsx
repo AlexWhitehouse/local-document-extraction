@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { DocumentContextList } from "./DocumentContextList.jsx";
 import { isSingleDocumentPacket, singlePacketDocument } from "./packetListing.js";
 
@@ -257,7 +258,7 @@ describe("DocumentContextList", () => {
 
     const { container, rerender } = render(<DocumentContextList {...props} />);
     expect(container.querySelectorAll('[role="listitem"]').length).toBeLessThan(30);
-    fireEvent.click(within(container).getByRole("checkbox", { name: "Select all available documents" }));
+    fireEvent.click(within(container).getByRole("checkbox", { name: "Select all documents" }));
     expect(onToggleAllDocumentSelections.mock.lastCall[0]).toHaveLength(1000);
     fireEvent.keyDown(within(container).getByRole("button", { name: /invoice-0\.pdf/ }), { key: "End" });
     expect(onSelectDocument).toHaveBeenLastCalledWith("job_999");
@@ -346,25 +347,30 @@ describe("DocumentContextList", () => {
     expect(rows[1].textContent).toContain("2 documents · Completed");
     fireEvent.click(within(rows[1]).getByRole("checkbox", { name: "Select packet packet_1" }));
     expect(onTogglePacketSelection).toHaveBeenCalledWith("packet_1", true);
-    fireEvent.click(within(container).getByRole("checkbox", { name: "Select all available documents" }));
+    // Ctrl+A in the list ticks every loaded row, packets included.
+    fireEvent.keyDown(within(rows[0]).getByRole("button", { name: /newer\.pdf/ }), { key: "a", ctrlKey: true });
     expect(onToggleAllDocumentSelections).toHaveBeenCalledWith(["newer", "older"], true);
     expect(onTogglePacketSelection).toHaveBeenLastCalledWith("packet_1", true);
     fireEvent.click(within(rows[1]).getByRole("button", { name: /bundle\.pdf/ }));
     expect(onSelectPacket).toHaveBeenCalledWith("packet_1");
+    // A search lists matching documents on their own, packet documents included.
     rerender(
       <DocumentContextList
-        filters={{ dateFrom: "", dateTo: "", model: "gpt-test" }}
-        hasActiveFilters
-        packets={[{ packet_id: "packet_1", source_name: "bundle.pdf", status: "completed", children: [] }]}
-        documents={[{ job_id: "older", source_name: "older.pdf", status: "completed" }]}
+        searchFilter={{ filter: { text: "bundle" }, summary: "text “bundle”" }}
+        matchTotal={2}
+        documents={[
+          { job_id: "child_1", source_name: "bundle.pdf", status: "completed", parent_packet_id: "packet_1" },
+          { job_id: "older", source_name: "older.pdf", status: "completed" },
+        ]}
         onSelectDocument={vi.fn()}
         onLoadMoreDocuments={vi.fn()}
       />,
     );
-    expect(within(container).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(container).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(container).getByRole("checkbox", { name: "Select document child_1" })).toBeTruthy();
   });
 
-  it("selects and deselects all available documents", () => {
+  it("selects every loaded document from the selection bar, and clears the selection once all are ticked", () => {
     const documents = [
       {
         job_id: "job_1",
@@ -379,9 +385,11 @@ describe("DocumentContextList", () => {
     ];
 
     const onToggleAllDocumentSelections = vi.fn();
+    const onClearSelection = vi.fn();
 
     const sharedProps = {
       documents,
+      onClearSelection,
       selectedDocumentId: "job_1",
       hasMoreDocuments: false,
       isLoadingMoreDocuments: false,
@@ -393,23 +401,21 @@ describe("DocumentContextList", () => {
 
     const { container, rerender } = render(<DocumentContextList {...sharedProps} selectedDocumentIds={["job_1"]} />);
 
-    const selectAll = within(container).getByRole("checkbox", {
-      name: "Select all available documents",
-    });
+    const selectAll = within(container).getByRole("checkbox", { name: "Select all documents" });
 
     expect(selectAll.indeterminate).toBe(true);
+    expect(selectAll.checked).toBe(false);
     fireEvent.click(selectAll);
     expect(onToggleAllDocumentSelections).toHaveBeenLastCalledWith(["job_1", "job_2"], true);
 
     rerender(<DocumentContextList {...sharedProps} selectedDocumentIds={["job_1", "job_2"]} />);
 
-    const deselectAll = within(container).getByRole("checkbox", {
-      name: "Deselect all available documents",
-    });
+    const allSelected = within(container).getByRole("checkbox", { name: "Select all documents" });
 
-    expect(deselectAll.checked).toBe(true);
-    fireEvent.click(deselectAll);
-    expect(onToggleAllDocumentSelections).toHaveBeenLastCalledWith(["job_1", "job_2"], false);
+    expect(allSelected.checked).toBe(true);
+    expect(allSelected.indeterminate).toBe(false);
+    fireEvent.click(allSelected);
+    expect(onClearSelection).toHaveBeenCalledTimes(1);
   });
 
   it("locks individual and bulk selection during export", () => {
@@ -428,96 +434,210 @@ describe("DocumentContextList", () => {
       />,
     );
 
-    expect(within(container).getByRole("checkbox", { name: "Deselect all available documents" }).disabled).toBe(true);
+    expect(within(container).getByRole("checkbox", { name: "Select all documents" }).disabled).toBe(true);
+    expect(within(container).getByRole("button", { name: "Clear selection" }).disabled).toBe(true);
     expect(within(container).getByRole("checkbox", { name: "Select document job_1" }).disabled).toBe(true);
   });
 
-  it("applies and clears date and model filters from the filter popover", () => {
-    const onFiltersChange = vi.fn();
+});
 
-    const sharedProps = {
-      documents: [{ job_id: "a", source_name: "a.pdf", status: "completed" }],
-      selectedDocumentId: "",
-      selectedDocumentIds: [],
-      availableModels: ["provider/model-a", "provider/model-b"],
-      hasMoreDocuments: false,
-      isLoadingMoreDocuments: false,
-      onFiltersChange,
-      onSelectDocument: vi.fn(),
-      onLoadMoreDocuments: vi.fn(),
-    };
+const rowsOf = (count) =>
+  Array.from({ length: count }, (_, i) => ({
+    job_id: `job_${i}`,
+    source_name: `invoice-${i}.pdf`,
+    status: "completed",
+    created_at: new Date(Date.UTC(2026, 9, 1, 0, 59 - i)).toISOString(),
+  }));
 
-    const { container, rerender } = render(
-      <DocumentContextList {...sharedProps} filters={{ dateFrom: "", dateTo: "", model: "" }} />,
-    );
+// Holds the selection the way the document controller does, so the bar follows real ticks.
+function SelectionHarness({ documents = rowsOf(3), hasMoreDocuments = false, onSelectAll, onClearSearch = vi.fn(), ...props }) {
+  const [selected, setSelected] = useState([]);
+  const [everything, setEverything] = useState(false);
 
-    const view = within(container);
+  const toggle = (ids, on) => {
+    setEverything(false);
+    setSelected((current) => (on ? [...new Set([...current, ...ids])] : current.filter((id) => !ids.includes(id))));
+  };
 
-    fireEvent.click(view.getByRole("button", { name: "Advanced document filters" }));
-    expect(view.getByRole("dialog", { name: "Advanced filters" })).toBeTruthy();
-    fireEvent.change(view.getByLabelText("Date from"), {
-      target: { value: "2026-08-01" },
-    });
-    fireEvent.change(view.getByLabelText("Date to"), {
-      target: { value: "2026-08-16" },
-    });
-    fireEvent.change(view.getByLabelText("Model used"), {
-      target: { value: "provider/model-b" },
-    });
-    fireEvent.click(view.getByRole("button", { name: "Apply filters" }));
+  return (
+    <DocumentContextList
+      documents={documents}
+      selectedDocumentIds={selected}
+      selectedDocumentCount={everything ? props.totalDocuments : selected.length}
+      hasMoreDocuments={!everything && hasMoreDocuments}
+      onSelectDocument={vi.fn()}
+      onLoadMoreDocuments={vi.fn()}
+      onToggleDocumentSelection={(id, on) => toggle([id], on)}
+      onToggleAllDocumentSelections={toggle}
+      onClearSelection={() => {
+        setEverything(false);
+        setSelected([]);
+      }}
+      onSelectAllDocuments={async () => {
+        await onSelectAll?.();
+        setSelected(documents.map((job) => job.job_id));
+        setEverything(true);
+      }}
+      onClearSearchFilter={onClearSearch}
+      {...props}
+    />
+  );
+}
 
-    expect(onFiltersChange).toHaveBeenLastCalledWith({
-      dateFrom: "2026-08-01",
-      dateTo: "2026-08-16",
-      model: "provider/model-b",
-    });
+const heading = () => screen.getByRole("heading", { name: "Documents" });
 
-    rerender(
-      <DocumentContextList
-        {...sharedProps}
-        filters={{
-          dateFrom: "2026-08-01",
-          dateTo: "2026-08-16",
-          model: "provider/model-b",
-        }}
-        hasActiveFilters={true}
-      />,
-    );
-    fireEvent.click(view.getByRole("button", { name: "Advanced document filters, 3 active" }));
-    fireEvent.click(view.getByRole("button", { name: "Clear" }));
-    expect(onFiltersChange).toHaveBeenLastCalledWith({
-      dateFrom: "",
-      dateTo: "",
-      model: "",
-    });
+const selectionBar = () => screen.queryByRole("group", { name: "Selection" });
+
+describe("DocumentContextList selection bar", () => {
+  it("takes the heading's place on the first tick, keeps focus on the row, and gives the heading back when cleared", async () => {
+    const user = userEvent.setup();
+    render(<SelectionHarness />);
+
+    expect(heading().className).toBe("");
+    expect(selectionBar()).toBeNull();
+
+    const row = screen.getByRole("checkbox", { name: "Select document job_1" });
+    await user.click(row);
+
+    expect(heading().className).toBe("sr-only");
+    expect(within(selectionBar()).getByRole("status").textContent).toBe("1 selected");
+    expect(document.activeElement).toBe(row);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select document job_2" }));
+    expect(within(selectionBar()).getByRole("status").textContent).toBe("2 selected");
+
+    await user.click(within(selectionBar()).getByRole("button", { name: "Clear selection" }));
+    expect(selectionBar()).toBeNull();
+    expect(heading().className).toBe("");
+    expect(document.activeElement).toBe(screen.getByRole("region", { name: "Document list" }));
   });
 
-  it("prevents applying an inverted date range", () => {
-    const { container } = render(
-      <DocumentContextList
-        documents={[{ job_id: "a", source_name: "a.pdf", status: "completed" }]}
-        selectedDocumentId=""
-        filters={{ dateFrom: "", dateTo: "", model: "" }}
-        hasMoreDocuments={false}
-        isLoadingMoreDocuments={false}
-        onFiltersChange={vi.fn()}
-        onSelectDocument={vi.fn()}
-        onLoadMoreDocuments={vi.fn()}
-      />,
+  it("runs the tri-state checkbox from partly selected to all loaded rows to nothing", async () => {
+    const user = userEvent.setup();
+    render(<SelectionHarness />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select document job_0" }));
+    const all = () => screen.getByRole("checkbox", { name: "Select all documents" });
+    expect(all().indeterminate).toBe(true);
+    expect(all().checked).toBe(false);
+
+    await user.click(all());
+    expect(all().indeterminate).toBe(false);
+    expect(all().checked).toBe(true);
+    expect(within(selectionBar()).getByRole("status").textContent).toBe("3 selected");
+
+    for (const id of ["job_0", "job_1", "job_2"])
+      expect(screen.getByRole("checkbox", { name: `Select document ${id}` }).checked).toBe(true);
+
+    await user.click(all());
+    expect(selectionBar()).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Select document job_0" }).checked).toBe(false);
+  });
+
+  it("offers Select all N for the workspace total and hides it once everything is selected", async () => {
+    const user = userEvent.setup();
+    let finish;
+    const onSelectAll = vi.fn(() => new Promise((resolve) => (finish = resolve)));
+    render(<SelectionHarness hasMoreDocuments totalDocuments={1259} onSelectAll={onSelectAll} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select document job_0" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select document job_1" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select document job_2" }));
+    // Every loaded row is ticked, but more documents haven't loaded yet.
+    const selectAll = within(selectionBar()).getByRole("button", { name: "Select all 1,259" });
+    await user.click(selectAll);
+    expect(onSelectAll).toHaveBeenCalledTimes(1);
+
+    await act(async () => finish());
+    expect(within(selectionBar()).getByRole("status").textContent).toBe("1,259 selected");
+    expect(within(selectionBar()).queryByRole("button", { name: /Select all/ })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("checkbox", { name: "Select all documents" }));
+  });
+
+  it("selects every loaded row with ⌘A or Ctrl+A from the list", async () => {
+    const user = userEvent.setup();
+    render(<SelectionHarness />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select document job_0" }));
+    await user.keyboard("{Meta>}a{/Meta}");
+    expect(within(selectionBar()).getByRole("status").textContent).toBe("3 selected");
+
+    await user.keyboard("{Escape}");
+    screen.getByRole("button", { name: /invoice-1\.pdf/ }).focus();
+    await user.keyboard("{Control>}a{/Control}");
+    expect(within(selectionBar()).getByRole("status").textContent).toBe("3 selected");
+  });
+
+  it("clears the selection with Esc in the list or the bar, and leaves Esc alone without one", async () => {
+    const user = userEvent.setup();
+    const onKeyDown = vi.fn();
+
+    render(
+      <div onKeyDown={onKeyDown}>
+        <SelectionHarness />
+      </div>,
     );
 
-    const view = within(container);
+    const row = screen.getByRole("checkbox", { name: "Select document job_0" });
+    await user.click(row);
+    await user.keyboard("{Escape}");
+    expect(selectionBar()).toBeNull();
+    expect(document.activeElement).toBe(row);
+    expect(onKeyDown).not.toHaveBeenCalled();
 
-    fireEvent.click(view.getByRole("button", { name: "Advanced document filters" }));
-    fireEvent.change(view.getByLabelText("Date from"), {
-      target: { value: "2026-08-16" },
-    });
-    fireEvent.change(view.getByLabelText("Date to"), {
-      target: { value: "2026-08-15" },
-    });
+    // Without a selection Esc carries on to the rest of the page, such as the list drawer.
+    await user.keyboard("{Escape}");
+    expect(onKeyDown).toHaveBeenCalledTimes(1);
 
-    expect(view.getByText("Date from must be on or before date to.")).toBeTruthy();
-    expect(view.getByLabelText("Date to").getAttribute("aria-invalid")).toBe("true");
-    expect(view.getByRole("button", { name: "Apply filters" }).disabled).toBe(true);
+    await user.click(row);
+    within(selectionBar()).getByRole("button", { name: "Clear selection" }).focus();
+    await user.keyboard("{Escape}");
+    expect(selectionBar()).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("region", { name: "Document list" }));
+  });
+});
+
+describe("DocumentContextList search filter", () => {
+  const search = { filter: { template_ids: ["t1"] }, summary: "Invoice › uploaded 5 Oct – 11 Oct" };
+
+  it("shows the matches and the search in place of the heading, and Clear removes it", async () => {
+    const user = userEvent.setup();
+    const onClearSearch = vi.fn();
+    render(<SelectionHarness searchFilter={search} matchTotal={6} onClearSearch={onClearSearch} />);
+
+    const bar = screen.getByRole("group", { name: "Search filter" });
+    expect(heading().className).toBe("sr-only");
+    expect(within(bar).getByRole("status").textContent).toBe("6 matches");
+    expect(within(bar).getByTitle(search.summary).textContent).toBe(search.summary);
+
+    await user.click(within(bar).getByRole("button", { name: "Clear search" }));
+    expect(onClearSearch).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(screen.getByRole("region", { name: "Document list" }));
+  });
+
+  it("caps the match count the way the search does", () => {
+    render(<SelectionHarness searchFilter={search} matchTotal={10000} matchTotalCapped />);
+
+    expect(within(screen.getByRole("group", { name: "Search filter" })).getByRole("status").textContent).toBe(
+      "10,000+ matches",
+    );
+  });
+
+  it("swaps to the selection bar while rows are ticked, offers every match, and Esc never clears the search", async () => {
+    const user = userEvent.setup();
+    const onClearSearch = vi.fn();
+    render(<SelectionHarness searchFilter={search} matchTotal={60} hasMoreDocuments onClearSearch={onClearSearch} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Select document job_0" }));
+    expect(screen.queryByRole("group", { name: "Search filter" })).toBeNull();
+    expect(within(selectionBar()).getByRole("button", { name: "Select all 60" })).toBeTruthy();
+
+    await user.keyboard("{Escape}");
+    expect(selectionBar()).toBeNull();
+    expect(screen.getByRole("group", { name: "Search filter" })).toBeTruthy();
+
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("group", { name: "Search filter" })).toBeTruthy();
+    expect(onClearSearch).not.toHaveBeenCalled();
   });
 });

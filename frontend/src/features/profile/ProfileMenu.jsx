@@ -7,7 +7,7 @@ import { DISCARD_CHANGES, confirmDialog } from "../ui/confirm.jsx";
 import { Field, TextInput } from "../ui/Field.jsx";
 import { Segmented } from "../ui/Tabs.jsx";
 import { useThemePreference } from "../../lib/theme.js";
-import { paletteShortcutLabel } from "../palette/paletteState.js";
+import { commandKeyLabel, paletteShortcutLabel } from "../palette/paletteState.js";
 
 const THEME_OPTIONS = [
   { value: "system", label: "System" },
@@ -214,6 +214,18 @@ export const ProfileMenu = React.forwardRef(function ProfileMenu(
                             <kbd>↑</kbd> <kbd>↓</kbd>
                           </dt>
                           <dd>Move between documents in the list. Home and End jump to the first and last.</dd>
+                        </div>
+                        <div>
+                          <dt>
+                            <kbd>{commandKeyLabel()}</kbd> <kbd>A</kbd>
+                          </dt>
+                          <dd>Select every loaded document in the list</dd>
+                        </div>
+                        <div>
+                          <dt>
+                            <kbd>Esc</kbd>
+                          </dt>
+                          <dd>Clear the selected documents</dd>
                         </div>
                       </dl>
                     </section>

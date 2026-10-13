@@ -24,7 +24,6 @@ import {
 } from "./paletteSearch.js";
 import {
   applyAlternative,
-  documentsListFilters,
   documentsSignature,
   EMPTY_CATALOG,
   NO_MODEL_MESSAGE,
@@ -511,9 +510,13 @@ export function CommandPalette({ context, closing: closeRequested = false, onReq
       if (workspace.id !== context.workspaceId) context.navigate(context.appPath({ workspaceId: workspace.id }));
     });
 
+  // The Documents list runs the same search, so it lists exactly these matches until it's cleared there.
   const openInDocuments = (filter) =>
     close(() => {
-      documentController?.contextList?.onFiltersChange?.(documentsListFilters(filter));
+      documentController?.actions?.applySearchFilter?.({
+        filter,
+        summary: describeFilter(filter, catalog, { today: context.today }),
+      });
       navigateTo({ page: "documents" });
     });
 
