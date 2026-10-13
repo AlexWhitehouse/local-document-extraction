@@ -5,6 +5,7 @@ import {
   describeFilter,
   interpretLocally,
   lexCommand,
+  mergeInterpretations,
   resolveRelativeDate,
 } from "./commandParser";
 
@@ -1069,5 +1070,142 @@ describe("large catalogues", () => {
     expect(last.type).toBe("plain");
     expect(last.end).toBe(text.length);
     expect(segments.some((segment) => segment.type === "status")).toBe(false);
+  });
+});
+
+describe("short Template names and find verbs", () => {
+  const named = {
+    models: [],
+    interpretation: { available: true },
+    templates: [
+      {
+        id: "tpl_delivery",
+        name: "Delivery Note Template",
+        current_version: 2,
+        fields: [{ field_id: "driver", name: "Driver", data_type: "string", type: "text" }],
+      },
+      { id: "tpl_order_a", name: "Order Form", current_version: 1, fields: [] },
+      { id: "tpl_order_b", name: "Order Template", current_version: 1, fields: [] },
+      { id: "tpl_plain", name: "Template", current_version: 1, fields: [] },
+    ],
+  };
+
+  function read(text) {
+    const segments = lexCommand(text, named, { workspaces: [] });
+    const result = interpretLocally(segments, named, { today: TODAY, workspaces: [] });
+
+    expect(validateCommandInterpretation(result.interpretation, named)).toEqual(result.interpretation);
+
+    return { segments, ...result };
+  }
+
+  it("finds a Template by its name without generic words such as Template or Form", () => {
+    const { interpretation, complete } = read("Return delivery note documents created in the last 7 days");
+
+    expect(complete).toBe(true);
+    expect(interpretation.action).toBe("find_documents");
+    expect(interpretation.filter).toEqual({
+      template_ids: ["tpl_delivery"],
+      uploaded_from: "2026-10-07",
+      uploaded_to: "2026-10-13",
+    });
+  });
+
+  it("reads plural short names", () => {
+    const { interpretation, complete } = read("fetch delivery notes from last week");
+
+    expect(complete).toBe(true);
+    expect(interpretation.filter.template_ids).toEqual(["tpl_delivery"]);
+  });
+
+  it("keeps the full name working, singular and plural", () => {
+    expect(read("Return delivery note templates created in the last 7 days").interpretation.filter.template_ids).toEqual([
+      "tpl_delivery",
+    ]);
+  });
+
+  it("leaves out a short name that several Templates share", () => {
+    const { interpretation, complete, unused } = read("show order documents");
+
+    expect(complete).toBe(false);
+    expect(unused).toContain("order");
+    expect(interpretation.filter?.template_ids).toBeUndefined();
+  });
+
+  it("treats return, fetch, display and view as find", () => {
+    for (const verb of ["Return", "Fetch", "Display", "View", "Pull up", "Give me"])
+      expect(read(`${verb} failed documents`).interpretation).toMatchObject({
+        action: "find_documents",
+        filter: { statuses: ["failed"] },
+      });
+  });
+});
+
+describe("mergeInterpretations", () => {
+  function local(text) {
+    const segments = lexCommand(text, catalog, { workspaces });
+
+    return { segments, ...interpretLocally(segments, catalog, { today: TODAY, workspaces }) };
+  }
+
+  it("keeps the action, dates and Templates the parser recognised", () => {
+    const { segments, interpretation } = local("find invoices billed to Leeds from last week");
+
+    const model = {
+      action: "find_templates",
+      args: { template_id: "tpl_receipt" },
+      filter: {
+        template_ids: ["tpl_receipt"],
+        uploaded_from: "2026-10-04",
+        uploaded_to: "2026-10-12",
+        conditions: [{ template_id: "tpl_invoice", field_id: "billing_address", op: "contains", value: "Leeds" }],
+      },
+      unrecognised: [],
+      notes: [{ kind: "matched", text: "Matched “Leeds” to Billing address." }],
+    };
+
+    const merged = mergeInterpretations(interpretation, model, segments);
+
+    expect(merged.action).toBe("find_documents");
+    expect(merged.filter).toMatchObject({
+      uploaded_from: "2026-10-05",
+      uploaded_to: "2026-10-11",
+      conditions: [{ template_id: "tpl_invoice", field_id: "billing_address", op: "contains", value: "Leeds" }],
+    });
+    expect(merged.filter.template_ids ?? ["tpl_invoice"]).toEqual(["tpl_invoice"]);
+    expect(merged.unrecognised).toEqual([]);
+    expect(validateCommandInterpretation(merged, catalog)).toEqual(merged);
+  });
+
+  it("drops model conditions on Templates the request didn't name", () => {
+    const { segments, interpretation } = local("find invoices billed to Leeds");
+
+    const merged = mergeInterpretations(
+      interpretation,
+      {
+        action: "find_documents",
+        args: {},
+        filter: { conditions: [{ template_id: "tpl_receipt", field_id: "merchant", op: "contains", value: "Leeds" }] },
+        unrecognised: ["billed"],
+        notes: [],
+      },
+      segments,
+    );
+
+    expect(merged.filter.conditions ?? []).toEqual([]);
+    expect(merged.unrecognised).toEqual(["billed"]);
+  });
+
+  it("uses the model's action when the request has no action verb", () => {
+    const { segments, interpretation } = local("invoices billed to Leeds");
+
+    const merged = mergeInterpretations(
+      interpretation,
+      { action: "export", args: { format: "csv" }, filter: {}, unrecognised: [], notes: [] },
+      segments,
+    );
+
+    expect(merged.action).toBe("export");
+    expect(merged.args.format).toBe("csv");
   });
 });

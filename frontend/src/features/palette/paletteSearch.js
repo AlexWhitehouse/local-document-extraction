@@ -87,7 +87,7 @@ export function documentItem(job, { templateNames, group }) {
 }
 
 export function templateItem(template, group) {
-  const fields = Array.isArray(template.fields) ? template.fields.length : 0;
+  const fields = Array.isArray(template.fields) ? pluralize(template.fields.length, "field") : null;
 
   return {
     id: `template:${template.id}`,
@@ -95,7 +95,7 @@ export function templateItem(template, group) {
     kind: "template",
     template,
     label: template.name || "Untitled template",
-    sub: [`v${template.current_version ?? 1}`, pluralize(fields, "field")].join(" · "),
+    sub: [`v${template.current_version ?? 1}`, fields].filter(Boolean).join(" · "),
   };
 }
 

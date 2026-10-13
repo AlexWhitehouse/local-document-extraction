@@ -33,7 +33,27 @@ import { isIsoDate, operatorsFor, SEARCH_LIMITS } from "../../../../shared/docum
 
 /** @type {Array<[CommandAction, string[]]>} */
 const ACTION_VERBS = [
-  ["find_documents", ["show me", "search for", "look up", "look for", "find", "show", "search", "list", "get"]],
+  [
+    "find_documents",
+    [
+      "show me",
+      "search for",
+      "look up",
+      "look for",
+      "pull up",
+      "bring up",
+      "give me",
+      "find",
+      "show",
+      "search",
+      "list",
+      "get",
+      "return",
+      "fetch",
+      "display",
+      "view",
+    ],
+  ],
   ["edit_template", ["edit", "update", "modify", "change", "improve"]],
   ["create_template", ["create", "make"]],
   ["upload", ["upload"]],
@@ -101,6 +121,9 @@ const PAGE_LABELS = {
 const DOCUMENT_SUBJECTS = ["documents", "document", "docs", "files", "file"];
 
 const TEMPLATE_SUBJECTS = ["templates", "template"];
+
+/** Words that describe what a Template is rather than which one, e.g. "Prescription Template" → "prescription". */
+const GENERIC_NAME_WORDS = new Set(["template", "templates", "form", "forms", "document", "documents", "type"]);
 
 /** Words that carry no meaning on their own, so leaving them out never loses anything. */
 const STOP_WORDS = new Set(
@@ -323,6 +346,48 @@ function pluralOf(word) {
   if (/(?:s|x|z|ch|sh)$/i.test(word)) return `${word}es`;
 
   return `${word}s`;
+}
+
+/** @param {string} phrase Pluralises the last word: "delivery note" → "delivery notes". */
+function pluralPhrase(phrase) {
+  const words = phrase.split(" ");
+
+  return [...words.slice(0, -1), pluralOf(words[words.length - 1])].join(" ");
+}
+
+/**
+ * The distinctive part of each Template name, without generic words such as "template" or "form",
+ * so "prescriptions" finds "Prescription Template". A short name shared by several Templates, or one
+ * that is itself a generic or filler word, is left out rather than guessed.
+ * @param {SearchCatalogTemplate[]} templates
+ * @returns {Map<SearchCatalogTemplate, string>}
+ */
+function shortTemplateNames(templates) {
+  /** @type {Map<string, SearchCatalogTemplate[]>} */
+  const owners = new Map();
+
+  for (const template of templates) {
+    const name = phraseKey(template.name);
+
+    if (!name) continue;
+    const words = name.split(" ");
+
+    while (words.length && GENERIC_NAME_WORDS.has(words[words.length - 1])) words.pop();
+
+    while (words.length && GENERIC_NAME_WORDS.has(words[0])) words.shift();
+    const short = words.join(" ");
+
+    if (!short || short === name || short.length < 3 || STOP_WORDS.has(short)) continue;
+    owners.set(short, [...(owners.get(short) ?? []), template]);
+  }
+
+  const fullNames = new Set(templates.map((template) => phraseKey(template.name)));
+  /** @type {Map<SearchCatalogTemplate, string>} */
+  const short = new Map();
+
+  for (const [name, list] of owners) if (list.length === 1 && !fullNames.has(name)) short.set(list[0], name);
+
+  return short;
 }
 
 /** @param {string} value */
@@ -888,20 +953,23 @@ function buildLexicon(catalog) {
   for (const word of TEMPLATE_SUBJECTS)
     subjects.set(word, { kind: "templates", template: null, plural: word.endsWith("s") });
 
+  const shortNames = shortTemplateNames(catalog.templates);
+
   for (const template of catalog.templates) {
     const name = phraseKey(template.name);
 
     if (!name) continue;
-    const words = name.split(" ");
-    const plural = [...words.slice(0, -1), pluralOf(words[words.length - 1])].join(" ");
+    const short = shortNames.get(template);
 
-    for (const [form, isPlural] of [
-      [name, false],
-      [plural, true],
-    ]) {
-      if (!templateNames.has(form)) templateNames.set(form, template);
+    for (const base of short ? [name, short] : [name]) {
+      for (const [form, isPlural] of [
+        [base, false],
+        [pluralPhrase(base), true],
+      ]) {
+        if (!templateNames.has(form)) templateNames.set(form, template);
 
-      if (!subjects.has(form)) subjects.set(form, { kind: "documents", template, plural: isPlural });
+        if (!subjects.has(form)) subjects.set(form, { kind: "documents", template, plural: isPlural });
+      }
     }
 
     for (const field of template.fields) {
@@ -2296,6 +2364,79 @@ function plainText(segments) {
  */
 function markPlainConsumed(segments, consumed) {
   for (const [index, segment] of segments.entries()) if (segment.type === "plain") consumed.add(index);
+}
+
+// ---------------------------------------------------------------------------
+// Combining the local reading with the model's
+// ---------------------------------------------------------------------------
+
+/**
+ * The model only fills the gaps. Whatever the local parser recognised (the action verb, upload
+ * dates, statuses, Templates, field conditions and arguments) stays exactly as the pills show it,
+ * so the same request can't change meaning between runs. The model adds what the parser couldn't
+ * read: leftover words, plain search text and conditions on other fields.
+ * @param {CommandInterpretation} local
+ * @param {CommandInterpretation} model
+ * @param {Segment[]} segments
+ * @returns {CommandInterpretation}
+ */
+export function mergeInterpretations(local, model, segments) {
+  const action = segments.some((segment) => segment.type === "action") ? local.action : model.action;
+  const args = { ...model.args, ...local.args };
+  const notes = [];
+
+  for (const note of [...local.notes, ...model.notes])
+    if (notes.length < SEARCH_LIMITS.notes && !notes.some((kept) => kept.text === note.text)) notes.push(note);
+
+  const merged = { action, args, filter: null, unrecognised: model.unrecognised, notes };
+
+  if (!FILTER_ACTIONS.has(action) && action !== "find_templates") {
+    merged.filter = model.filter ?? local.filter;
+
+    return merged;
+  }
+
+  const mine = local.filter ?? {};
+  const theirs = model.filter ?? {};
+  /** @type {DocumentSearchFilter} */
+  const filter = {};
+  // Local text built from unused words is a stand-in; the model's reading of those words replaces it.
+  const text = theirs.text ?? (local.unrecognised.length ? undefined : mine.text);
+
+  if (text) filter.text = text;
+  const statuses = mine.statuses?.length ? mine.statuses : theirs.statuses;
+
+  if (statuses?.length) filter.statuses = statuses;
+  const templateIds = mine.template_ids?.length ? mine.template_ids : theirs.template_ids;
+
+  if (templateIds?.length) filter.template_ids = templateIds;
+  const dates = mine.uploaded_from || mine.uploaded_to ? mine : theirs;
+
+  if (dates.uploaded_from) filter.uploaded_from = dates.uploaded_from;
+
+  if (dates.uploaded_to) filter.uploaded_to = dates.uploaded_to;
+  const modelName = mine.model ?? theirs.model;
+
+  if (modelName) filter.model = modelName;
+
+  // Local conditions stay; model conditions are added for other fields, on the same Templates.
+  const conditions = [...(mine.conditions ?? [])];
+  const pinned = new Set([...(templateIds ?? []), ...conditions.map((condition) => condition.template_id)]);
+
+  for (const condition of theirs.conditions ?? []) {
+    const sameField = conditions.some(
+      (kept) => kept.template_id === condition.template_id && kept.field_id === condition.field_id,
+    );
+
+    if (sameField || (pinned.size && !pinned.has(condition.template_id))) continue;
+
+    if (conditions.length < SEARCH_LIMITS.conditions) conditions.push(condition);
+  }
+
+  if (conditions.length) filter.conditions = conditions;
+  merged.filter = filter;
+
+  return merged;
 }
 
 // ---------------------------------------------------------------------------

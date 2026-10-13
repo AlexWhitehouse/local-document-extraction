@@ -7,7 +7,7 @@ import { ModalDialog } from "../layout/ModalDialog.jsx";
 import { Button } from "../ui/Button.jsx";
 import { Callout } from "../ui/Callout.jsx";
 import { Skeleton } from "../ui/States.jsx";
-import { askLooksLikeQuestion, describeFilter, interpretLocally, lexCommand } from "./commandParser.js";
+import { askLooksLikeQuestion, describeFilter, interpretLocally, lexCommand, mergeInterpretations } from "./commandParser.js";
 import { FLOW_REGISTRY } from "./flows/index.js";
 import { PalettePills, PillLegend } from "./PalettePills.jsx";
 import { DocumentResults, InterpretationNotes, OptionList, TemplateResults } from "./PaletteResults.jsx";
@@ -166,14 +166,27 @@ function findWorkspace(workspaces, name) {
   return partial.length === 1 ? partial[0] : null;
 }
 
-function matchingTemplates(templates, filter) {
+// Templates named by the request, through the filter or the action's own Template.
+function matchingTemplates(templates, interpretation) {
+  const filter = interpretation?.filter;
   const text = String(filter?.text || "").toLowerCase();
+
+  const named = [...(filter?.template_ids ?? []), ...(interpretation?.args?.template_id ? [interpretation.args.template_id] : [])];
 
   return templates.filter(
     (template) =>
-      (!filter?.template_ids?.length || filter.template_ids.includes(template.id)) &&
+      (!named.length || named.includes(template.id)) &&
       (!text || String(template.name || "").toLowerCase().includes(text)),
   );
+}
+
+// The parser's reading wins for what it recognised; a merge the catalogue rejects falls back to the model's.
+function mergedInterpretation(local, answered, segments, catalog) {
+  try {
+    return validateCommandInterpretation(mergeInterpretations(local, answered, segments), catalog);
+  } catch {
+    return answered;
+  }
 }
 
 /**
@@ -185,7 +198,16 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
   const catalog = context.catalog || EMPTY_CATALOG;
   // Until the catalogue arrives, Ask is offered; it explains itself once the catalogue says no model.
   const interpretationAvailable = context.catalog ? catalog.interpretation?.available === true : true;
-  const templates = useMemo(() => context.templateController?.templates || catalog.templates, [context.templateController?.templates, catalog.templates]);
+
+  // The Templates list has no fields, so field counts come from the catalogue.
+  const templates = useMemo(() => {
+    const fields = new Map(catalog.templates.map((template) => [template.id, template.fields]));
+
+    return (context.templateController?.templates || catalog.templates).map((template) =>
+      Array.isArray(template.fields) || !fields.has(template.id) ? template : { ...template, fields: fields.get(template.id) },
+    );
+  }, [context.templateController?.templates, catalog.templates]);
+
   const workspaces = useMemo(() => context.workspaces || [], [context.workspaces]);
   const shortcut = paletteShortcutLabel();
   const listboxId = useId();
@@ -306,7 +328,7 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
       return results.jobs.map((job) => documentItem(job, { templateNames, group: "" }));
 
     if (action === "find_templates")
-      return matchingTemplates(templates, interpretation?.filter).map((template) => templateItem(template, ""));
+      return matchingTemplates(templates, interpretation).map((template) => templateItem(template, ""));
 
     if (action && flows[action])
       return [
@@ -516,7 +538,8 @@ export function CommandPalette({ context, onClose, flows = FLOW_REGISTRY }) {
         signal: controller.signal,
       });
 
-      const checked = validateCommandInterpretation(answer, activeCatalog);
+      const answered = validateCommandInterpretation(answer, activeCatalog);
+      const checked = mergedInterpretation(local.interpretation, answered, segments, activeCatalog);
 
       if (run !== runRef.current) return;
 
