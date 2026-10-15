@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createLocalSourceObjectManifest } from "./localSourceObjectManifest";
+import { createLocalSourceObjectManifest, INSTALLATION_DESTINATION_ID } from "./localSourceObjectManifest";
 import { createLocalSourceObjectCleanup } from "./localSourceObjectCleanup";
 
 import { retainedObjectKey } from "./s3SourceObjectStore";
@@ -20,6 +20,9 @@ function database() {
 
 const at = "2026-01-01T00:00:00.000Z";
 
+const PRE_DESTINATION_COLUMNS =
+  "object_key, workspace_id, owner_kind, owner_id, phase, created_at, updated_at, attempts, next_attempt_at";
+
 test("widens the existing manifest constraint atomically without losing cleanup state or indexes", () => {
   const db = database();
   db.exec(`CREATE TABLE source_storage_installation(singleton INTEGER PRIMARY KEY,namespace TEXT NOT NULL,created_at TEXT NOT NULL,destination TEXT);
@@ -32,13 +35,19 @@ test("widens the existing manifest constraint atomically without losing cleanup 
     INSERT INTO source_object_manifest VALUES('evaluation','w','evaluation_document','saved','linked','${at}','${at}',0,NULL);`);
   const before = db.query("SELECT * FROM source_object_manifest ORDER BY object_key").all();
   const manifest = createLocalSourceObjectManifest(db);
-  expect(db.query("SELECT * FROM source_object_manifest ORDER BY object_key").all()).toEqual(before);
+  expect(db.query(`SELECT ${PRE_DESTINATION_COLUMNS} FROM source_object_manifest ORDER BY object_key`).all()).toEqual(
+    before,
+  );
+  // Every object recorded before Workspace buckets lives in the installation's bucket.
+  expect(db.query("SELECT DISTINCT destination_id FROM source_object_manifest").all()).toEqual([
+    { destination_id: INSTALLATION_DESTINATION_ID },
+  ]);
   expect(manifest.namespace()).toBe("existing_namespace");
   expect(manifest.recordedDestination()).toBe("existing_destination");
   expect(
     db.query("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_custom_cleanup_state'").get(),
   ).toBeTruthy();
-  manifest.prepare({ objectKey: "packet", workspaceId: "w", ownerKind: "packet", ownerId: "shared_id" });
+  manifest.prepare({ objectKey: "packet", destinationId: INSTALLATION_DESTINATION_ID, workspaceId: "w", ownerKind: "packet", ownerId: "shared_id" });
   manifest.link({ objectKey: "packet" });
   manifest.markJobDeleting({ workspaceId: "w", jobId: "shared_id" });
   expect(db.query("SELECT phase FROM source_object_manifest WHERE object_key='packet'").get()).toEqual({
@@ -59,8 +68,8 @@ test("widens the existing manifest constraint atomically without losing cleanup 
 test("packet upload recovery links accepted originals and deletes only abandoned attempts", async () => {
   const db = database();
   const manifest = createLocalSourceObjectManifest(db);
-  manifest.prepare({ objectKey: "packet-accepted", workspaceId: "w", ownerKind: "packet", ownerId: "pkt_accepted" });
-  manifest.prepare({ objectKey: "packet-abandoned", workspaceId: "w", ownerKind: "packet", ownerId: "pkt_abandoned" });
+  manifest.prepare({ objectKey: "packet-accepted", destinationId: INSTALLATION_DESTINATION_ID, workspaceId: "w", ownerKind: "packet", ownerId: "pkt_accepted" });
+  manifest.prepare({ objectKey: "packet-abandoned", destinationId: INSTALLATION_DESTINATION_ID, workspaceId: "w", ownerKind: "packet", ownerId: "pkt_abandoned" });
   db.query("UPDATE source_object_manifest SET created_at=?").run(at);
   let releases = 0;
 
@@ -85,11 +94,11 @@ test("packet upload recovery links accepted originals and deletes only abandoned
     manifest,
     productStoreRegistry: registry,
     workspaceControl: { workspaceExists: () => true },
-    objectStore: {
+    storeFor: () => ({
       delete: async (key) => {
         deleted.push(key);
       },
-    },
+    }),
     now: () => Date.now() + 3600_000,
   });
 
@@ -105,7 +114,7 @@ test("packet upload recovery links accepted originals and deletes only abandoned
 test("an unreadable packet database is not evidence that its original is orphaned", async () => {
   const db = database();
   const manifest = createLocalSourceObjectManifest(db);
-  manifest.prepare({ objectKey: "packet", workspaceId: "w", ownerKind: "packet", ownerId: "pkt" });
+  manifest.prepare({ objectKey: "packet", destinationId: INSTALLATION_DESTINATION_ID, workspaceId: "w", ownerKind: "packet", ownerId: "pkt" });
   db.query("UPDATE source_object_manifest SET created_at=?").run(at);
   let deletes = 0;
 
@@ -127,11 +136,11 @@ test("an unreadable packet database is not evidence that its original is orphane
     manifest,
     productStoreRegistry: registry,
     workspaceControl: { workspaceExists: () => true },
-    objectStore: {
+    storeFor: () => ({
       delete: async () => {
         deletes++;
       },
-    },
+    }),
     now: () => Date.now() + 3600_000,
   }).run();
   expect(deletes).toBe(0);

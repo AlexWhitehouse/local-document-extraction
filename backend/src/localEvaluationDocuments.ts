@@ -28,7 +28,6 @@ import { LOCAL_EVALUATION_DOCUMENT_METADATA_BYTES, parseLocalMultipartSubmission
 import { localRequestOriginFailure } from "./localRequestOrigin";
 import type { LocalSourceFileStore } from "./localSourceFileStore";
 import { listLocalWorkspaceIds } from "./localSourceFileRetention";
-import type { LocalSourceObjectManifest } from "./localSourceObjectManifest";
 import { ensurePrivateStateDirectory } from "./localStatePaths";
 import type { LocalWorkspace, LocalWorkspaceControl } from "./localWorkspaceControl";
 import {
@@ -45,15 +44,13 @@ import type {
   LocalWorkspaceProductStoreHandle,
   LocalWorkspaceProductStoreRegistry,
 } from "./localWorkspaceProductStoreRegistry";
-import { SourceObjectMissingError, type SourceObjectStore } from "./s3SourceObjectStore";
-
-/** Remote library originals: the object store, the installation manifest and the library key scheme. */
-export type LocalEvaluationDocumentObjects = {
-  store: SourceObjectStore;
-  manifest: Pick<LocalSourceObjectManifest, "prepare" | "link" | "markDeleting" | "markOwnerDeleting">;
-  keyFor(input: { workspaceId: string; documentId: string; mimeType: string }): string;
-  maxConcurrentReads?: number;
-};
+import type { LocalRetainedSourceObjects } from "./localRetainedSourceObjectRouting";
+import {
+  workspaceSourceStorageResolver,
+  type LocalSourceStorageDestinations,
+  type WorkspaceSourceStorage,
+} from "./localSourceStorageDestinations";
+import { SourceObjectMissingError } from "./s3SourceObjectStore";
 
 export type LocalEvaluationDocumentsSnapshot = {
   deletionsCompleted: number;
@@ -91,6 +88,7 @@ export function createLocalEvaluationDocuments({
   operations,
   sourceFileStore,
   sourceStorage,
+  sourceStorageDestinations,
   sourceObjects,
   stateDirectory,
   liveUpdateHub,
@@ -102,8 +100,10 @@ export function createLocalEvaluationDocuments({
   productStoreRegistry: LocalWorkspaceProductStoreRegistry;
   operations: LocalWorkspaceProductOperations;
   sourceFileStore: LocalSourceFileStore;
+  /** The installation's storage; Workspaces with their own bucket override it for new saves. */
   sourceStorage: LocalSourceStorageConfiguration;
-  sourceObjects?: LocalEvaluationDocumentObjects;
+  sourceStorageDestinations?: Pick<LocalSourceStorageDestinations, "current">;
+  sourceObjects?: LocalRetainedSourceObjects;
   stateDirectory: string;
   liveUpdateHub?: Pick<LocalLiveUpdateHub, "broadcastEvaluationDocument">;
   maxSourceFileBytes: number;
@@ -113,7 +113,7 @@ export function createLocalEvaluationDocuments({
   const uploadDirectory = join(stateDirectory, "temporary", "evaluation-documents");
   const evaluationDirectory = resolve(stateDirectory, "temporary", "evaluations");
   const ownedUploads = new Set<string>();
-  const activeReads = { count: 0 };
+  const storageFor = workspaceSourceStorageResolver(sourceStorage, sourceStorageDestinations);
   let uploading = 0;
   let activeSweep: Promise<void> | null = null;
   let orphanCursor: string | null = null;
@@ -169,17 +169,9 @@ export function createLocalEvaluationDocuments({
     retained_object_key: string | null;
   }): Promise<Read> => {
     if (source.retained_object_key) {
-      if (!sourceObjects || activeReads.count >= (sourceObjects.maxConcurrentReads ?? 8))
-        return { ok: false, reason: "unavailable" };
-      activeReads.count += 1;
-      let released = false;
+      const release = sourceObjects?.acquireRead(source.retained_object_key);
 
-      const release = () => {
-        if (!released) {
-          released = true;
-          activeReads.count -= 1;
-        }
-      };
+      if (!sourceObjects || !release) return { ok: false, reason: "unavailable" };
 
       try {
         const object = await sourceObjects.store.open(source.retained_object_key);
@@ -266,7 +258,8 @@ export function createLocalEvaluationDocuments({
     author: { userId: string; name: string },
   ) => {
     // Captured once, when the server begins accepting the save; later setting changes apply to later saves.
-    const status = saveStatus(sourceStorage, workspace);
+    const storage = storageFor(workspace.id);
+    const status = saveStatus(storage, workspace);
     const workspaceId = workspace.id;
 
     return access.run({ workspaceId, mode: "create" }, async ({ store, signal: workspaceSignal }) => {
@@ -338,7 +331,7 @@ export function createLocalEvaluationDocuments({
             await sourceFileStore.deleteEvaluationDocumentDirectory?.({ workspaceId, documentId }).catch(() => {});
         };
 
-        if (sourceStorage.provider === "s3") {
+        if (storage.provider === "s3") {
           objectKey = await publishOriginal({
             objects: sourceObjects,
             workspaceId,
@@ -748,7 +741,7 @@ export function createLocalEvaluationDocuments({
             : routeNotFound();
 
         if (documentId === "status")
-          return method === "GET" ? respond(saveStatus(sourceStorage, workspace)) : routeNotFound();
+          return method === "GET" ? respond(saveStatus(storageFor(workspace.id), workspace)) : routeNotFound();
 
         if (!documentId) {
           if (method === "GET") return await list(url, workspaceId);
@@ -837,7 +830,7 @@ function summary(document: LocalEvaluationDocumentSummary) {
 type SaveStatusResult = { save_available: boolean; reason: SaveUnavailableReason | null };
 
 function saveStatus(
-  sourceStorage: LocalSourceStorageConfiguration,
+  sourceStorage: WorkspaceSourceStorage,
   workspace: Pick<LocalWorkspace, "source_retention_disabled">,
 ): SaveStatusResult {
   const reason: SaveUnavailableReason | null =
@@ -864,25 +857,35 @@ async function publishOriginal({
   path,
   signal,
 }: {
-  objects?: LocalEvaluationDocumentObjects;
+  objects?: LocalRetainedSourceObjects;
   workspaceId: string;
   documentId: string;
   mimeType: string;
   path: string;
   signal: AbortSignal;
 }): Promise<string> {
-  if (!objects) throw new SourceUnavailableError("Object storage is not available for library originals");
-  const objectKey = objects.keyFor({ workspaceId, documentId, mimeType });
+  // Resolved once: this save finishes in the bucket it starts in, even if the Workspace's settings change.
+  const destination = objects?.destinationFor(workspaceId);
+
+  if (!objects || !destination)
+    throw new SourceUnavailableError("Object storage is not available for library originals");
+  const objectKey = destination.documentKeyFor({ workspaceId, documentId, mimeType });
 
   try {
-    objects.manifest.prepare({ objectKey, workspaceId, ownerKind: OWNER_KIND, ownerId: documentId });
+    objects.manifest.prepare({
+      objectKey,
+      destinationId: destination.id,
+      workspaceId,
+      ownerKind: OWNER_KIND,
+      ownerId: documentId,
+    });
   } catch (error) {
     console.warn("Library object manifest entry could not be recorded", error);
     throw new SourceUnavailableError("The original could not be saved");
   }
 
   try {
-    await objects.store.put({ key: objectKey, file: Bun.file(path), mimeType });
+    await destination.store.put({ key: objectKey, file: Bun.file(path), mimeType });
     signal.throwIfAborted();
   } catch (error) {
     objects.manifest.markDeleting({ objectKey });

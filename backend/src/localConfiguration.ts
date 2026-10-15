@@ -26,6 +26,8 @@ export type LocalSourceStorageConfiguration = {
   provider: SourceStorageProvider;
   /** Installation default for retaining originals of new uploads; Workspaces may opt out. */
   originalRetentionEnabled: boolean;
+  /** Workspace owners and admins may store their Workspace's originals in their own S3-compatible bucket. */
+  workspaceOverridesEnabled: boolean;
   s3?: S3SourceStorageConfiguration;
 };
 
@@ -280,14 +282,21 @@ function readSourceStorageConfiguration(
 
   if (provider !== "none" && provider !== "local" && provider !== "s3")
     throw new Error("SOURCE_STORAGE_PROVIDER must be none, local or s3.");
-  // Selecting a store enables retention by default; installations without one never retain.
-  const originalRetentionEnabled = boolean("SOURCE_ORIGINAL_RETENTION_ENABLED", provider !== "none");
+  const workspaceOverridesEnabled = boolean("SOURCE_STORAGE_WORKSPACE_OVERRIDES_ENABLED", true);
 
-  if (originalRetentionEnabled && provider === "none") {
-    throw new Error("SOURCE_ORIGINAL_RETENTION_ENABLED requires SOURCE_STORAGE_PROVIDER to be local or s3.");
+  // Retention applies wherever a store exists: the installation's, or a Workspace's own bucket.
+  const originalRetentionEnabled = boolean(
+    "SOURCE_ORIGINAL_RETENTION_ENABLED",
+    provider !== "none" || workspaceOverridesEnabled,
+  );
+
+  if (originalRetentionEnabled && provider === "none" && !workspaceOverridesEnabled) {
+    throw new Error(
+      "SOURCE_ORIGINAL_RETENTION_ENABLED requires SOURCE_STORAGE_PROVIDER to be local or s3, or Workspace storage to be enabled.",
+    );
   }
 
-  if (provider !== "s3") return { provider, originalRetentionEnabled };
+  if (provider !== "s3") return { provider, originalRetentionEnabled, workspaceOverridesEnabled };
 
   const bucket = text("SOURCE_STORAGE_S3_BUCKET");
   const region = text("SOURCE_STORAGE_S3_REGION");
@@ -300,17 +309,72 @@ function readSourceStorageConfiguration(
     );
   }
 
-  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket))
-    throw new Error("SOURCE_STORAGE_S3_BUCKET must be a valid S3 bucket name.");
+  const endpoint = text("SOURCE_STORAGE_S3_ENDPOINT");
+  const prefix = text("SOURCE_STORAGE_S3_PREFIX");
+  const forcePathStyle = text("SOURCE_STORAGE_S3_FORCE_PATH_STYLE");
 
-  if (!/^[a-z0-9-]{1,64}$/.test(region))
-    throw new Error("SOURCE_STORAGE_S3_REGION must be an S3 region name such as eu-west-2.");
-  const rawEndpoint = text("SOURCE_STORAGE_S3_ENDPOINT");
+  const location = parseS3SourceStorageLocation(
+    {
+      bucket,
+      region,
+      endpoint,
+      prefix,
+      forcePathStyle:
+        forcePathStyle === undefined ? undefined : boolean("SOURCE_STORAGE_S3_FORCE_PATH_STYLE", false),
+    },
+    (field) => S3_LOCATION_ENVIRONMENT[field],
+  );
+
+  const s3: S3SourceStorageConfiguration = { ...location, accessKeyId, secretAccessKey };
+  const sessionToken = secret("SOURCE_STORAGE_S3_SESSION_TOKEN");
+
+  if (sessionToken) s3.sessionToken = sessionToken;
+
+  return { provider, originalRetentionEnabled, workspaceOverridesEnabled, s3 };
+}
+
+const S3_LOCATION_ENVIRONMENT = {
+  bucket: "SOURCE_STORAGE_S3_BUCKET",
+  region: "SOURCE_STORAGE_S3_REGION",
+  endpoint: "SOURCE_STORAGE_S3_ENDPOINT",
+  prefix: "SOURCE_STORAGE_S3_PREFIX",
+} as const;
+
+export const DEFAULT_S3_SOURCE_STORAGE_PREFIX = "document-extraction/";
+
+/** Where originals live; credentials are separate so that rotating them keeps the location. */
+export type S3SourceStorageLocation = Pick<
+  S3SourceStorageConfiguration,
+  "bucket" | "region" | "endpoint" | "prefix" | "forcePathStyle"
+>;
+
+/**
+ * Validates an S3-compatible location from the environment or a Workspace setting. `name` maps each
+ * field to the name the person supplied it under, so errors point at the right setting.
+ */
+export function parseS3SourceStorageLocation(
+  input: {
+    bucket: string;
+    region: string;
+    /** Absent for AWS S3. */
+    endpoint: string | undefined;
+    /** Absent for the default prefix. */
+    prefix: string | undefined;
+    /** Absent to use path-style addressing exactly when a custom endpoint is set. */
+    forcePathStyle: boolean | undefined;
+  },
+  name: (field: keyof typeof S3_LOCATION_ENVIRONMENT) => string,
+): S3SourceStorageLocation {
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(input.bucket))
+    throw new Error(`${name("bucket")} must be a valid S3 bucket name.`);
+
+  if (!/^[a-z0-9-]{1,64}$/.test(input.region))
+    throw new Error(`${name("region")} must be an S3 region name such as eu-west-2.`);
   let endpoint: string | undefined;
 
-  if (rawEndpoint) {
+  if (input.endpoint) {
     try {
-      const url = new URL(rawEndpoint);
+      const url = new URL(input.endpoint);
 
       if (
         !["http:", "https:"].includes(url.protocol) ||
@@ -323,33 +387,29 @@ function readSourceStorageConfiguration(
         throw new Error();
       endpoint = url.origin;
     } catch {
-      throw new Error("SOURCE_STORAGE_S3_ENDPOINT must be an HTTP(S) origin without credentials, a path or a query.");
+      throw new Error(`${name("endpoint")} must be an HTTP(S) origin without credentials, a path or a query.`);
     }
   }
 
-  const prefix = text("SOURCE_STORAGE_S3_PREFIX") ?? "document-extraction/";
+  const prefix = input.prefix ?? DEFAULT_S3_SOURCE_STORAGE_PREFIX;
 
   if (
     !/^(?:[A-Za-z0-9!_.*'()-]+\/)+$/.test(prefix) ||
     prefix.split("/").some((part) => part === "." || part === "..")
   ) {
-    throw new Error('SOURCE_STORAGE_S3_PREFIX must be one or more safe path segments ending in "/".');
+    throw new Error(`${name("prefix")} must be one or more safe path segments ending in "/".`);
   }
 
-  return {
-    provider,
-    originalRetentionEnabled,
-    s3: {
-      bucket,
-      region,
-      endpoint,
-      prefix,
-      accessKeyId,
-      secretAccessKey,
-      forcePathStyle: boolean("SOURCE_STORAGE_S3_FORCE_PATH_STYLE", Boolean(endpoint)),
-      sessionToken: secret("SOURCE_STORAGE_S3_SESSION_TOKEN"),
-    },
+  const location: S3SourceStorageLocation = {
+    bucket: input.bucket,
+    region: input.region,
+    prefix,
+    forcePathStyle: input.forcePathStyle ?? Boolean(endpoint),
   };
+
+  if (endpoint) location.endpoint = endpoint;
+
+  return location;
 }
 
 export function readLocalMemoryLimits(
@@ -404,7 +464,8 @@ export function publicLocalConfiguration(configuration: LocalConfiguration) {
     limits: { maxSourceFileBytes: configuration.maxSourceFileBytes },
     sourceStorage: {
       configured: configuration.sourceStorage.provider !== "none",
-      retainsOriginals: configuration.sourceStorage.originalRetentionEnabled,
+      retainsOriginals:
+        configuration.sourceStorage.provider !== "none" && configuration.sourceStorage.originalRetentionEnabled,
     },
   };
 }

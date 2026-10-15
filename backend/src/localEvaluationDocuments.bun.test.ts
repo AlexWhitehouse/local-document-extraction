@@ -92,7 +92,7 @@ async function harness({ open }: { open?: LocalSourceFileStore["open"] } = {}) {
   const files = createLocalSourceFileStore({ stateDirectory });
   const sourceFileStore: LocalSourceFileStore = open ? { ...files, open } : files;
   // Mutable so a test can change installation settings between requests, as a restart would.
-  const sourceStorage: LocalSourceStorageConfiguration = { provider: "local", originalRetentionEnabled: true };
+  const sourceStorage: LocalSourceStorageConfiguration = { provider: "local", originalRetentionEnabled: true, workspaceOverridesEnabled: false };
   const changes: Change[] = [];
 
   const library = createLocalEvaluationDocuments({

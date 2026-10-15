@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
-import { createLocalSourceObjectManifest } from "../backend/src/localSourceObjectManifest";
+import { createLocalSourceObjectManifest, INSTALLATION_DESTINATION_ID } from "../backend/src/localSourceObjectManifest";
 import { sourceObjectDestination } from "../backend/src/s3SourceObjectStore";
 import { readLocalConfiguration } from "../backend/src/localConfiguration";
 import { renderInstallerConfiguration } from "./installerConfiguration";
@@ -254,8 +254,18 @@ describe("storage configure", () => {
     const manifest = createLocalSourceObjectManifest(database);
     manifest.assertDestination("s3|http://rustfs:9000|documents|document-extraction/|path");
     expect(dependentSourceDestination(state)).toBeNull();
+    // An object in a Workspace's own bucket does not tie the installation to its destination.
+    manifest.prepare({
+      objectKey: "tenant/key.pdf",
+      destinationId: "dst_tenant",
+      workspaceId: "workspace_a",
+      ownerKind: "job",
+      ownerId: "job_tenant",
+    });
+    expect(dependentSourceDestination(state)).toBeNull();
     manifest.prepare({
       objectKey: "document-extraction/key.pdf",
+      destinationId: INSTALLATION_DESTINATION_ID,
       workspaceId: "workspace_a",
       ownerKind: "job",
       ownerId: "job_a",

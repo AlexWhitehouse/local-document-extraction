@@ -8,8 +8,12 @@ export type SourceObjectPhase = "preparing" | "linked" | "deleting";
 /** Independent owners prevent child deletion from releasing a packet original. */
 export type SourceObjectOwnerKind = "job" | "packet" | "evaluation_document";
 
+/** Objects in the installation's configured bucket; Workspace-owned buckets have their own destination IDs. */
+export const INSTALLATION_DESTINATION_ID = "installation";
+
 export type SourceObjectManifestEntry = {
   object_key: string;
+  destination_id: string;
   workspace_id: string;
   owner_kind: SourceObjectOwnerKind;
   owner_id: string;
@@ -34,7 +38,17 @@ export type LocalSourceObjectManifest = {
    */
   assertDestination(destination: string | null): void;
   recordedDestination(): string | null;
-  prepare(input: { objectKey: string; workspaceId: string; ownerKind: SourceObjectOwnerKind; ownerId: string }): void;
+  prepare(input: {
+    objectKey: string;
+    destinationId: string;
+    workspaceId: string;
+    ownerKind: SourceObjectOwnerKind;
+    ownerId: string;
+  }): void;
+  /** The destination recorded when the object's upload was prepared, or null once its entry is gone. */
+  destinationOf(objectKey: string): string | null;
+  /** Unfinished entries that still depend on each destination. */
+  countsByDestination(): Map<string, number>;
   /** Records that a committed owner references the object; only a preparing object can be linked. */
   link(input: { objectKey: string }): boolean;
   markDeleting(input: { objectKey: string }): void;
@@ -96,6 +110,17 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
         for (const index of indexes) database.exec(index.sql);
       }
 
+      // Objects recorded before Workspace-owned buckets all live in the installation's bucket.
+      const columnsAfterRebuild = database
+        .query<{ name: string }, SQLQueryBindings[]>("PRAGMA table_info(source_object_manifest)")
+        .all();
+
+      if (!columnsAfterRebuild.some((column) => column.name === "destination_id")) {
+        database.exec(
+          `ALTER TABLE source_object_manifest ADD COLUMN destination_id TEXT NOT NULL DEFAULT '${INSTALLATION_DESTINATION_ID}'`,
+        );
+      }
+
       database.exec(MANIFEST_INDEXES);
     })
     .immediate();
@@ -110,9 +135,12 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
   if (!installationColumns.has("destination"))
     database.exec("ALTER TABLE source_storage_installation ADD COLUMN destination TEXT");
 
-  const pendingEntries = () =>
-    database.query<{ count: number }, SQLQueryBindings[]>("SELECT COUNT(*) AS count FROM source_object_manifest").get()!
-      .count;
+  const pendingInstallationEntries = () =>
+    database
+      .query<{ count: number }, SQLQueryBindings[]>(
+        "SELECT COUNT(*) AS count FROM source_object_manifest WHERE destination_id = ?",
+      )
+      .get(INSTALLATION_DESTINATION_ID)!.count;
 
   const recordedDestination = () =>
     database
@@ -154,7 +182,7 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
           const recorded = recordedDestination();
 
           if (recorded === destination || (!destination && !recorded)) return;
-          const pending = pendingEntries();
+          const pending = pendingInstallationEntries();
 
           if (recorded && pending > 0) {
             throw new SourceObjectDestinationError(
@@ -174,15 +202,30 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
             .run(randomBytes(12).toString("hex"), nowIso(), destination);
         })
         .immediate(),
-    prepare: ({ objectKey, workspaceId, ownerKind, ownerId }) => {
+    prepare: ({ objectKey, destinationId, workspaceId, ownerKind, ownerId }) => {
       const at = nowIso();
       database
         .query(
-          `INSERT INTO source_object_manifest (object_key, workspace_id, owner_kind, owner_id, phase, created_at, updated_at, attempts, next_attempt_at)
-         VALUES (?, ?, ?, ?, 'preparing', ?, ?, 0, NULL)`,
+          `INSERT INTO source_object_manifest (object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, updated_at, attempts, next_attempt_at)
+         VALUES (?, ?, ?, ?, ?, 'preparing', ?, ?, 0, NULL)`,
         )
-        .run(objectKey, workspaceId, ownerKind, ownerId, at, at);
+        .run(objectKey, destinationId, workspaceId, ownerKind, ownerId, at, at);
     },
+    destinationOf: (objectKey) =>
+      database
+        .query<{ destination_id: string }, SQLQueryBindings[]>(
+          "SELECT destination_id FROM source_object_manifest WHERE object_key = ?",
+        )
+        .get(objectKey)?.destination_id ?? null,
+    countsByDestination: () =>
+      new Map(
+        database
+          .query<{ destination_id: string; count: number }, SQLQueryBindings[]>(
+            "SELECT destination_id, COUNT(*) AS count FROM source_object_manifest GROUP BY destination_id",
+          )
+          .all()
+          .map((row) => [row.destination_id, row.count]),
+      ),
     link: ({ objectKey }) =>
       database
         .query(
@@ -204,14 +247,14 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
     listDueDeletions: ({ now, limit }) =>
       database
         .query<SourceObjectManifestEntry, SQLQueryBindings[]>(
-          `SELECT object_key, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM source_object_manifest
+          `SELECT object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM source_object_manifest
        WHERE phase = 'deleting' AND next_attempt_at <= ? ORDER BY next_attempt_at, object_key LIMIT ?`,
         )
         .all(now, limit),
     listStalePreparing: ({ before, limit }) =>
       database
         .query<SourceObjectManifestEntry, SQLQueryBindings[]>(
-          `SELECT object_key, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM source_object_manifest
+          `SELECT object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM source_object_manifest
        WHERE phase = 'preparing' AND created_at <= ? ORDER BY created_at, object_key LIMIT ?`,
         )
         .all(before, limit),
@@ -255,6 +298,7 @@ const MANIFEST_SCHEMA = `
 function manifestTableSql(name: string) {
   return `CREATE TABLE IF NOT EXISTS ${name} (
     object_key TEXT PRIMARY KEY,
+    destination_id TEXT NOT NULL DEFAULT '${INSTALLATION_DESTINATION_ID}',
     workspace_id TEXT NOT NULL,
     owner_kind TEXT NOT NULL DEFAULT 'job' CHECK (owner_kind IN ('job', 'packet', 'evaluation_document')),
     owner_id TEXT NOT NULL,
@@ -275,4 +319,6 @@ const MANIFEST_INDEXES = `
   DROP INDEX IF EXISTS idx_source_object_manifest_owner;
   CREATE INDEX IF NOT EXISTS idx_source_object_manifest_owner_kind
     ON source_object_manifest(workspace_id, owner_kind, owner_id);
+  CREATE INDEX IF NOT EXISTS idx_source_object_manifest_destination
+    ON source_object_manifest(destination_id);
 `;

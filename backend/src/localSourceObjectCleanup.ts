@@ -1,4 +1,5 @@
 import type { LocalSourceObjectManifest, SourceObjectManifestEntry } from "./localSourceObjectManifest";
+import type { LocalSourceStorageDestinations } from "./localSourceStorageDestinations";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 
 import type { SourceObjectStore } from "./s3SourceObjectStore";
@@ -33,17 +34,24 @@ export type LocalSourceObjectCleanup = {
  * Workspace is gone or its product data positively shows the owner does not reference the object.
  * Unreadable product data is uncertainty, not proof. Failed deletions retry with backoff
  * indefinitely; intent is never discarded after a retry limit.
+ *
+ * Each bucket is swept independently and concurrently. A bucket stops for the rest of a sweep at its
+ * first failure, so an unreachable Workspace bucket costs one timed-out request per sweep, not a batch.
  */
 export function createLocalSourceObjectCleanup({
   manifest,
-  objectStore,
+  storeFor,
+  destinations,
   productStoreRegistry,
   workspaceControl,
   now = Date.now,
   random = Math.random,
 }: {
   manifest: LocalSourceObjectManifest;
-  objectStore: Pick<SourceObjectStore, "delete">;
+  /** The store an entry's destination ID names; throws when that bucket cannot be reached. */
+  storeFor: (destinationId: string) => Pick<SourceObjectStore, "delete">;
+  /** Retired Workspace buckets are forgotten, with their credentials, once nothing depends on them. */
+  destinations?: Pick<LocalSourceStorageDestinations, "pruneRetired">;
   productStoreRegistry: {
     acquire(input: { workspaceId: string; mode: "existing" }): {
       store: {
@@ -115,7 +123,7 @@ export function createLocalSourceObjectCleanup({
     const at = now();
 
     try {
-      await objectStore.delete(entry.object_key);
+      await storeFor(entry.destination_id).delete(entry.object_key);
     } catch (error) {
       snapshot.failures += 1;
       console.warn("Retained object deletion failed; it will be retried", error);
@@ -126,7 +134,7 @@ export function createLocalSourceObjectCleanup({
         nextAttemptAt: new Date(at + backoff / 2 + (random() * backoff) / 2).toISOString(),
       });
 
-      return;
+      return false;
     }
 
     const lateWritesPossibleUntil = Date.parse(entry.created_at) + LATE_WRITE_GRACE_MS;
@@ -138,11 +146,19 @@ export function createLocalSourceObjectCleanup({
         nextAttemptAt: new Date(lateWritesPossibleUntil).toISOString(),
       });
 
-      return;
+      return true;
     }
 
     manifest.remove({ objectKey: entry.object_key });
     snapshot.deleted += 1;
+
+    return true;
+  };
+
+  const sweepDestination = async (entries: SourceObjectManifestEntry[]) => {
+    for (const entry of entries) {
+      if (!(await deleteObject(entry))) return;
+    }
   };
 
   const sweep = async () => {
@@ -153,10 +169,21 @@ export function createLocalSourceObjectCleanup({
       settlePreparing(entry);
     }
 
+    const byDestination = new Map<string, SourceObjectManifestEntry[]>();
+
     for (const entry of manifest.listDueDeletions({ now: new Date(now()).toISOString(), limit: BATCH_SIZE })) {
-      await deleteObject(entry);
+      const entries = byDestination.get(entry.destination_id);
+
+      if (entries) entries.push(entry);
+      else byDestination.set(entry.destination_id, [entry]);
     }
 
+    await Promise.all([...byDestination.values()].map(sweepDestination));
+    // Uploads resolve their destination just before recording it, so wait out that window before forgetting one.
+    destinations?.pruneRetired({
+      pending: manifest.countsByDestination(),
+      retiredBefore: new Date(now() - PREPARING_GRACE_MS).toISOString(),
+    });
     snapshot.lastCompletedAt = new Date(now()).toISOString();
   };
 

@@ -1,6 +1,7 @@
 import { S3Client } from "bun";
 
-import type { S3SourceStorageConfiguration } from "./localConfiguration";
+import type { S3SourceStorageConfiguration, S3SourceStorageLocation } from "./localConfiguration";
+import { isString } from "../../shared/json";
 
 /** A retained original is confirmed absent; every other failure is treated as unavailable. */
 export class SourceObjectMissingError extends Error {
@@ -89,7 +90,7 @@ export function evaluationDocumentObjectKey({
  * Identifies where this installation's objects live. Credentials are not part of it: rotating them
  * keeps the destination, while a new endpoint, bucket, prefix or addressing style is a different one.
  */
-export function sourceObjectDestination(configuration: S3SourceStorageConfiguration): string {
+export function sourceObjectDestination(configuration: S3SourceStorageLocation): string {
   return [
     "s3",
     configuration.endpoint ?? "aws",
@@ -173,4 +174,60 @@ function classifyS3Error(operation: string, cause: unknown): Error {
   if (cause instanceof Error && "code" in cause && cause.code === "NoSuchKey") return new SourceObjectMissingError();
 
   return new SourceObjectUnavailableError(`S3 ${operation} failed`, cause);
+}
+
+export type SourceStorageProbeStage = "write" | "read" | "delete";
+
+export class SourceStorageProbeError extends Error {
+  constructor(
+    readonly stage: SourceStorageProbeStage,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+  }
+}
+
+/** Writes, reads back and deletes a small synthetic object under the configured prefix. */
+export async function probeS3SourceStorage(
+  configuration: S3SourceStorageConfiguration,
+  { createStore = createS3SourceObjectStore }: { createStore?: typeof createS3SourceObjectStore } = {},
+): Promise<void> {
+  const store = createStore(configuration, { writeDeadlineMs: 15_000, readDeadlineMs: 15_000 });
+  const key = `${configuration.prefix}.setup-probe/${crypto.randomUUID()}.txt`;
+  const body = `document-extraction storage check ${new Date().toISOString()}`;
+
+  const run = async <T>(stage: SourceStorageProbeStage, label: string, work: () => Promise<T>) => {
+    try {
+      return await work();
+    } catch (error) {
+      if (error instanceof SourceStorageProbeError) throw error;
+      const cause = error instanceof Error ? error.cause : null;
+      const code = cause instanceof Error && "code" in cause && isString(cause.code) ? cause.code : undefined;
+      throw new SourceStorageProbeError(stage, `could not ${label}${code ? ` (${code})` : ""}`, { cause: error });
+    }
+  };
+
+  try {
+    await run("write", "write a test object", () =>
+      store.put({ key, file: new Blob([body], { type: "text/plain" }), mimeType: "text/plain" }),
+    );
+  } catch (error) {
+    // A timed-out write cannot be cancelled and may still land, so try to remove it and name it.
+    await store.delete(key).catch(() => undefined);
+    throw new SourceStorageProbeError(
+      "write",
+      `${error instanceof Error ? error.message : "could not write a test object"}; if ${key} appears in the bucket later, delete it`,
+      { cause: error },
+    );
+  }
+
+  try {
+    const object = await run("read", "read the test object back", () => store.open(key));
+    const text = await run("read", "read the test object back", () => new Response(object.stream()).text());
+
+    if (text !== body) throw new SourceStorageProbeError("read", "the test object read back did not match");
+  } finally {
+    await run("delete", `delete the test object ${key}`, () => store.delete(key));
+  }
 }

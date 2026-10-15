@@ -15,11 +15,12 @@ import { createLocalExtractionRunner } from "./testing/processingAdapter";
 import { createLocalSourceFileRetention } from "./localSourceFileRetention";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalSourceObjectCleanup } from "./localSourceObjectCleanup";
-import { createLocalSourceObjectManifest } from "./localSourceObjectManifest";
+import { createLocalSourceObjectManifest, INSTALLATION_DESTINATION_ID } from "./localSourceObjectManifest";
+import { createLocalRetainedSourceObjects } from "./localRetainedSourceObjectRouting";
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 
 import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
-import { createS3SourceObjectStore, retainedObjectKey } from "./s3SourceObjectStore";
+import { createS3SourceObjectStore } from "./s3SourceObjectStore";
 import { startFakeS3Server } from "./testing/fakeS3Server";
 import { configureTestWorkspace } from "./testing/workspaceModelFixture";
 
@@ -92,9 +93,8 @@ async function s3Harness({ failLink = false } = {}) {
     stateDirectory,
     productStoreRegistry: registry,
     sourceFileStore: sourceFiles,
-    sourceStorage: { provider: "s3", originalRetentionEnabled: true, s3: configuration },
-    sourceObjects: {
-      store,
+    sourceStorage: { provider: "s3", originalRetentionEnabled: true, workspaceOverridesEnabled: false, s3: configuration },
+    sourceObjects: createLocalRetainedSourceObjects({
       manifest: failLink
         ? {
             ...manifest,
@@ -103,8 +103,10 @@ async function s3Harness({ failLink = false } = {}) {
             },
           }
         : manifest,
-      keyFor: (input) => retainedObjectKey({ prefix: configuration.prefix, namespace, ...input }),
-    },
+      installation: configuration,
+      namespace,
+      createStore: () => store,
+    }),
     scheduleQueuedJob: async () => {},
   });
 
@@ -126,7 +128,7 @@ async function s3Harness({ failLink = false } = {}) {
   const cleanupAt = (at: number) =>
     createLocalSourceObjectCleanup({
       manifest,
-      objectStore: store,
+      storeFor: () => store,
       productStoreRegistry: registry,
       workspaceControl,
       now: () => at,
@@ -297,9 +299,16 @@ test("recovery links stale uploads an accepted job references and releases unref
   const database = new Database(":memory:");
   cleanups.push(() => database.close());
   const crashed = createLocalSourceObjectManifest(database);
-  crashed.prepare({ objectKey: key, workspaceId: "workspace_a", ownerKind: "job", ownerId: jobId });
+  crashed.prepare({
+    objectKey: key,
+    destinationId: INSTALLATION_DESTINATION_ID,
+    workspaceId: "workspace_a",
+    ownerKind: "job",
+    ownerId: jobId,
+  });
   crashed.prepare({
     objectKey: `${key}.orphan`,
+    destinationId: INSTALLATION_DESTINATION_ID,
     workspaceId: "workspace_a",
     ownerKind: "job",
     ownerId: "job_never_accepted",
@@ -308,7 +317,7 @@ test("recovery links stale uploads an accepted job references and releases unref
   const recovery = (at: number) =>
     createLocalSourceObjectCleanup({
       manifest: crashed,
-      objectStore: harness.store,
+      storeFor: () => harness.store,
       productStoreRegistry: harness.registry,
       workspaceControl: { workspaceExists: () => true },
       now: () => at,
@@ -367,7 +376,23 @@ test("the S3 destination is recorded and cannot change while objects or cleanup 
   manifest.assertDestination("s3|aws|documents|app/|virtual-hosted");
   expect(manifest.recordedDestination()).toBe("s3|aws|documents|app/|virtual-hosted");
 
-  manifest.prepare({ objectKey: "app/key.pdf", workspaceId: "workspace_a", ownerKind: "job", ownerId: "job_a" });
+  // Objects in a Workspace's own bucket never pin the installation's destination.
+  manifest.prepare({
+    objectKey: "tenant/key.pdf",
+    destinationId: "dst_tenant",
+    workspaceId: "workspace_a",
+    ownerKind: "job",
+    ownerId: "job_tenant",
+  });
+  manifest.assertDestination("s3|aws|documents|app/|virtual-hosted");
+
+  manifest.prepare({
+    objectKey: "app/key.pdf",
+    destinationId: INSTALLATION_DESTINATION_ID,
+    workspaceId: "workspace_a",
+    ownerKind: "job",
+    ownerId: "job_a",
+  });
   expect(() => manifest.assertDestination("s3|aws|other-bucket|app/|virtual-hosted")).toThrow("1 retained original(s)");
   expect(() => manifest.assertDestination(null)).toThrow("still depend on the previous destination");
   manifest.assertDestination("s3|aws|documents|app/|virtual-hosted");

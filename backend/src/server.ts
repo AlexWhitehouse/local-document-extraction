@@ -5,12 +5,9 @@ import { getModelPreparationSnapshot } from "./consumer/modelGateway";
 import { getPdfPageOperationsSnapshot } from "./lib/pdfPageOperations";
 import { closePdfInspection, getPdfInspectionSnapshot } from "./lib/sourceFilePageCount";
 import { createLocalSourceObjectCleanup } from "./localSourceObjectCleanup";
-import {
-  createS3SourceObjectStore,
-  evaluationDocumentObjectKey,
-  retainedObjectKey,
-  sourceObjectDestination,
-} from "./s3SourceObjectStore";
+import { createLocalRetainedSourceObjects } from "./localRetainedSourceObjectRouting";
+import { sourceObjectDestination } from "./s3SourceObjectStore";
+import { createWorkspaceSourceStorageHttp } from "./workspaceSourceStorageHttp";
 import { createLocalApplication } from "./localApplication";
 import { localBrowserOrigin, readLocalConfiguration, publicLocalConfiguration } from "./localConfiguration";
 import { createLocalAuthRuntime } from "./localAuthRuntime";
@@ -234,37 +231,38 @@ const localRuntimeRequestDrain = createLocalRuntimeRequestDrain();
 
 const sourceObjectManifest = localAuth.sourceObjectManifest;
 
+const sourceStorageDestinations = localAuth.sourceStorageDestinations;
+
 const s3SourceStorage = configuration.sourceStorage.s3;
 
 // An illegal destination change is a configuration error, unlike a storage outage: refuse to start.
 sourceObjectManifest.assertDestination(s3SourceStorage ? sourceObjectDestination(s3SourceStorage) : null);
 
-const sourceObjectStore = s3SourceStorage ? createS3SourceObjectStore(s3SourceStorage) : null;
+// Routing is needed whenever any bucket can hold originals: the installation's, or one a Workspace saved
+// earlier and whose objects are still readable even after Workspace storage is turned off.
+const retainedSourceObjects = createLocalRetainedSourceObjects({
+  manifest: sourceObjectManifest,
+  destinations: sourceStorageDestinations,
+  installation: s3SourceStorage,
+  namespace: sourceObjectManifest.namespace(),
+  overridesEnabled: configuration.sourceStorage.workspaceOverridesEnabled,
+});
 
-const retainedSourceObjects =
-  s3SourceStorage && sourceObjectStore
-    ? (() => {
-        const namespace = sourceObjectManifest.namespace();
+const sourceObjectCleanup = createLocalSourceObjectCleanup({
+  manifest: sourceObjectManifest,
+  storeFor: retainedSourceObjects.storeFor,
+  destinations: sourceStorageDestinations,
+  productStoreRegistry: localProductStoreRegistry,
+  workspaceControl: localAuth.workspaceControl,
+});
 
-        return {
-          store: sourceObjectStore,
-          manifest: sourceObjectManifest,
-          keyFor: (input: { workspaceId: string; jobId: string; mimeType: string; ownerKind?: "job" | "packet" }) =>
-            retainedObjectKey({ prefix: s3SourceStorage.prefix, namespace, ...input }),
-          documentKeyFor: (input: { workspaceId: string; documentId: string; mimeType: string }) =>
-            evaluationDocumentObjectKey({ prefix: s3SourceStorage.prefix, namespace, ...input }),
-        };
-      })()
-    : undefined;
-
-const sourceObjectCleanup = sourceObjectStore
-  ? createLocalSourceObjectCleanup({
-      manifest: sourceObjectManifest,
-      objectStore: sourceObjectStore,
-      productStoreRegistry: localProductStoreRegistry,
-      workspaceControl: localAuth.workspaceControl,
-    })
-  : null;
+const workspaceSourceStorageHttp = createWorkspaceSourceStorageHttp({
+  workspaceControl: localAuth.workspaceControl,
+  destinations: sourceStorageDestinations,
+  manifest: sourceObjectManifest,
+  installationProvider: configuration.sourceStorage.provider,
+  overridesEnabled: configuration.sourceStorage.workspaceOverridesEnabled,
+});
 
 const localSourceFileRetention = createLocalSourceFileRetention({
   failedSourceRetentionMs,
@@ -282,6 +280,7 @@ const localWorkspaceDeletion = createLocalWorkspaceDeletion({
   workspaceProductOperations: localWorkspaceProductOperations,
   productStoreRegistry: localProductStoreRegistry,
   sourceObjectManifest,
+  sourceStorageDestinations,
   onWorkspaceAccessRevoked: (event) => {
     workspaceConcurrencyLimits.invalidate(event.workspaceId);
     localLiveUpdateHub.broadcastWorkspaceContextInvalidation(event);
@@ -357,7 +356,8 @@ const localEvaluationDocuments = createLocalEvaluationDocuments({
   operations: localWorkspaceProductOperations,
   sourceFileStore: localSourceFiles,
   sourceStorage: configuration.sourceStorage,
-  sourceObjects: retainedSourceObjects && { ...retainedSourceObjects, keyFor: retainedSourceObjects.documentKeyFor },
+  sourceStorageDestinations,
+  sourceObjects: retainedSourceObjects,
   stateDirectory,
   liveUpdateHub: localLiveUpdateHub,
   maxSourceFileBytes,
@@ -377,13 +377,11 @@ const sourceRetentionTimer = setInterval(() => {
 }, sourceRetentionSweepIntervalMs);
 
 // Remote cleanup runs in the background and never blocks startup, uploads or deletion responses.
-if (sourceObjectCleanup) runRecurringWork("Retained object cleanup", sourceObjectCleanup.run);
+runRecurringWork("Retained object cleanup", sourceObjectCleanup.run);
 
-const sourceObjectCleanupTimer = sourceObjectCleanup
-  ? setInterval(() => {
-      runRecurringWork("Retained object cleanup", sourceObjectCleanup.run);
-    }, 60_000)
-  : null;
+const sourceObjectCleanupTimer = setInterval(() => {
+  runRecurringWork("Retained object cleanup", sourceObjectCleanup.run);
+}, 60_000);
 
 const localEvaluations = createLocalEvaluations({
   auth: localAuth.auth,
@@ -428,9 +426,7 @@ const application = createLocalApplication({
       evaluationDocuments: localEvaluationDocuments.snapshot(),
     };
 
-    if (sourceObjectCleanup) return { ...snapshot, retainedObjects: sourceObjectCleanup.snapshot() };
-
-    return snapshot;
+    return { ...snapshot, retainedObjects: sourceObjectCleanup.snapshot() };
   },
   liveUpdateHub: localLiveUpdateHub,
   maxSourceFileBytes,
@@ -440,6 +436,8 @@ const application = createLocalApplication({
   scheduleQueuedJob: scheduleExtraction,
   sourceFileStore: localSourceFiles,
   sourceStorage: configuration.sourceStorage,
+  sourceStorageDestinations,
+  sourceStorageControl: workspaceSourceStorageHttp,
   sourceObjects: retainedSourceObjects,
   stateDirectory,
   workspaceControl: localAuth.workspaceControl,
@@ -477,7 +475,7 @@ const runtimeShutdown = createLocalRuntimeShutdown({
     clearInterval(extractionReconcileTimer);
     clearInterval(sourceRetentionTimer);
 
-    if (sourceObjectCleanupTimer) clearInterval(sourceObjectCleanupTimer);
+    clearInterval(sourceObjectCleanupTimer);
     removeMemoryPressureListener();
     localResourceController.stop();
     await Promise.all([...recurringWork, ...extractionRefills]);

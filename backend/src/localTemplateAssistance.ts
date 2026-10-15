@@ -252,10 +252,9 @@ async function retainedSource(
   try {
     if (source.retained_object_key) {
       const objects = product.sourceObjects;
+      const release = objects?.acquireRead(source.retained_object_key);
 
-      if (!objects || objects.activeReads.count >= (objects.maxConcurrentReads ?? 8))
-        throw new Error("Source unavailable");
-      objects.activeReads.count += 1;
+      if (!objects || !release) throw new Error("Source unavailable");
 
       try {
         const remote = await objects.store.open(source.retained_object_key);
@@ -302,7 +301,7 @@ async function retainedSource(
           reader.releaseLock();
         }
       } finally {
-        objects.activeReads.count -= 1;
+        release();
       }
     }
 
