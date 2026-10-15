@@ -173,8 +173,12 @@ Keeping a **Source file** beyond temporary processing needs so it remains availa
 _Avoid_: processing storage, result retention
 
 **Workspace source retention**:
-A **Workspace** choice to inherit installation **Source file retention** or disable it. Available storage depends on operator configuration.
-_Avoid_: Workspace storage provider, Workspace bucket configuration
+A **Workspace** choice to inherit installation **Source file retention** or disable it. Available storage depends on operator configuration and any **Workspace storage destination**.
+_Avoid_: Workspace storage provider
+
+**Workspace storage destination**:
+A Workspace-owned S3-compatible bucket that receives the Workspace's new retained **Source files** instead of installation storage. Its location never changes; a new location is a new destination. Each retained object is read and deleted in the destination recorded for it, even after the Workspace changes its settings or is deleted.
+_Avoid_: Workspace storage provider, moving originals
 
 **Source file page count**:
 The detected number of pages in a PDF **Source file**.

@@ -1,6 +1,6 @@
 # Retained Source Files
 
-An installation can keep each Document's original **Source file**. Authorized users can view it beside the Extraction results or download it. Retention is an installation capability. Each Workspace can disable retention, but does not have separate storage.
+An installation can keep each Document's original **Source file**. Authorized users can view it beside the Extraction results or download it. Retention is an installation capability. Each Workspace can disable retention. [Workspace-owned Source storage](0029-workspace-owned-source-storage.md) later let a Workspace use its own S3-compatible bucket.
 
 ## Decision
 

@@ -155,7 +155,7 @@ cp "${XDG_CONFIG_HOME:-$HOME/.config}/document-extraction/config.env" "$backup/c
 
 For a source checkout, copy `.local/` or the custom data folder, and `.env`.
 
-S3 originals are **not** part of this backup. Back up the bucket separately with the provider's tools. Local originals are inside the data folder and are included.
+S3 originals, including those in Workspace buckets, are **not** part of this backup. Back up each bucket separately with the provider's tools. Local originals are inside the data folder and are included.
 
 Copy the **whole** data folder. Keep `data/better-auth-secret` and `secrets/model-gateway.key` with their matching databases. Without these files, sessions and saved model credentials cannot be read. Exported Workspace jobs are not a backup.
 
