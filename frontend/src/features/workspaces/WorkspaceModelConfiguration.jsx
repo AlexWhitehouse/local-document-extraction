@@ -273,8 +273,8 @@ export function WorkspaceModelConfiguration({ controller }) {
 
 const TEST_PASSED_MS = 2000;
 
-// The outcome is a toast; a pass also flashes a tick on the button.
-function TestConnectionButton({ controller, disabled }) {
+// The outcome is a toast; a pass also flashes a tick on the button. `onTest` defaults to testing the draft.
+export function TestConnectionButton({ controller, disabled, onTest = controller.testConnection }) {
   const { testResult } = controller;
   const [passed, setPassed] = useState(false);
 
@@ -297,7 +297,7 @@ function TestConnectionButton({ controller, disabled }) {
       pendingLabel="Testing…"
       disabled={disabled}
       aria-label={passed ? "Test passed" : undefined}
-      onClick={controller.testConnection}
+      onClick={() => onTest()}
     >
       <span className="workspace-model-test-label">
         <span aria-hidden={passed || undefined}>Test</span>

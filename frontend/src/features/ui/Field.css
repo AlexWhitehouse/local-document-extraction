@@ -68,3 +68,12 @@ label.ui-checkbox-field-label {
   color: var(--text-2);
   cursor: default;
 }
+
+.ui-checkbox-field-error {
+  grid-column: 2;
+}
+
+.ui-checkbox-field.has-error input:not(:focus-visible) {
+  outline: 1px solid var(--tone-danger-border);
+  outline-offset: 1px;
+}
