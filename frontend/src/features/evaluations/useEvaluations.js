@@ -853,6 +853,17 @@ export function useEvaluations({
         ),
       }));
     },
+    // Edits the current candidates: `update` returns the changes for a candidate, or null to leave it.
+    editCandidates(update) {
+      setState((previous) => ({
+        ...previous,
+        candidates: previous.candidates.map((candidate) => {
+          const changes = update(candidate);
+
+          return changes ? { ...candidate, ...changes, revision: candidate.revision + 1 } : candidate;
+        }),
+      }));
+    },
     // Each entry is one candidate: a loaded Template, plus a model name when comparing models.
     start(mode, entries) {
       if (!state.setup?.configured) throw new Error("Set up the Model gateway first.");

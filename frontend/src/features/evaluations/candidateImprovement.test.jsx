@@ -165,6 +165,7 @@ describe("Improve failing fields and Test changes", () => {
       ...base,
       patch: vi.fn(),
       edit: vi.fn(),
+      editCandidates: vi.fn(),
       run: vi.fn(),
       clear: vi.fn(),
       duplicate: vi.fn(),
@@ -264,15 +265,22 @@ describe("Improve failing fields and Test changes", () => {
     fireEvent.click(within(assistant).getByRole("button", { name: "Review draft" }));
     fireEvent.click(await within(assistant).findByRole("button", { name: "Apply 1 change to draft" }));
     fireEvent.click(await within(assistant).findByRole("button", { name: "Apply and save" }));
-    await waitFor(() => expect(evaluation.edit).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(evaluation.editCandidates).toHaveBeenCalledTimes(1));
 
     // Only the changed fields are sent, so the save creates one new version.
     const saved = evaluation.api.mock.calls.find(([path, options]) => path === "/templates/tpl_1" && options?.method === "PATCH");
     expect(Object.keys(JSON.parse(saved[1].body))).toEqual(["fields"]);
     expect(JSON.parse(saved[1].body).fields[0].description).toBe("Total due including VAT");
-    expect(evaluation.edit.mock.calls[0][0]).toBe("a");
-    expect(evaluation.edit.mock.calls[0][1].template.fields[0].description).toBe("Total due including VAT");
-    expect(evaluation.edit.mock.calls[0][1].template.source).toEqual({ id: "tpl_1", version: 4 });
+    // The update runs on the candidates at the time the save finished.
+    const update = evaluation.editCandidates.mock.calls[0][0];
+    const [candidate] = evaluation.state.candidates;
+    const changes = update(candidate);
+    expect(changes.template.fields[0].description).toBe("Total due including VAT");
+    expect(changes.template.source).toEqual({ id: "tpl_1", version: 4 });
+    // Another candidate, or this one with a template edited during the save, is left as it is.
+    expect(update({ ...candidate, id: "other" })).toBeNull();
+    expect(update({ ...candidate, template: { ...candidate.template, name: "Edited meanwhile" } })).toBeNull();
+    expect(evaluation.edit).not.toHaveBeenCalled();
     expect(evaluation.branch).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("complementary", { name: "Template assistant" })).toBeNull());
   });
@@ -297,7 +305,7 @@ describe("Improve failing fields and Test changes", () => {
 
     rerender({ id: "evaluation-2" });
     await act(async () => finish(Response.json({ version: 4 })));
-    expect(evaluation.edit).not.toHaveBeenCalled();
+    expect(evaluation.editCandidates).not.toHaveBeenCalled();
 
     // The new evaluation isn't left waiting on the old save.
     fireEvent.click(screen.getByRole("button", { name: "Candidate 1 options" }));
@@ -318,7 +326,7 @@ describe("Improve failing fields and Test changes", () => {
     fireEvent.click(await within(assistant).findByRole("button", { name: "Apply 1 change to draft" }));
     fireEvent.click(await within(assistant).findByRole("button", { name: "Apply and save" }));
     await waitFor(() => expect(within(assistant).getByRole("button", { name: "Apply and save" }).disabled).toBe(false));
-    expect(evaluation.edit).not.toHaveBeenCalled();
+    expect(evaluation.editCandidates).not.toHaveBeenCalled();
     expect(screen.getByRole("complementary", { name: "Template assistant" })).toBeTruthy();
   });
 

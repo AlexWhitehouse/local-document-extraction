@@ -306,18 +306,21 @@ export function EvaluationsPage({
     } else applyToCandidate(editor.candidateId, payload);
   };
 
-  // A model comparison shares one template, so its edits reach every candidate. `source` is the saved
-  // version the edits now match; without it they are edits in this evaluation only.
-  // Edits each candidate by ID, so a candidate added while a save was in flight is kept.
-  const applyToCandidate = (candidateId, payload, source = null) => {
+  // A model comparison shares one template, so its edits reach every candidate.
+  const applyToCandidate = (candidateId, payload) => {
     if (state.mode === "models")
-      for (const c of state.candidates)
-        edit(c.id, { template: { ...structuredClone(payload), source: source ?? modifiedSource(c.template.source) } });
+      patch({
+        candidates: state.candidates.map((c) => ({
+          ...c,
+          template: { ...structuredClone(payload), source: modifiedSource(c.template.source) },
+          revision: c.revision + 1,
+        })),
+      });
     else
       edit(candidateId, {
         template: {
           ...payload,
-          source: source ?? modifiedSource(state.candidates.find((c) => c.id === candidateId).template.source),
+          source: modifiedSource(state.candidates.find((c) => c.id === candidateId).template.source),
         },
       });
   };
@@ -326,7 +329,9 @@ export function EvaluationsPage({
   // changed meanwhile. Only the members that differ from the saved template are sent, as the template
   // editor does, so only field changes create a new version.
   const saveToTemplate = async (candidateId, payload, owner) => {
-    const id = state.candidates.find((c) => c.id === candidateId)?.template.source?.id;
+    const candidate = state.candidates.find((c) => c.id === candidateId);
+    const id = candidate?.template.source?.id;
+    const before = JSON.stringify(candidate?.template);
 
     if (!id) throw new Error("This candidate’s template isn’t in the library, so the changes can’t be saved.");
     const saved = await (await api(`/templates/${encodeURIComponent(id)}`)).json();
@@ -343,7 +348,14 @@ export function EvaluationsPage({
       version = (await response.json()).version ?? version;
     }
 
-    if (owner === lifetime.current) applyToCandidate(candidateId, payload, { id, version });
+    // Applied to the candidates there are now (comparing models, every one that shares the template).
+    // A template edited while the save ran keeps that newer edit.
+    if (owner === lifetime.current)
+      evaluation.editCandidates((c) =>
+        (state.mode === "models" || c.id === candidateId) && JSON.stringify(c.template) === before
+          ? { template: { ...structuredClone(payload), source: { id, version } } }
+          : null,
+      );
     await onTemplateSaved?.();
 
     return version;
