@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { saveModelGateway, submitSignUp } from "./support/journeyHelpers";
 import { startRuntimeHarness } from "./support/runtimeHarnessClient";
 
-test("review a focused VAT column proposal, apply to the draft once, and save explicitly", async ({
+test("review a focused VAT column proposal, then apply it once to save a new version", async ({
   page,
 }, testInfo) => {
   const harness = await startRuntimeHarness();
@@ -69,10 +69,20 @@ test("review a focused VAT column proposal, apply to the draft once, and save ex
     expect((await page.locator(".field-detail").boundingBox())!.width).toBeGreaterThan(250);
     await page.screenshot({ path: testInfo.outputPath("assistant-proposal-review-wide.png"), fullPage: true });
     await page.setViewportSize({ width: 1280, height: 720 });
-    await assistant.getByRole("button", { name: "Apply 1 change to draft", exact: true }).click();
-    await expect(page.getByText("6 fields · Unsaved changes", { exact: true })).toBeVisible();
-    await expect(assistant.getByRole("button", { name: "Apply 1 change to draft", exact: true })).toBeHidden();
-    expect(await readSaved()).toEqual(original);
+
+    const save = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `/v1/templates/${templateId}` && response.request().method() === "PATCH",
+    );
+
+    await assistant.getByRole("button", { name: "Apply and save 1 change", exact: true }).click();
+    expect((await save).status()).toBe(200);
+    await expect(assistant.getByText(`Applied and saved. The template is at v${original.current_version + 1}.`)).toBeVisible();
+    await expect(assistant.getByRole("button", { name: "Apply and save 1 change", exact: true })).toBeHidden();
+    const saved = await readSaved();
+    expect(saved.current_version).toBe(original.current_version + 1);
+    expect(saved.fields.slice(0, 5)).toEqual(original.fields.slice(0, 5));
+    expect(saved.fields[5].description).toContain('"key":"vat_rate"');
     await assistant.getByRole("button", { name: "Close assistant", exact: true }).click();
     await page.locator(".ui-page-header").getByRole("button", { name: "More actions", exact: true }).click();
     await page.getByRole("menuitem", { name: "View JSON" }).click();
@@ -82,15 +92,6 @@ test("review a focused VAT column proposal, apply to the draft once, and save ex
       await jsonDialog.getByRole("textbox", { name: "Template JSON", exact: true }).inputValue(),
     );
 
-    expect(draft.fields.slice(0, 5)).toEqual(
-      original.fields
-        .slice(0, 5)
-        .map(({ name, description, data_type }: { name: string; description: string; data_type: string }) => ({
-          name,
-          description,
-          data_type,
-        })),
-    );
     expect(draft.fields[5].object_schema.columns.map((column: { heading: string }) => column.heading)).toEqual([
       "Line Number",
       "Description",
@@ -100,18 +101,6 @@ test("review a focused VAT column proposal, apply to the draft once, and save ex
       "VAT Rate",
     ]);
     await jsonDialog.getByRole("button", { name: "Cancel", exact: true }).click();
-
-    const save = page.waitForResponse(
-      (response) =>
-        new URL(response.url()).pathname === `/v1/templates/${templateId}` && response.request().method() === "PATCH",
-    );
-
-    await page.getByRole("button", { name: "Save changes", exact: true }).click();
-    expect((await save).status()).toBe(200);
-    const saved = await readSaved();
-    expect(saved.current_version).toBe(original.current_version + 1);
-    expect(saved.fields.slice(0, 5)).toEqual(original.fields.slice(0, 5));
-    expect(saved.fields[5].description).toContain('"key":"vat_rate"');
     await expect(page.getByText("6 fields · All changes saved", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("assistant-saved-template.png"), fullPage: true });
   } finally {

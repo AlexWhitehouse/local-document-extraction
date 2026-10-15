@@ -18,6 +18,7 @@ import { pluralize } from "../../lib/text.js";
 import { createNotifier, defaultToast } from "../../lib/notify";
 import { TemplateEditorModal } from "../templates/TemplateEditorModal.jsx";
 import { hydrateFieldFromTemplate, validateTemplateJsonPayload } from "../templates/templateFields.js";
+import { templateSavePayload } from "../palette/flows/templateDrafts.js";
 import { TemplateAssistant } from "../templates/TemplateAssistant.jsx";
 import { useTemplateAssistant } from "../templates/useTemplateAssistant.js";
 import { diagnoseTemplateDraft } from "../../../../shared/templateAssistant.ts";
@@ -77,11 +78,14 @@ export function EvaluationsPage({
   const [trial, setTrial] = useState(null);
   // The candidate the assistant panel works on, and the request it opens with.
   const [assistantFor, setAssistantFor] = useState(null);
+  // An "Apply and save" of assistant changes is in progress.
+  const [savingAssistant, setSavingAssistant] = useState(false);
   const lifetime = useRef(0);
   useEffect(() => {
     lifetime.current++;
     setTrial(null);
     setAssistantFor(null);
+    setSavingAssistant(false);
     setEditor(null);
     setUploadOpen(false);
     setPreview(null);
@@ -321,6 +325,42 @@ export function EvaluationsPage({
       });
   };
 
+  // Saves assistant changes to the candidate's library template, then applies them unless the evaluation
+  // changed meanwhile. Only the members that differ from the saved template are sent, as the template
+  // editor does, so only field changes create a new version.
+  const saveToTemplate = async (candidateId, payload, owner) => {
+    const candidate = state.candidates.find((c) => c.id === candidateId);
+    const id = candidate?.template.source?.id;
+    const before = JSON.stringify(candidate?.template);
+
+    if (!id) throw new Error("This candidate’s template isn’t in the library, so the changes can’t be saved.");
+    const saved = await (await api(`/templates/${encodeURIComponent(id)}`)).json();
+    const changes = templateSavePayload(saved, payload);
+    let version = saved.current_version;
+
+    if (Object.keys(changes).length) {
+      const response = await api(`/templates/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(changes),
+      });
+
+      version = (await response.json()).version ?? version;
+    }
+
+    // Applied to the candidates there are now (comparing models, every one that shares the template).
+    // A template edited while the save ran keeps that newer edit.
+    if (owner === lifetime.current)
+      evaluation.editCandidates((c) =>
+        (state.mode === "models" || c.id === candidateId) && JSON.stringify(c.template) === before
+          ? { template: { ...structuredClone(payload), source: { id, version } } }
+          : null,
+      );
+    await onTemplateSaved?.();
+
+    return version;
+  };
+
   // Assistant requests share the Evaluation's Workspace request path.
   const assistRequest = useCallback(async (path, options) => (await api(path, options)).json(), [api]);
   const candidateNumber = (candidate) => state.candidates.findIndex((c) => c.id === candidate.id) + 1;
@@ -395,21 +435,39 @@ export function EvaluationsPage({
 
   const assistantOpen = Boolean(assistantCandidate && assistant.panel.isOpen);
 
-  // Applied edits are tested on a copy, or applied to the candidate (or, comparing models, the shared template).
-  const finishAssistant = (action) => {
-    if (!assistantResult || !assistantCandidate) return;
-    const target = `Candidate ${candidateNumber(assistantCandidate)}`;
+  // Applied edits are tested on a copy, or saved to the candidate's template (comparing models, the shared one).
+  const finishAssistant = async (action) => {
+    if (!assistantResult || !assistantCandidate || savingAssistant) return;
+    const owner = lifetime.current;
+    const payload = validateTemplateJsonPayload(assistantResult);
 
-    try {
-      action(assistantCandidate.id, validateTemplateJsonPayload(assistantResult));
-    } catch (error) {
-      notify("evaluation.applyAssistant", "failure", { error });
+    if (action === testChanges) {
+      try {
+        testChanges(assistantCandidate.id, payload);
+      } catch (error) {
+        notify("evaluation.testChanges", "failure", { error });
+
+        return;
+      }
+
+      closeAssistant();
 
       return;
     }
 
-    if (action === applyToCandidate) notify("evaluation.applyAssistant", "success", { targetName: target });
-    closeAssistant();
+    setSavingAssistant(true);
+
+    try {
+      const version = await saveToTemplate(assistantCandidate.id, payload, owner);
+
+      if (owner !== lifetime.current) return;
+      notify("evaluation.applyAssistant", "success", { targetName: `${payload.name} v${version}` });
+      closeAssistant();
+    } catch (error) {
+      if (owner === lifetime.current) notify("evaluation.applyAssistant", "failure", { error });
+    } finally {
+      if (owner === lifetime.current) setSavingAssistant(false);
+    }
   };
 
   const testLimit =
@@ -422,21 +480,31 @@ export function EvaluationsPage({
       ? {
           notice:
             testLimit ||
-            "Ready to test. Test the changes on a copy and compare the results, or apply them to this candidate.",
+            "Ready to test. Test the changes on a copy and compare the results, or save them to this candidate’s template.",
           actions: (
             <>
-              <Button variant="secondary" onClick={() => finishAssistant(applyToCandidate)}>
-                Apply to candidate
+              <Button
+                variant="secondary"
+                pending={savingAssistant}
+                pendingLabel="Saving…"
+                onClick={() => void finishAssistant(applyToCandidate)}
+              >
+                Apply and save
               </Button>
-              <Button disabled={Boolean(testLimit)} onClick={() => finishAssistant(testChanges)}>
+              <Button disabled={Boolean(testLimit) || savingAssistant} onClick={() => void finishAssistant(testChanges)}>
                 Test changes
               </Button>
             </>
           ),
         }
       : {
-          notice: "Ready. Every candidate shares this template, so the changes apply to all of them. Run again to test.",
-          actions: <Button onClick={() => finishAssistant(applyToCandidate)}>Apply to template</Button>,
+          notice:
+            "Ready. Every candidate shares this template, so saving the changes to it applies them to all of them. Run again to test.",
+          actions: (
+            <Button pending={savingAssistant} pendingLabel="Saving…" onClick={() => void finishAssistant(applyToCandidate)}>
+              Apply and save
+            </Button>
+          ),
         };
 
   // Opens the assistant on the candidate's template with its failing fields and their verified expected answers.

@@ -79,7 +79,7 @@ const successMessages = {
   "draft.removeColumn": ({ target }) => withTarget("Column removed", target),
   "evaluation.removeCandidate": ({ target }) => withTarget("Candidate removed", target),
   "evaluation.testChanges": ({ target }) => withTarget("Copy created to test changes", target),
-  "evaluation.applyAssistant": ({ target }) => withTarget("Changes applied. Run again to test them", target),
+  "evaluation.applyAssistant": ({ target }) => withTarget("Changes saved. Run again to test them", target),
   "evaluation.setUp": ({ target }) =>
     `Evaluation set up${target ? ` for ${target}` : ""}. Add documents to run it.`,
   "evaluation.removeDocument": ({ target }) => withTarget("Document removed", target),
@@ -154,7 +154,8 @@ const failureMessages = {
   "assistant.evidence": () => "Couldn't load that document. Choose it again or continue without it.",
   "assistant.sample": () => "Couldn't load the original. Try again or send the results only.",
   "evaluation.improve": () => "Couldn't load the results for this candidate.",
-  "evaluation.applyAssistant": () => "Couldn't apply the changes. Try again.",
+  "evaluation.applyAssistant": () => "Couldn't save the changes to the template. Try again.",
+  "evaluation.testChanges": () => "Couldn't create a copy to test the changes.",
 };
 
 const validationMessages = {

@@ -276,6 +276,17 @@ it("duplicate inherits edits only; a mode change keeps documents but discards un
   expect(result.current.state.documents[0].reference.references).toEqual({});
 });
 
+it("edits the current candidates, including one added after the update was prepared", async () => {
+  const { result } = await initialized();
+  const [first, second] = result.current.state.candidates;
+  const update = (c) => (c.id === second.id ? null : { model: "updated" });
+  act(() => result.current.duplicate(first.id));
+  act(() => result.current.editCandidates(update));
+  const [a, b, added] = result.current.state.candidates;
+  expect([a.model, b.model, added.model]).toEqual(["updated", second.model, "updated"]);
+  expect([a.revision, b.revision, added.revision]).toEqual([first.revision + 1, second.revision, 1]);
+});
+
 it("asks before discarding a temporary Evaluation and keeps it when the prompt is declined", async () => {
   const { result } = await initialized();
   let verdict;

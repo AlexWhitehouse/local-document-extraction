@@ -60,7 +60,7 @@ const noAssist = async () => ({ templates: [] });
 afterEach(cleanup);
 
 describe("Template assistance", () => {
-  it("opens and edits without model calls, applies only focused raw changes once, and saves explicitly", async () => {
+  it("opens and edits without model calls, then applies only focused raw changes once and saves them", async () => {
     const request = vi.fn(async (path, options) =>
       path === "/templates/assist"
         ? answer(options)
@@ -87,9 +87,30 @@ describe("Template assistance", () => {
     expect(after[5].object_schema.columns).toHaveLength(6);
     expect(after[5].object_schema.columns.at(-1)).toMatchObject({ key: "vat_rate", heading: "VAT Rate" });
     expect(result.current.templatePage.assistant.applied).toBe(true);
-    expect(request.mock.calls.filter(([, options]) => options.method === "POST")).toHaveLength(1);
-    await act(() => result.current.templatePage.onSaveTemplate());
-    expect(request.mock.calls.some(([path, options]) => path === "/templates" && options.method === "POST")).toBe(true);
+    // Applying saves the Template once, however often Apply is pressed.
+    await waitFor(() => expect(result.current.templatePage.assistantSave).toEqual({ status: "saved", version: 1 }));
+    const saves = request.mock.calls.filter(([path, options]) => path === "/templates" && options.method === "POST");
+    expect(saves).toHaveLength(1);
+    expect(JSON.parse(saves[0][1].body).fields[5].description).toContain('"key":"vat_rate"');
+  });
+
+  it("keeps applied changes in the draft when saving them fails", async () => {
+    const request = vi.fn(async (path, options) => {
+      if (path === "/templates/assist") return answer(options);
+
+      if (options.method === "POST") throw new Error("offline");
+
+      return { templates: [] };
+    });
+
+    const props = propsFor(request);
+    const { result } = renderHook(useTemplateController, { initialProps: props });
+    open(result);
+    await submit(result);
+    act(() => result.current.templatePage.assistant.onApply());
+    await waitFor(() => expect(result.current.templatePage.assistantSave).toEqual({ status: "failed", version: null }));
+    expect(result.current.templatePage.templateFields[5].object_schema.columns).toHaveLength(6);
+    expect(props.showActionToast).toHaveBeenCalledWith("template.save", "failure", expect.anything());
   });
 
   it("reviews an invalid draft from an empty request without edits and rejects malformed output", async () => {

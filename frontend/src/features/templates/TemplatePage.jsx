@@ -12,6 +12,16 @@ import { Field, TextInput } from "../ui/Field.jsx";
 import { CountBadge } from "../ui/Status.jsx";
 import { AssistantIcon } from "../layout/Icons.jsx";
 
+// Applying assistant changes saves the Template; the panel reports how that save went.
+function appliedNotice(save) {
+  if (save?.status === "saving") return "Applied. Saving the template…";
+
+  // Only field changes create a new version, so the version can be the one already open.
+  if (save?.status === "saved") return save.version ? `Applied and saved. The template is at v${save.version}.` : "Applied and saved.";
+
+  return "Applied to the draft, but the template wasn’t saved. Save it to keep these changes.";
+}
+
 export function TemplatePage({
   templateName,
   templateDescription,
@@ -32,6 +42,7 @@ export function TemplatePage({
   onSaveTemplate,
   showActionToast,
   assistant,
+  assistantSave = null,
   onOpenAssistant,
   validationFocus,
 }) {
@@ -165,6 +176,8 @@ export function TemplatePage({
         issues={issues}
         isEditing={isEditingTemplate}
         isDirty={isEditedTemplateDirty}
+        savesOnApply
+        applied={{ notice: appliedNotice(assistantSave) }}
       />
     </div>
   );

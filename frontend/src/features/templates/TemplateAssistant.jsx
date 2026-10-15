@@ -63,7 +63,7 @@ const failureCount = (evidence) => evidence.documents.reduce((sum, document) => 
 /**
  * `allowJobs` hides the completed-document picker. `eyebrow` and `draftStatus` describe the draft when it
  * isn't the Templates page editor. `applied` replaces the post-apply notice and adds actions, e.g. to test the
- * changes on a copy.
+ * changes on a copy. `savesOnApply` labels Apply for a page that saves the Template as soon as it applies.
  */
 export function TemplateAssistant({
   assistant,
@@ -75,6 +75,7 @@ export function TemplateAssistant({
   eyebrow = "Template",
   draftStatus = null,
   applied: appliedView = null,
+  savesOnApply = false,
 }) {
   if (!assistant?.isOpen) return null;
   const { pending, response, applied } = assistant;
@@ -106,7 +107,7 @@ export function TemplateAssistant({
         )}
       </ScrollArea>
       <footer className="template-assistant-foot">
-        <FooterActions assistant={assistant} appliedActions={appliedView?.actions} />
+        <FooterActions assistant={assistant} appliedActions={appliedView?.actions} savesOnApply={savesOnApply} />
       </footer>
       {assistant.picker.isOpen ? <JobPicker picker={assistant.picker} selectedJobId={assistant.job?.job_id} /> : null}
     </aside>
@@ -717,7 +718,7 @@ function AppliedView({ notice = "Applied. Save the template to keep these change
   );
 }
 
-function FooterActions({ assistant, appliedActions }) {
+function FooterActions({ assistant, appliedActions, savesOnApply }) {
   const { pending, response, applied, stale, selection } = assistant;
   const revise = () => assistant.onInstructionsChange(assistant.instructions);
   let actions;
@@ -739,7 +740,9 @@ function FooterActions({ assistant, appliedActions }) {
           Discard
         </Button>
         <Button type="button" disabled={stale || !selection?.canApply} onClick={assistant.onApply}>
-          {count ? `Apply ${count} change${count === 1 ? "" : "s"} to draft` : "Apply to draft"}
+          {savesOnApply
+            ? count ? `Apply and save ${pluralize(count, "change")}` : "Apply and save"
+            : count ? `Apply ${pluralize(count, "change")} to draft` : "Apply to draft"}
         </Button>
       </>
     ) : (
