@@ -55,11 +55,13 @@ In a model comparison, Workspace owners and admins can select **Use for extracti
 
 **Save as new Template** opens the candidate’s template in the editor. Select **Save** to create a new template. This action keeps the original template unchanged and excludes expected answers and results.
 
-Select **Ask assistant** in a candidate’s **⋯** menu to open the [Template assistant](template-assistant.md) beside the evaluation. It works on that candidate’s template, never on the saved template. After you apply proposed changes, choose what to do with them:
+Select **Ask assistant** in a candidate’s **⋯** menu to open the [Template assistant](template-assistant.md) beside the evaluation. It works on a copy of that candidate’s template. After you apply proposed changes, choose what to do with them:
 
-- **Test changes** runs them on a copy of the candidate. See [Improve failing fields](#improve-failing-fields).
-- **Apply to candidate** changes the candidate’s template. Run the candidate again to test it.
-- In a model comparison every candidate shares one template, so **Apply to template** changes it for all of them.
+- **Test changes** runs them on a copy of the candidate and leaves the saved template unchanged. See [Improve failing fields](#improve-failing-fields).
+- **Apply and save** saves them to the candidate’s library template and updates the candidate to the saved version. Field changes create a new template version; name and description changes don’t. Run the candidate again to test it.
+- In a model comparison every candidate shares one template, so **Apply and save** changes it for all of them.
+
+**Apply and save** needs a candidate whose template is in the library. If the save fails, the candidate keeps its template and the changes stay in the Assistant so you can try again.
 
 ## Improve failing fields
 

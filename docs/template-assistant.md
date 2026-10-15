@@ -24,7 +24,7 @@ An edit request returns change groups with reasons and before/after values. Sele
 
 Field names determine output IDs. Table headings determine column keys. Before a rename, removal, or type change, review the identity and type warnings. These changes affect future extraction output and Evaluation alignment. Historical Extraction results and user-owned Expected answers remain unchanged.
 
-Select **Apply** to update the open draft once. Select **Save** to persist it. An answer with no proposed changes stages nothing. Assistance does not implicitly run extraction, create Expected answers, change scores, or measure accuracy improvements. In an Evaluation, **Test changes** runs the edits on a copy of the candidate and measures the difference; see [Evaluations](evaluations.md#improve-failing-fields).
+Select **Apply and save** to update the open draft and save the template in one step. Field changes create a new template version; name and description changes don’t. The panel shows the version that was saved. If the save fails, the changes stay in the draft; select **Save** to try again. An answer with no proposed changes stages nothing. Assistance does not implicitly run extraction, create Expected answers, change scores, or measure accuracy improvements. In an Evaluation, **Test changes** runs the edits on a copy of the candidate and measures the difference; see [Evaluations](evaluations.md#improve-failing-fields).
 
 Draft edits, JSON imports, saves, Template switches, and new drafts invalidate previous requests. Workspace or session changes and navigation away from Templates also invalidate them. Restoring the same text does not restore a proposal. Regenerate a stale proposal from the current draft.
 
@@ -60,7 +60,7 @@ Evaluation evidence needs no completed document or file. You can also send the o
 
 ## Scope
 
-Assistance is temporary. It is available on Templates and on Evaluations. It does not keep conversation history, save automatically, or expand the supported schema. It does not migrate historical output identities, relink Expected answers, or provide general protection against concurrent saves.
+Assistance is temporary. It is available on Templates and on Evaluations. It does not keep conversation history, save anything you haven’t applied, or expand the supported schema. It does not migrate historical output identities, relink Expected answers, or provide general protection against concurrent saves.
 
 Auto generate remains available through the magic icon on **Create Template**. It proposes a complete Template from a sample. Evaluation results reach the Assistant only through **Improve failing fields**. The server never reads the Evaluation library for assistance: the browser sends the verified answers, and an original only when you choose it.
 
