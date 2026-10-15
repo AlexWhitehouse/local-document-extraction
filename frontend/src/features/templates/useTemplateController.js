@@ -162,6 +162,8 @@ export function useTemplateController({
   const draftRevisionRef = useRef(0);
   const [draftRevision, setDraftRevision] = useState(0);
   const [validationFocus, setValidationFocus] = useState(null);
+  // The save that follows applying assistant changes: { status: "saving" | "saved" | "failed", version }.
+  const [assistantSave, setAssistantSave] = useState(null);
   const assistantRef = useRef(null);
 
   const touchDraft = useCallback(({ preservePendingLoad = false } = {}) => {
@@ -254,6 +256,7 @@ export function useTemplateController({
     getRevision: () => draftRevisionRef.current,
     maxSourceFileBytes,
     showActionToast,
+    // Applying saves a new version at once. If the save fails, the changes stay in the draft, unsaved.
     onApply: (payload) => {
       // The proposal engine preserves unrelated raw values; do not normalize/hydrate here.
       touchDraft();
@@ -263,6 +266,12 @@ export function useTemplateController({
       setHasNewDraftEdits(true);
 
       if (!isEditingTemplate) setShowDraftTemplateNav(true);
+      const generation = generationRef.current;
+      setAssistantSave({ status: "saving", version: null });
+      void saveTemplate(payload).then((version) => {
+        if (generation === generationRef.current)
+          setAssistantSave(version === null ? { status: "failed", version: null } : { status: "saved", version });
+      });
     },
   });
 
@@ -517,9 +526,11 @@ export function useTemplateController({
     return mutateTemplateTag(tag);
   }
 
-  async function saveTemplate() {
+  // `draft` saves a draft that was just set and isn't in this render's state yet, e.g. applied assistant changes.
+  // Resolves to the saved version, or null when nothing was saved.
+  async function saveTemplate(draft = { name: templateName, description: templateDescription, fields: templateFields }) {
     if (isSavingTemplate || isManagingTags || templateGeneration.modal.isOpen) {
-      return;
+      return null;
     }
 
     touchDraft();
@@ -527,21 +538,14 @@ export function useTemplateController({
     let payload;
 
     try {
-      payload = validateTemplateJsonPayload({
-        name: templateName,
-        description: templateDescription,
-        tags: templateTags,
-        fields: templateFields,
-      });
+      payload = validateTemplateJsonPayload({ ...draft, tags: templateTags });
     } catch (error) {
-      const issues =
-        error.diagnostics ||
-        diagnoseTemplateDraft({ name: templateName, description: templateDescription, fields: templateFields });
+      const issues = error.diagnostics || diagnoseTemplateDraft(draft);
 
       setValidationFocus({ issue: issues[0], nonce: draftRevisionRef.current });
       showActionToast("template.save", "validation", { reason: "draft" });
 
-      return;
+      return null;
     }
 
     const generation = generationRef.current;
@@ -549,7 +553,7 @@ export function useTemplateController({
     const isCurrent = () => generation === generationRef.current && saveRequest === saveRequestRef.current;
     const savePayload = buildSavePayload(payload);
 
-    if (!Object.keys(savePayload).length) return;
+    if (!Object.keys(savePayload).length) return templateVersion;
     setIsSavingTemplate(true);
 
     try {
@@ -562,14 +566,16 @@ export function useTemplateController({
         },
       );
 
-      if (!isCurrent()) return;
+      if (!isCurrent()) return null;
+
+      const version =
+        data.version ??
+        data.template_version ??
+        (targetTemplateId && templateVersion ? templateVersion + (savePayload.fields ? 1 : 0) : 1);
+
       setLoadedTemplateSnapshot(serializeTemplatePayload(payload));
       setHasNewDraftEdits(false);
-      setTemplateVersion(
-        data.version ??
-          data.template_version ??
-          (targetTemplateId && templateVersion ? templateVersion + (savePayload.fields ? 1 : 0) : 1),
-      );
+      setTemplateVersion(version);
 
       if (!targetTemplateId) {
         setUpdateTemplateId(data.template_id);
@@ -582,9 +588,12 @@ export function useTemplateController({
         targetName: (!targetTemplateId && data?.name) || payload.name,
       });
       await Promise.all([listTemplates(), listTemplateTags()]);
+
+      return version;
     } catch (error) {
-      if (!isCurrent()) return;
-      showActionToast("template.save", "failure", { error });
+      if (isCurrent()) showActionToast("template.save", "failure", { error });
+
+      return null;
     } finally {
       if (isCurrent()) setIsSavingTemplate(false);
     }
@@ -1093,6 +1102,7 @@ export function useTemplateController({
       isManagingTags,
       templateFields,
       assistant: assistant.panel,
+      assistantSave,
       onOpenAssistant: assistant.open,
       validationFocus,
       isEditingTemplate,
@@ -1120,7 +1130,7 @@ export function useTemplateController({
         cancelAssistant();
         templateGeneration.open();
       },
-      onSaveTemplate: saveTemplate,
+      onSaveTemplate: () => void saveTemplate(),
       showActionToast,
     },
     generationModal: templateGeneration.modal,

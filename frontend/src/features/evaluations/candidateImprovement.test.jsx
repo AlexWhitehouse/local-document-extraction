@@ -154,8 +154,12 @@ describe("Improve failing fields and Test changes", () => {
     },
   ];
 
-  function setup() {
+  // `source` is the library template the candidate was chosen from.
+  function setup({ source } = {}) {
     const base = evaluationWith();
+
+    if (source)
+      base.state.candidates = base.state.candidates.map((c) => ({ ...c, template: { ...c.template, source } }));
 
     const evaluation = {
       ...base,
@@ -181,6 +185,10 @@ describe("Improve failing fields and Test changes", () => {
             groups,
           });
         }
+
+        if (path === "/templates/tpl_1" && options?.method === "PATCH") return Response.json({ version: 4 });
+
+        if (path === "/templates/tpl_1") return Response.json({ ...template, tags: [], current_version: 3 });
 
         return Response.json({ source: "model", suggestions: [] });
       }),
@@ -246,8 +254,8 @@ describe("Improve failing fields and Test changes", () => {
     // A full journey through the assistant and the comparison; allow for slow runners.
   }, 20_000);
 
-  it("applies the assistant's edits to the candidate instead of testing a copy", async () => {
-    const { evaluation } = setup();
+  it("saves the assistant's edits as a new template version and applies them to the candidate", async () => {
+    const { evaluation } = setup({ source: { id: "tpl_1", version: 3 } });
     fireEvent.click(screen.getByRole("button", { name: "Candidate 1 options" }));
     fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
     const assistant = await screen.findByRole("complementary", { name: "Template assistant" });
@@ -255,12 +263,32 @@ describe("Improve failing fields and Test changes", () => {
 
     fireEvent.click(within(assistant).getByRole("button", { name: "Review draft" }));
     fireEvent.click(await within(assistant).findByRole("button", { name: "Apply 1 change to draft" }));
-    fireEvent.click(await within(assistant).findByRole("button", { name: "Apply to candidate" }));
-    expect(evaluation.edit).toHaveBeenCalledTimes(1);
+    fireEvent.click(await within(assistant).findByRole("button", { name: "Apply and save" }));
+    await waitFor(() => expect(evaluation.edit).toHaveBeenCalledTimes(1));
+
+    // Only the changed fields are sent, so the save creates one new version.
+    const saved = evaluation.api.mock.calls.find(([path, options]) => path === "/templates/tpl_1" && options?.method === "PATCH");
+    expect(Object.keys(JSON.parse(saved[1].body))).toEqual(["fields"]);
+    expect(JSON.parse(saved[1].body).fields[0].description).toBe("Total due including VAT");
     expect(evaluation.edit.mock.calls[0][0]).toBe("a");
     expect(evaluation.edit.mock.calls[0][1].template.fields[0].description).toBe("Total due including VAT");
+    expect(evaluation.edit.mock.calls[0][1].template.source).toEqual({ id: "tpl_1", version: 4 });
     expect(evaluation.branch).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("complementary", { name: "Template assistant" })).toBeNull());
+  });
+
+  it("keeps the assistant open and the candidate unchanged when its template isn't in the library", async () => {
+    const { evaluation } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "Candidate 1 options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+    const assistant = await screen.findByRole("complementary", { name: "Template assistant" });
+
+    fireEvent.click(within(assistant).getByRole("button", { name: "Review draft" }));
+    fireEvent.click(await within(assistant).findByRole("button", { name: "Apply 1 change to draft" }));
+    fireEvent.click(await within(assistant).findByRole("button", { name: "Apply and save" }));
+    await waitFor(() => expect(within(assistant).getByRole("button", { name: "Apply and save" }).disabled).toBe(false));
+    expect(evaluation.edit).not.toHaveBeenCalled();
+    expect(screen.getByRole("complementary", { name: "Template assistant" })).toBeTruthy();
   });
 
   it("hides Improve failing fields when every verified field matches", () => {
