@@ -16,7 +16,8 @@ import { AssistantIcon } from "../layout/Icons.jsx";
 function appliedNotice(save) {
   if (save?.status === "saving") return "Applied. Saving the template…";
 
-  if (save?.status === "saved") return save.version ? `Applied and saved as v${save.version}.` : "Applied and saved.";
+  // Only field changes create a new version, so the version can be the one already open.
+  if (save?.status === "saved") return save.version ? `Applied and saved. The template is at v${save.version}.` : "Applied and saved.";
 
   return "Applied to the draft, but the template wasn’t saved. Save it to keep these changes.";
 }

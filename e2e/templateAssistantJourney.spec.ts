@@ -77,7 +77,7 @@ test("review a focused VAT column proposal, then apply it once to save a new ver
 
     await assistant.getByRole("button", { name: "Apply and save 1 change", exact: true }).click();
     expect((await save).status()).toBe(200);
-    await expect(assistant.getByText(`Applied and saved as v${original.current_version + 1}.`)).toBeVisible();
+    await expect(assistant.getByText(`Applied and saved. The template is at v${original.current_version + 1}.`)).toBeVisible();
     await expect(assistant.getByRole("button", { name: "Apply and save 1 change", exact: true })).toBeHidden();
     const saved = await readSaved();
     expect(saved.current_version).toBe(original.current_version + 1);

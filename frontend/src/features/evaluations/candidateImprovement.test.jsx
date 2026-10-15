@@ -155,7 +155,7 @@ describe("Improve failing fields and Test changes", () => {
   ];
 
   // `source` is the library template the candidate was chosen from.
-  function setup({ source } = {}) {
+  function setup({ source, patchResponse = async () => Response.json({ version: 4 }) } = {}) {
     const base = evaluationWith();
 
     if (source)
@@ -186,7 +186,7 @@ describe("Improve failing fields and Test changes", () => {
           });
         }
 
-        if (path === "/templates/tpl_1" && options?.method === "PATCH") return Response.json({ version: 4 });
+        if (path === "/templates/tpl_1" && options?.method === "PATCH") return patchResponse();
 
         if (path === "/templates/tpl_1") return Response.json({ ...template, tags: [], current_version: 3 });
 
@@ -275,6 +275,37 @@ describe("Improve failing fields and Test changes", () => {
     expect(evaluation.edit.mock.calls[0][1].template.source).toEqual({ id: "tpl_1", version: 4 });
     expect(evaluation.branch).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("complementary", { name: "Template assistant" })).toBeNull());
+  });
+
+  it("drops a save that finishes after the evaluation changed, and lets the next one save", async () => {
+    let finish;
+
+    const pending = new Promise((resolve) => {
+      finish = resolve;
+    });
+
+    const { evaluation, rerender } = setup({ source: { id: "tpl_1", version: 3 }, patchResponse: () => pending });
+    fireEvent.click(screen.getByRole("button", { name: "Candidate 1 options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+    const assistant = await screen.findByRole("complementary", { name: "Template assistant" });
+    fireEvent.click(within(assistant).getByRole("button", { name: "Review draft" }));
+    fireEvent.click(await within(assistant).findByRole("button", { name: "Apply 1 change to draft" }));
+    fireEvent.click(await within(assistant).findByRole("button", { name: "Apply and save" }));
+    await waitFor(() =>
+      expect(evaluation.api.mock.calls.some(([, options]) => options?.method === "PATCH")).toBe(true),
+    );
+
+    rerender({ id: "evaluation-2" });
+    await act(async () => finish(Response.json({ version: 4 })));
+    expect(evaluation.edit).not.toHaveBeenCalled();
+
+    // The new evaluation isn't left waiting on the old save.
+    fireEvent.click(screen.getByRole("button", { name: "Candidate 1 options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+    const next = await screen.findByRole("complementary", { name: "Template assistant" });
+    fireEvent.click(within(next).getByRole("button", { name: "Review draft" }));
+    fireEvent.click(await within(next).findByRole("button", { name: "Apply 1 change to draft" }));
+    expect(within(next).getByRole("button", { name: "Apply and save" }).disabled).toBe(false);
   });
 
   it("keeps the assistant open and the candidate unchanged when its template isn't in the library", async () => {
