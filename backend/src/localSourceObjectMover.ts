@@ -216,7 +216,7 @@ export function createLocalSourceObjectMover({
     if (object.size > MAX_OBJECT_BYTES) throw new OriginalFailed("The original is larger than 32 MiB.");
 
     try {
-      return await readBody(object.stream());
+      return await readBody(object.stream(), { expectedSize: object.size });
     } catch (error) {
       throw new SourceUnavailable("The original could not be read", { cause: error });
     }
@@ -301,10 +301,11 @@ export function createLocalSourceObjectMover({
           mimeType: original.mime_type,
         });
         const copy = await store.open(newKey);
-        const copied = await readBody(copy.stream());
+        const mismatch = new OriginalFailed("The copy read back from the new location didn't match the original.");
 
-        if (copy.size !== bytes.byteLength || copied.byteLength !== bytes.byteLength || sha256(copied) !== digest)
-          throw new OriginalFailed("The copy read back from the new location didn't match the original.");
+        if (copy.size !== bytes.byteLength) throw mismatch;
+
+        if (sha256(await readBody(copy.stream(), { expectedSize: copy.size })) !== digest) throw mismatch;
       } catch (error) {
         moves.endItem({ newKey, release: [{ objectKey: newKey }] });
 
@@ -481,20 +482,46 @@ export function createLocalSourceObjectMover({
   };
 }
 
-async function readBody(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+/**
+ * Reads exactly `expectedSize` bytes. A stalled read is cancelled at the deadline, so it can't keep a
+ * connection and buffer after the mover has moved on, and a short body is an error, never a smaller original.
+ */
+export async function readBody(
+  stream: ReadableStream<Uint8Array>,
+  { expectedSize, deadlineMs = BODY_DEADLINE_MS }: { expectedSize: number; deadlineMs?: number },
+): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const body = new Uint8Array(expectedSize);
+  let received = 0;
+  let timedOut = false;
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    reader.cancel(new Error("Reading the original timed out")).catch(() => undefined);
+  }, deadlineMs);
 
   try {
-    return new Uint8Array(
-      await Promise.race([
-        new Response(stream).arrayBuffer(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("Reading the original timed out")), BODY_DEADLINE_MS);
-        }),
-      ]),
-    );
+    for (;;) {
+      const { done, value } = await reader.read();
+
+      if (timedOut) throw new Error("Reading the original timed out");
+
+      if (done) break;
+
+      if (received + value.byteLength > expectedSize) throw new Error("The original is larger than its storage reported");
+      body.set(value, received);
+      received += value.byteLength;
+    }
+
+    if (received !== expectedSize) throw new Error("The original ended before its reported size");
+
+    return body;
+  } catch (error) {
+    await reader.cancel(error).catch(() => undefined);
+    throw error;
   } finally {
     clearTimeout(timer);
+    reader.releaseLock();
   }
 }
 

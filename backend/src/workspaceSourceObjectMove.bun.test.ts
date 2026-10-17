@@ -13,7 +13,7 @@ import { createLocalSourceFileRetention } from "./localSourceFileRetention";
 import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalSourceObjectCleanup } from "./localSourceObjectCleanup";
 import { createLocalSourceObjectManifest, INSTALLATION_DESTINATION_ID } from "./localSourceObjectManifest";
-import { createLocalSourceObjectMover } from "./localSourceObjectMover";
+import { createLocalSourceObjectMover, readBody } from "./localSourceObjectMover";
 import { createLocalSourceObjectMoves } from "./localSourceObjectMoves";
 import { createLocalSourceStorageDestinations } from "./localSourceStorageDestinations";
 import type { LocalWorkspace } from "./localWorkspaceControl";
@@ -736,4 +736,30 @@ test("Workspace deletion mid-move stops it and releases every copy", async () =>
   await h.cleanupAt(Date.now() + 2 * HOUR).run();
   expect(h.installationS3.objects.size).toBe(0);
   expect(bucket.objects.size).toBe(0);
+});
+
+test("body reads are cancelled at the deadline and never accept a short or oversized body", async () => {
+  let cancelled = false;
+
+  const stalled = new ReadableStream<Uint8Array>({
+    start: (controller) => controller.enqueue(new Uint8Array([1, 2])),
+    cancel: () => {
+      cancelled = true;
+    },
+  });
+
+  await expect(readBody(stalled, { expectedSize: 4, deadlineMs: 20 })).rejects.toThrow("timed out");
+  expect(cancelled).toBe(true);
+
+  const bytes = (...chunks: number[][]) =>
+    new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        for (const chunk of chunks) controller.enqueue(new Uint8Array(chunk));
+        controller.close();
+      },
+    });
+
+  await expect(readBody(bytes([1, 2], [3]), { expectedSize: 4 })).rejects.toThrow("ended before");
+  await expect(readBody(bytes([1, 2], [3, 4, 5]), { expectedSize: 4 })).rejects.toThrow("larger than");
+  expect([...(await readBody(bytes([1, 2], [3, 4]), { expectedSize: 4 }))]).toEqual([1, 2, 3, 4]);
 });
