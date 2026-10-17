@@ -912,7 +912,7 @@ function singleBucketSourceObjects({
       markWorkspaceDeleting: () => {},
       ...manifest,
     },
-    destinationFor: () => destination,
+    destinationFor: () => ({ ...destination, release: () => {} }),
     destinationOf: () => destination,
     acquireRead: () => () => {},
   };

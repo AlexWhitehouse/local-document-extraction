@@ -1113,6 +1113,8 @@ export function handleLocalDocumentSubmission({
         if (error instanceof HttpError) return httpErrorResponse(error);
 
         return errorResponse(500, "document_submission_failed", "Document submission could not be queued");
+      } finally {
+        destination?.release();
       }
     },
   );
@@ -1691,7 +1693,7 @@ async function publishRetainedOriginal({
   ownerKind = "job",
 }: {
   product: ProductServices;
-  /** Resolved when the upload started; null when no bucket was available then. */
+  /** Resolved and held when the upload started; null when no bucket was available then. */
   destination: RetainedObjectDestination | null;
   workspaceId: string;
   jobId: string;

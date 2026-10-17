@@ -49,6 +49,7 @@ export function createLocalSourceObjectCleanup({
   manifest,
   storeFor,
   destinations,
+  heldDestinations = () => new Set<string>(),
   productStoreRegistry,
   workspaceControl,
   now = Date.now,
@@ -59,6 +60,8 @@ export function createLocalSourceObjectCleanup({
   storeFor: (destinationId: string) => Pick<SourceObjectStore, "delete">;
   /** Retired Workspace buckets are forgotten, with their credentials, once nothing depends on them. */
   destinations?: Pick<LocalSourceStorageDestinations, "pruneRetired">;
+  /** Buckets in-flight uploads hold before they have recorded any object there. */
+  heldDestinations?: () => ReadonlySet<string>;
   productStoreRegistry: {
     acquire(input: { workspaceId: string; mode: "existing" }): {
       store: {
@@ -204,11 +207,11 @@ export function createLocalSourceObjectCleanup({
     };
 
     await Promise.all(Array.from({ length: Math.min(DESTINATION_CONCURRENCY, queue.length) }, worker));
-    // Uploads resolve their destination just before recording it, so wait out that window before forgetting one.
-    destinations?.pruneRetired({
-      pending: manifest.countsByDestination(),
-      retiredBefore: new Date(now() - PREPARING_GRACE_MS).toISOString(),
-    });
+    // A bucket stays while any object or in-flight upload depends on it, and for a grace period after retirement.
+    const pending = manifest.countsByDestination();
+
+    for (const destinationId of heldDestinations()) pending.set(destinationId, (pending.get(destinationId) ?? 0) + 1);
+    destinations?.pruneRetired({ pending, retiredBefore: new Date(now() - PREPARING_GRACE_MS).toISOString() });
     snapshot.lastCompletedAt = new Date(now()).toISOString();
   };
 

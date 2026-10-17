@@ -342,7 +342,7 @@ export function createLocalEvaluationDocuments({
             mimeType,
             path: temporaryPath,
             signal,
-          });
+          }).finally(() => destination?.release());
         } else {
           if (!sourceFileStore.promoteEvaluationDocument)
             throw new SourceUnavailableError("Local library storage is unavailable");

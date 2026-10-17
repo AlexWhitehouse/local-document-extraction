@@ -252,6 +252,7 @@ const sourceObjectCleanup = createLocalSourceObjectCleanup({
   manifest: sourceObjectManifest,
   storeFor: retainedSourceObjects.storeFor,
   destinations: sourceStorageDestinations,
+  heldDestinations: retainedSourceObjects.heldDestinations,
   productStoreRegistry: localProductStoreRegistry,
   workspaceControl: localAuth.workspaceControl,
 });

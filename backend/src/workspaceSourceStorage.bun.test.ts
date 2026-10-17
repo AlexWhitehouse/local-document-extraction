@@ -243,6 +243,7 @@ async function harness({
       manifest,
       storeFor: sourceObjects.storeFor,
       destinations,
+      heldDestinations: sourceObjects.heldDestinations,
       productStoreRegistry: registry,
       workspaceControl,
       now: () => at,
@@ -435,6 +436,7 @@ test("link-local and cloud metadata endpoints are refused before any request is 
     "http://metadata.google.internal",
     "http://[fe80::1]:9000",
     "http://[::ffff:169.254.169.254]",
+    "http://[fd20:ce::254]",
   ]) {
     expect(await errorCode(await h.save(bucketSettings(endpoint), { "if-none-match": "*" }))).toBe(
       "source_storage_endpoint_blocked",
@@ -453,6 +455,12 @@ test("link-local and cloud metadata endpoints are refused before any request is 
   expect(isBlockedAddress("::1")).toBe(false);
   expect(isBlockedAddress("2001:db8::a9fe:a9fe")).toBe(false);
   expect(isBlockedAddress("fd00:ec2::254")).toBe(true);
+  expect(isBlockedAddress("fd20:ce::254")).toBe(true);
+  expect(isBlockedAddress("fd20:00ce:0:0:0:0:0:254")).toBe(true);
+  expect(isBlockedAddress("fe80::1")).toBe(true);
+  expect(isBlockedAddress("febf::1")).toBe(true);
+  expect(isBlockedAddress("fec0::1")).toBe(false);
+  expect(isBlockedAddress("fd20:ce::255")).toBe(false);
   expect(isBlockedAddress("100.100.100.200")).toBe(true);
   // Private networks stay allowed, as for the model gateway.
   expect(isBlockedAddress("10.0.0.5")).toBe(false);
@@ -505,9 +513,13 @@ test("an upload that starts before the bucket moves finishes in the bucket it st
   const second = fakeBucket();
   expect((await h.save(bucketSettings(first.endpoint), { "if-none-match": "*" })).status).toBe(200);
 
+  const firstDestination = h.destinations.current(WORKSPACE_ID)!.id;
   const upload = await h.submitPaused();
   await Bun.sleep(20);
   expect((await h.save(bucketSettings(second.endpoint), { "if-match": '"source-storage-1"' })).status).toBe(200);
+  // Long after the move, cleanup still keeps the retired bucket the paused upload holds.
+  await h.cleanupAt(Date.now() + LATER).run();
+  expect(h.destinations.get(firstDestination)).not.toBeNull();
   upload.resume();
   const response = await upload.response;
   expect(response.status).toBe(202);

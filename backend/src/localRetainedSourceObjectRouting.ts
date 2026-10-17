@@ -17,6 +17,12 @@ export type RetainedObjectDestination = {
   documentKeyFor(input: { workspaceId: string; documentId: string; mimeType: string }): string;
 };
 
+/**
+ * A new upload's bucket, held from when the upload starts until `release`. Cleanup never forgets a held
+ * bucket, even a retired one, because the upload has not yet recorded the object it will write there.
+ */
+export type HeldRetainedObjectDestination = RetainedObjectDestination & { release(): void };
+
 /** Remote retained originals: each object is read and deleted in the bucket its upload was prepared for. */
 export type LocalRetainedSourceObjects = {
   store: Pick<SourceObjectStore, "open">;
@@ -24,8 +30,8 @@ export type LocalRetainedSourceObjects = {
     LocalSourceObjectManifest,
     "prepare" | "link" | "markDeleting" | "markJobDeleting" | "markOwnerDeleting" | "markWorkspaceDeleting"
   >;
-  /** Where this Workspace's new originals go, or null when it has no remote storage. */
-  destinationFor(workspaceId: string): RetainedObjectDestination | null;
+  /** Where this Workspace's new originals go, held until released, or null when it has no remote storage. */
+  destinationFor(workspaceId: string): HeldRetainedObjectDestination | null;
   /** The bucket an existing object lives in, so derived originals can stay beside it. */
   destinationOf(objectKey: string): RetainedObjectDestination | null;
   /**
@@ -64,9 +70,12 @@ export function createLocalRetainedSourceObjects({
 }): LocalRetainedSourceObjects & {
   /** The store for a destination ID; throws when the destination is gone or its credentials are unreadable. */
   storeFor(destinationId: string): SourceObjectStore;
+  /** Destinations an in-flight upload holds; cleanup must keep them. */
+  heldDestinations(): ReadonlySet<string>;
 } {
   const clients = new Map<string, { version: string; store: SourceObjectStore }>();
   const activeReads = new Map<string, number>();
+  const holds = new Map<string, number>();
   const installationStore = installation ? createStore(installation) : null;
 
   const storeFor = (destinationId: string): SourceObjectStore => {
@@ -122,30 +131,36 @@ export function createLocalRetainedSourceObjects({
     store: { open: (key) => storeFor(recordedDestination(key)).open(key) },
     manifest,
     storeFor,
+    heldDestinations: () => new Set(holds.keys()),
     destinationFor: (workspaceId) => {
       const own = overridesEnabled ? destinations?.current(workspaceId) : null;
+      const chosen = own ? target(own.id, own.location.prefix) : destinationById(INSTALLATION_DESTINATION_ID);
 
-      if (own) return target(own.id, own.location.prefix);
-
-      return destinationById(INSTALLATION_DESTINATION_ID);
+      return chosen && { ...chosen, release: increment(holds, chosen.id) };
     },
+    // An existing object's own manifest entry already keeps its destination alive.
     destinationOf: (objectKey) => destinationById(recordedDestination(objectKey)),
     acquireRead: (objectKey) => {
       const destinationId = recordedDestination(objectKey);
-      const active = activeReads.get(destinationId) ?? 0;
 
-      if (active >= maxConcurrentReads) return null;
-      activeReads.set(destinationId, active + 1);
-      let released = false;
+      if ((activeReads.get(destinationId) ?? 0) >= maxConcurrentReads) return null;
 
-      return () => {
-        if (released) return;
-        released = true;
-        const remaining = (activeReads.get(destinationId) ?? 1) - 1;
-
-        if (remaining > 0) activeReads.set(destinationId, remaining);
-        else activeReads.delete(destinationId);
-      };
+      return increment(activeReads, destinationId);
     },
+  };
+}
+
+/** Counts one use of `key`; the returned release undoes it once, however often it is called. */
+function increment(counts: Map<string, number>, key: string): () => void {
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+  let released = false;
+
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = (counts.get(key) ?? 1) - 1;
+
+    if (remaining > 0) counts.set(key, remaining);
+    else counts.delete(key);
   };
 }

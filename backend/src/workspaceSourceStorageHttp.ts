@@ -421,6 +421,12 @@ function blockedEndpoint() {
   );
 }
 
+/** AWS (fd00:ec2::254) and Google Compute Engine (fd20:ce::254) IPv6 instance metadata services. */
+const METADATA_IPV6 = [
+  [0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254],
+  [0xfd20, 0x00ce, 0, 0, 0, 0, 0, 0x0254],
+];
+
 export function isBlockedAddress(address: string): boolean {
   const normalized = address.toLowerCase();
   const embedded = isIP(normalized) === 6 ? embeddedIPv4(normalized) : null;
@@ -434,8 +440,19 @@ export function isBlockedAddress(address: string): boolean {
     return first === 0 || (first === 169 && second === 254) || normalized === "100.100.100.200";
   }
 
-  if (isIP(normalized) === 6)
-    return normalized === "::" || /^fe[89ab][0-9a-f]:/.test(normalized) || normalized === "fd00:ec2::254";
+  if (isIP(normalized) === 6) {
+    const groups = ipv6Groups(normalized);
+
+    if (!groups) return false;
+    const [first = 0] = groups;
+
+    // `::` reaches the host itself; fe80::/10 is link-local.
+    return (
+      groups.every((group) => group === 0) ||
+      (first & 0xffc0) === 0xfe80 ||
+      METADATA_IPV6.some((metadata) => metadata.every((group, index) => group === groups[index]))
+    );
+  }
 
   return false;
 }
