@@ -2,6 +2,7 @@ import type { SQLQueryBindings, Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 
 import { nowIso } from "./lib/ids";
+import { SOURCE_OBJECT_MOVE_ITEMS_SCHEMA } from "./localSourceObjectMoves";
 
 export type SourceObjectPhase = "preparing" | "linked" | "deleting";
 
@@ -22,6 +23,9 @@ export type SourceObjectManifestEntry = {
   attempts: number;
 };
 
+/** Originals one Workspace holds in one destination; sizes are unknown for objects recorded before sizes were. */
+export type SourceObjectDestinationUsage = { originals: number; bytes: number; unknownSize: number };
+
 /**
  * Installation-level record of every remote retained object, from before its upload until its
  * deletion is confirmed. It lives in the control database so cleanup survives removal of a
@@ -34,7 +38,7 @@ export type LocalSourceObjectManifest = {
   namespace(): string;
   /**
    * Records the configured S3 destination (or none), refusing a change while objects or unfinished
-   * cleanup still depend on the recorded one. Moving retained objects is not supported.
+   * cleanup still depend on the recorded one. Workspaces can move their originals off it first.
    */
   assertDestination(destination: string | null): void;
   recordedDestination(): string | null;
@@ -44,14 +48,19 @@ export type LocalSourceObjectManifest = {
     workspaceId: string;
     ownerKind: SourceObjectOwnerKind;
     ownerId: string;
+    byteSize?: number;
   }): void;
   /** The destination recorded when the object's upload was prepared, or null once its entry is gone. */
   destinationOf(objectKey: string): string | null;
+  entry(objectKey: string): SourceObjectManifestEntry | null;
+  /** Linked originals of one Workspace, by destination. */
+  usageByDestination(workspaceId: string): Map<string, SourceObjectDestinationUsage>;
   /** Unfinished entries that still depend on each destination. */
   countsByDestination(): Map<string, number>;
   /** Records that a committed owner references the object; only a preparing object can be linked. */
   link(input: { objectKey: string }): boolean;
-  markDeleting(input: { objectKey: string }): void;
+  /** `notBefore` keeps the object for reads that opened it before it was replaced. */
+  markDeleting(input: { objectKey: string; notBefore?: string }): void;
   markJobDeleting(input: { workspaceId: string; jobId: string }): void;
   markOwnerDeleting(input: { workspaceId: string; ownerKind: SourceObjectOwnerKind; ownerId: string }): void;
   markWorkspaceDeleting(input: { workspaceId: string }): void;
@@ -59,6 +68,7 @@ export type LocalSourceObjectManifest = {
   dueDestinations(input: { now: string }): string[];
   /** One destination's due deletions, so a backlog in one bucket never crowds out another. */
   listDueDeletions(input: { now: string; destinationId: string; limit: number }): SourceObjectManifestEntry[];
+  /** Stale uploads, except copies an unfinished move owns: the move settles those itself. */
   listStalePreparing(input: { before: string; limit: number }): SourceObjectManifestEntry[];
   deferDeletion(input: { objectKey: string; nextAttemptAt: string; failed: boolean }): void;
   remove(input: { objectKey: string }): void;
@@ -124,7 +134,11 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
         );
       }
 
+      if (!columnsAfterRebuild.some((column) => column.name === "byte_size"))
+        database.exec("ALTER TABLE source_object_manifest ADD COLUMN byte_size INTEGER");
+
       database.exec(MANIFEST_INDEXES);
+      database.exec(SOURCE_OBJECT_MOVE_ITEMS_SCHEMA);
     })
     .immediate();
 
@@ -152,12 +166,14 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
       )
       .get()?.destination ?? null;
 
-  const setPhase = (where: string, ...parameters: string[]) =>
+  const setPhase = (where: string, ...parameters: string[]) => setPhaseAt(nowIso(), where, ...parameters);
+
+  const setPhaseAt = (nextAttemptAt: string, where: string, ...parameters: string[]) =>
     database
       .query(
         `UPDATE source_object_manifest SET phase = 'deleting', next_attempt_at = ?, updated_at = ? WHERE phase != 'deleting' AND ${where}`,
       )
-      .run(nowIso(), nowIso(), ...parameters);
+      .run(nextAttemptAt, nowIso(), ...parameters);
 
   return {
     namespace: () =>
@@ -190,9 +206,10 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
           if (recorded && pending > 0) {
             throw new SourceObjectDestinationError(
               `S3 storage settings changed, but ${pending} retained original(s) or unfinished deletion(s) still depend on the previous destination. ` +
-                "Moving originals is not supported. Restore the previous endpoint, bucket, prefix and addressing style (credentials may change). " +
+                "Restore the previous endpoint, bucket, prefix and addressing style (credentials may change). " +
                 "To stop keeping new originals there, set SOURCE_ORIGINAL_RETENTION_ENABLED=false instead. " +
-                "To leave that destination, first delete the Documents stored there and let background cleanup finish.",
+                "To leave that destination, first give each Workspace stored there its own bucket and move its originals " +
+                "(Workspaces → Original document storage), or delete the Documents stored there, then let background cleanup finish.",
             );
           }
 
@@ -205,14 +222,14 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
             .run(randomBytes(12).toString("hex"), nowIso(), destination);
         })
         .immediate(),
-    prepare: ({ objectKey, destinationId, workspaceId, ownerKind, ownerId }) => {
+    prepare: ({ objectKey, destinationId, workspaceId, ownerKind, ownerId, byteSize }) => {
       const at = nowIso();
       database
         .query(
-          `INSERT INTO source_object_manifest (object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, updated_at, attempts, next_attempt_at)
-         VALUES (?, ?, ?, ?, ?, 'preparing', ?, ?, 0, NULL)`,
+          `INSERT INTO source_object_manifest (object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, updated_at, attempts, next_attempt_at, byte_size)
+         VALUES (?, ?, ?, ?, ?, 'preparing', ?, ?, 0, NULL, ?)`,
         )
-        .run(objectKey, destinationId, workspaceId, ownerKind, ownerId, at, at);
+        .run(objectKey, destinationId, workspaceId, ownerKind, ownerId, at, at, byteSize ?? null);
     },
     destinationOf: (objectKey) =>
       database
@@ -220,6 +237,26 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
           "SELECT destination_id FROM source_object_manifest WHERE object_key = ?",
         )
         .get(objectKey)?.destination_id ?? null,
+    entry: (objectKey) =>
+      database
+        .query<SourceObjectManifestEntry, SQLQueryBindings[]>(`${ENTRY_SELECT} WHERE object_key = ?`)
+        .get(objectKey),
+    usageByDestination: (workspaceId) =>
+      new Map(
+        database
+          .query<
+            { destination_id: string; originals: number; bytes: number; unknown_size: number },
+            SQLQueryBindings[]
+          >(
+            `SELECT destination_id, COUNT(*) AS originals, COALESCE(SUM(byte_size), 0) AS bytes, SUM(byte_size IS NULL) AS unknown_size
+             FROM source_object_manifest WHERE workspace_id = ? AND phase = 'linked' GROUP BY destination_id`,
+          )
+          .all(workspaceId)
+          .map((row) => [
+            row.destination_id,
+            { originals: row.originals, bytes: row.bytes, unknownSize: row.unknown_size },
+          ]),
+      ),
     countsByDestination: () =>
       new Map(
         database
@@ -235,8 +272,8 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
           "UPDATE source_object_manifest SET phase = 'linked', updated_at = ? WHERE object_key = ? AND phase = 'preparing'",
         )
         .run(nowIso(), objectKey).changes > 0,
-    markDeleting: ({ objectKey }) => {
-      setPhase("object_key = ?", objectKey);
+    markDeleting: ({ objectKey, notBefore }) => {
+      setPhaseAt(notBefore ?? nowIso(), "object_key = ?", objectKey);
     },
     markJobDeleting: ({ workspaceId, jobId }) => {
       setPhase("workspace_id = ? AND owner_kind = 'job' AND owner_id = ?", workspaceId, jobId);
@@ -265,8 +302,9 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
     listStalePreparing: ({ before, limit }) =>
       database
         .query<SourceObjectManifestEntry, SQLQueryBindings[]>(
-          `SELECT object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM source_object_manifest
-       WHERE phase = 'preparing' AND created_at <= ? ORDER BY created_at, object_key LIMIT ?`,
+          `${ENTRY_SELECT} WHERE phase = 'preparing' AND created_at <= ?
+           AND NOT EXISTS (SELECT 1 FROM source_object_move_items WHERE new_key = object_key)
+           ORDER BY created_at, object_key LIMIT ?`,
         )
         .all(before, limit),
     deferDeletion: ({ objectKey, nextAttemptAt, failed }) => {
@@ -296,6 +334,9 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
   };
 }
 
+const ENTRY_SELECT =
+  "SELECT object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM source_object_manifest";
+
 const MANIFEST_SCHEMA = `
   CREATE TABLE IF NOT EXISTS source_storage_installation (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -317,7 +358,8 @@ function manifestTableSql(name: string) {
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at TEXT
+    next_attempt_at TEXT,
+    byte_size INTEGER
   );
 `;
 }

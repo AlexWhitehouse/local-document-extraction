@@ -17,6 +17,7 @@ import type {
 } from "./localSourceStorageDestinations";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import { probeS3SourceStorage, SourceStorageProbeError } from "./s3SourceObjectStore";
+import type { WorkspaceSourceObjectMoveHttp } from "./workspaceSourceObjectMoveHttp";
 
 const noStore = { "cache-control": "no-store" };
 
@@ -46,12 +47,19 @@ const lookupAddresses: EndpointAddressLookup = async (hostname) =>
   (await lookup(hostname, { all: true })).map((entry) => entry.address);
 
 export type WorkspaceSourceStorageHttp = {
-  handle(input: { request: Request; workspaceId: string; userId: string; test: boolean }): Promise<Response>;
+  /** `test` checks a bucket without saving; `move` gathers existing originals into the current location. */
+  handle(input: {
+    request: Request;
+    workspaceId: string;
+    userId: string;
+    resource: "settings" | "test" | "move";
+  }): Promise<Response>;
 };
 
 /**
  * Owner/admin control of a Workspace's own S3-compatible bucket. Every save is tested against the bucket
- * first, and a changed location only redirects new uploads: existing originals stay where they are.
+ * first, and a changed location only redirects new uploads: existing originals stay where they are until
+ * a move gathers them.
  */
 export function createWorkspaceSourceStorageHttp({
   workspaceControl,
@@ -59,6 +67,7 @@ export function createWorkspaceSourceStorageHttp({
   manifest,
   installationProvider,
   overridesEnabled,
+  moves,
   probe = probeS3SourceStorage,
   resolveAddresses = lookupAddresses,
 }: {
@@ -67,6 +76,7 @@ export function createWorkspaceSourceStorageHttp({
   manifest: Pick<LocalSourceObjectManifest, "countsByDestination">;
   installationProvider: SourceStorageProvider;
   overridesEnabled: boolean;
+  moves?: WorkspaceSourceObjectMoveHttp;
   probe?: (configuration: S3SourceStorageConfiguration) => Promise<void>;
   resolveAddresses?: EndpointAddressLookup;
 }): WorkspaceSourceStorageHttp {
@@ -136,9 +146,17 @@ export function createWorkspaceSourceStorageHttp({
   };
 
   return {
-    async handle({ request, workspaceId, userId, test }) {
+    async handle({ request, workspaceId, userId, resource }) {
       try {
         assertManager(workspaceId, userId);
+
+        if (resource === "move") {
+          if (!moves) throw new HttpError(404, "not_found", "Route not found");
+
+          return moves.handle({ request, workspaceId, userId });
+        }
+
+        const test = resource === "test";
         const allowed = test ? ["POST"] : ["GET", "PUT", "DELETE"];
 
         if (!allowed.includes(request.method))

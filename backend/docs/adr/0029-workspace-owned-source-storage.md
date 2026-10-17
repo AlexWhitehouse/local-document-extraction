@@ -18,7 +18,7 @@ Issue 99 lets a **Workspace** keep its retained originals in its own S3-compatib
 ## Consequences
 
 - Tenants control their own buckets, so the no-versioning and no-Object-Lock rule is the Workspace admin's responsibility. Erasure guarantees depend on their bucket settings. If a tenant revokes access, cleanup retries indefinitely, as for the installation bucket.
-- Moving originals between buckets is still unsupported. A changed location affects only new uploads. Earlier locations stay readable until their objects are deleted.
+- A changed location affects only new uploads. Earlier locations stay readable until their objects are moved ([ADR-0030](0030-moving-retained-originals.md)) or deleted.
 - Workspace admins can make the server send signed requests to private network hosts they choose. Give the role only to trusted people, as for the Model gateway.
 - Upload admission still shares `SUBMISSION_MAX_CONCURRENCY` and `SUBMISSION_MAX_RESERVED_BYTES` across Workspaces. A slow tenant bucket holds those reservations while its PUT runs. There is no per-destination upload limit yet.
 - Workspace buckets are not part of application-state backups. Restoring control data needs the matching machine key to read their credentials.

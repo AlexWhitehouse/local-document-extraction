@@ -176,6 +176,20 @@ export type LocalRetainedTerminalSourceFile = {
   retained_object_key: string | null;
 };
 
+/** A retained original as a move sees it: its owner, where it is held, and whether processing may still read it. */
+export type LocalRetainedOriginal = {
+  owner_kind: "job" | "packet" | "evaluation_document";
+  owner_id: string;
+  /** The remote original; null when a local file is the original. */
+  retained_object_key: string | null;
+  /** The local original; null when it is held remotely. */
+  source_file_key: string | null;
+  mime_type: string;
+  name: string | null;
+  /** Library entries, and jobs and packets that completed or failed; only these move. */
+  settled: boolean;
+};
+
 /** A Saved Evaluation document: Workspace-owned, independent of any Extraction job. */
 export type LocalEvaluationDocument = {
   id: string;
@@ -381,6 +395,28 @@ export type LocalWorkspaceProductStore = DocumentProcessingStore &
     hasPendingExtractionWork(): boolean;
     /** The retained original for a job, or null when the job is absent or its original was not retained. */
     getRetainedSourceFile(jobId: string): LocalRetainedSourceFile | null;
+    /** Every retained original of the Workspace, ordered by owner kind then ID, after `after`. */
+    listRetainedOriginals(input: {
+      after?: { kind: string; id: string } | null;
+      limit: number;
+    }): LocalRetainedOriginal[];
+    getRetainedOriginal(input: {
+      ownerKind: LocalRetainedOriginal["owner_kind"];
+      ownerId: string;
+    }): LocalRetainedOriginal | null;
+    /** Retained originals still held as local files. */
+    countLocalRetainedOriginals(): number;
+    /**
+     * Points a settled owner at a moved copy, if it still references `from`: the remote key, or for a
+     * local original (`from.objectKey` null) its local file. A library entry then drops its local key; a
+     * job's local copy is removed by retention cleanup. Returns false when the owner changed.
+     */
+    replaceRetainedOriginal(input: {
+      ownerKind: LocalRetainedOriginal["owner_kind"];
+      ownerId: string;
+      from: { objectKey: string | null; sourceFileKey: string | null };
+      objectKey: string;
+    }): boolean;
     getExtractionJobExports(jobIds: string[]): LocalWorkspaceExtractionJobExport[];
     getTemplateAssistantEvidence(jobId: string, maximumBytes: number): LocalWorkspaceExtractionJobExport | null;
     getSubmissionTemplate(templateId: string): LocalWorkspaceSubmissionTemplate | null;
@@ -1532,6 +1568,64 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
        LIMIT 1`,
         )
         .get(jobId),
+    listRetainedOriginals: ({ after, limit }) =>
+      database
+        .query<RetainedOriginalRow, SQLQueryBindings[]>(
+          `${RETAINED_ORIGINALS_SELECT} WHERE (owner_kind, owner_id) > (?, ?) ORDER BY owner_kind, owner_id LIMIT ?`,
+        )
+        .all(after?.kind ?? "", after?.id ?? "", limit)
+        .map(withSettledFlag),
+    getRetainedOriginal: ({ ownerKind, ownerId }) => {
+      const row = database
+        .query<RetainedOriginalRow, SQLQueryBindings[]>(
+          `${RETAINED_ORIGINALS_SELECT} WHERE owner_kind = ? AND owner_id = ?`,
+        )
+        .get(ownerKind, ownerId);
+
+      return row ? withSettledFlag(row) : null;
+    },
+    countLocalRetainedOriginals: () =>
+      database
+        .query<{ count: number }, SQLQueryBindings[]>(
+          `SELECT COUNT(*) AS count FROM (${RETAINED_ORIGINALS_SELECT}) WHERE retained_object_key IS NULL`,
+        )
+        .get()!.count,
+    replaceRetainedOriginal: ({ ownerKind, ownerId, from, objectKey }) =>
+      database
+        .transaction(() => {
+          if (ownerKind === "evaluation_document")
+            return (
+              database
+                .query(
+                  `UPDATE evaluation_documents SET retained_object_key = ?, source_file_key = NULL
+                   WHERE id = ? AND retained_object_key IS ? AND (retained_object_key IS NOT NULL OR source_file_key IS ?)`,
+                )
+                .run(objectKey, ownerId, from.objectKey, from.sourceFileKey).changes > 0
+            );
+
+          const owner = ownerKind === "packet" ? "document_packets" : "jobs";
+
+          const replaced =
+            database
+              .query(
+                `UPDATE source_files SET retained_key = ?
+                 WHERE job_id = ? AND retained = 1 AND retained_key IS ?
+                   AND (retained_key IS NOT NULL OR (deleted_at IS NULL AND key IS ?))
+                   AND EXISTS (SELECT 1 FROM ${owner} WHERE id = ? AND status IN ('completed', 'failed'))`,
+              )
+              .run(objectKey, ownerId, from.objectKey, from.sourceFileKey, ownerId).changes > 0;
+
+          // A packet's child slot keeps a copy of the child's key for packet deletion; keep it current.
+          if (replaced)
+            database
+              .query(
+                "UPDATE document_packet_children SET retained_object_key = ? WHERE job_id = ? AND retained_object_key IS ?",
+              )
+              .run(objectKey, ownerId, from.objectKey);
+
+          return replaced;
+        })
+        .immediate(),
     getTemplateAssistantEvidence: (jobId, maximumBytes) =>
       database.transaction(() => {
         const summary = readJobSummary(jobId);
@@ -1848,6 +1942,25 @@ function createProductStore(database: Database): LocalWorkspaceProductStore {
   };
 
   return store;
+}
+
+type RetainedOriginalRow = Omit<LocalRetainedOriginal, "settled"> & { settled: number };
+
+/** Packet originals have their own source_files row under the packet ID, beside job and child originals. */
+const RETAINED_ORIGINALS_SELECT = `SELECT * FROM (
+  SELECT CASE WHEN p.id IS NULL THEN 'job' ELSE 'packet' END AS owner_kind, s.job_id AS owner_id,
+    s.retained_key AS retained_object_key, CASE WHEN s.retained_key IS NULL THEN s.key END AS source_file_key,
+    s.mime_type, s.name, COALESCE(j.status, p.status) IN ('completed', 'failed') AS settled
+  FROM source_files s LEFT JOIN jobs j ON j.id = s.job_id LEFT JOIN document_packets p ON p.id = s.job_id
+  WHERE s.retained = 1 AND (s.retained_key IS NOT NULL OR s.deleted_at IS NULL) AND (j.id IS NOT NULL OR p.id IS NOT NULL)
+  UNION ALL
+  SELECT 'evaluation_document', id, retained_object_key, CASE WHEN retained_object_key IS NULL THEN source_file_key END,
+    source_mime_type, COALESCE(source_name, name), 1
+  FROM evaluation_documents
+)`;
+
+function withSettledFlag(row: RetainedOriginalRow): LocalRetainedOriginal {
+  return { ...row, settled: Boolean(row.settled) };
 }
 
 /** SQLite returns `source_retained` as 0/1. */

@@ -874,6 +874,7 @@ async function publishOriginal({
   if (!objects || !destination)
     throw new SourceUnavailableError("Object storage is not available for library originals");
   const objectKey = destination.documentKeyFor({ workspaceId, documentId, mimeType });
+  const file = Bun.file(path);
 
   try {
     objects.manifest.prepare({
@@ -882,6 +883,7 @@ async function publishOriginal({
       workspaceId,
       ownerKind: OWNER_KIND,
       ownerId: documentId,
+      byteSize: file.size,
     });
   } catch (error) {
     console.warn("Library object manifest entry could not be recorded", error);
@@ -889,7 +891,7 @@ async function publishOriginal({
   }
 
   try {
-    await destination.store.put({ key: objectKey, file: Bun.file(path), mimeType });
+    await destination.store.put({ key: objectKey, file, mimeType });
     signal.throwIfAborted();
   } catch (error) {
     objects.manifest.markDeleting({ objectKey });

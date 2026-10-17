@@ -239,7 +239,8 @@ function readStorage(values: Record<string, string>) {
 function dependentDestinationError() {
   return new Error(
     "Storage settings unchanged: retained originals or unfinished cleanup still depend on the current S3 endpoint, bucket, prefix and addressing style. " +
-      "Moving originals is not supported; keep that destination (credentials may be rotated), or turn off retention for new uploads instead.",
+      "Keep that destination (credentials may be rotated), turn off retention for new uploads, or first move each Workspace's originals " +
+      "into its own bucket (Workspaces → Original document storage) and let background cleanup finish.",
   );
 }
 
