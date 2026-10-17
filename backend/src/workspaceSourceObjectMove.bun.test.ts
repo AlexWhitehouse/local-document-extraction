@@ -352,6 +352,8 @@ test("owners see where originals are and move them all into the Workspace's curr
   const after = await h.runMove();
   expect(after.move).toMatchObject({ status: "completed", moved: 2, failed: 0, waiting: 0, failures: [] });
   expect(after.movable).toBe(0);
+  // Neither the summaries nor the move keep an upload hold, so emptied buckets can still be forgotten.
+  expect(h.sourceObjects.heldDestinations().size).toBe(0);
 
   for (const jobId of [installationJob, firstJob]) {
     const key = h.original("job", jobId)!.retained_object_key!;
@@ -435,7 +437,12 @@ test("local originals move into the Workspace bucket; retention cleanup then rem
   const entry = h.original("evaluation_document", "edoc_local")!;
   expect(entry.source_file_key).toBeNull();
   expect(new TextDecoder().decode(bucket.objects.get(entry.retained_object_key!)!.bytes)).toBe("%PDF-1.4 library original");
+  // The library's local file stays for reads that opened it before the swap, then goes.
+  expect(await Bun.file(documentPath).exists()).toBe(true);
+  expect(h.manifest.entry(entry.retained_object_key!)?.phase).toBe("linked");
+  await h.mover({ now: () => Date.now() + HOUR }).run();
   expect(await Bun.file(documentPath).exists()).toBe(false);
+  expect(h.moves.listItems(10)).toEqual([]);
 
   await createLocalSourceFileRetention({
     productStoreRegistry: h.registry,
@@ -488,6 +495,7 @@ test("a restart settles each interrupted original from what its owner references
       owner_id: jobId,
       old_key: old.retained_object_key,
       old_local_key: null,
+      created_at: new Date().toISOString(),
       destinationId: target.id,
       byteSize: 4,
     });
@@ -587,7 +595,9 @@ test("deleting a Document, packet or library entry mid-move leaves no orphaned c
   };
 
   const result = await h.runMove({ sourceObjects: racing });
-  expect(result.move).toMatchObject({ status: "completed", moved: 2, failed: 0 });
+  expect(result.move).toMatchObject({ status: "completed", moved: 2, failed: 0, waiting: 0 });
+  // The deleted Document has nothing left to move, so it doesn't hold the move open for more passes.
+  expect(h.moves.latest(WORKSPACE_ID)).toMatchObject({ pass: 1 });
 
   // The packet and its child each moved on their own; the child slot follows the child.
   const newPacketKey = h.original("packet", "pkt_a")!.retained_object_key!;
@@ -640,6 +650,42 @@ test("an unreachable source bucket only holds back its own originals; an unreach
   await mover.run();
   expect((await h.summary()).move).toMatchObject({ status: "completed", moved: 2, next_attempt_at: null, message: null });
   expect(h.original("job", firstJob)!.retained_object_key).toStartWith("current/");
+});
+
+test("one original that can't be read holds back only itself, then fails on the last pass", async () => {
+  const h = await harness();
+  const bucket = fakeBucket();
+  const jobs = [await h.submit(), await h.submit(), await h.submit(), await h.submit()].sort();
+  const unreadable = h.original("job", jobs[0]!)!.retained_object_key!;
+  await h.useBucket(bucket);
+  expect((await start(h)).status).toBe(202);
+
+  const flaky = {
+    ...h.sourceObjects,
+    storeFor: (id: string): SourceObjectStore => {
+      const real = h.sourceObjects.storeFor(id);
+
+      return {
+        ...real,
+        open: async (key) => {
+          if (key === unreadable) throw new SourceObjectUnavailableError("Access denied for this object");
+
+          return real.open(key);
+        },
+      };
+    },
+  };
+
+  const finished = await h.runMove({ sourceObjects: flaky });
+  expect(finished.move).toMatchObject({
+    status: "completed",
+    moved: 3,
+    failed: 1,
+    failures: [{ id: jobs[0], message: "The original couldn't be read where it's stored, so it stayed there." }],
+  });
+
+  for (const jobId of jobs.slice(1)) expect(h.original("job", jobId)!.retained_object_key).toStartWith("tenant/");
+  expect(h.original("job", jobs[0]!)!.retained_object_key).toBe(unreadable);
 });
 
 test("a missing original fails on its own; cancelling stops the move; a location change stops it", async () => {

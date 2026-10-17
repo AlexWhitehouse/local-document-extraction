@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { LocalSourceFileStore } from "./localSourceFileStore";
 import type { LocalSourceObjectManifest } from "./localSourceObjectManifest";
 import type { LocalSourceObjectMoves, SourceObjectMove, SourceObjectMoveItem } from "./localSourceObjectMoves";
-import type { RetainedObjectDestination } from "./localRetainedSourceObjectRouting";
+import type { HeldRetainedObjectDestination, RetainedObjectDestination } from "./localRetainedSourceObjectRouting";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalRetainedOriginal, LocalWorkspaceProductStore } from "./localWorkspaceProductStore";
 import { SourceObjectMissingError, type SourceObjectStore } from "./s3SourceObjectStore";
@@ -20,6 +20,9 @@ const READ_GRACE_MS = 10 * 60_000;
 const BODY_DEADLINE_MS = 2 * 60_000;
 
 const MAX_PASSES = 6;
+
+/** Read failures in a row after which a source is treated as unreachable for the rest of a pass. */
+const SOURCE_FAILURE_LIMIT = 3;
 
 const MIN_RETRY_MS = 60_000;
 
@@ -45,7 +48,7 @@ class SourceUnavailable extends Error {}
 
 class OriginalFailed extends Error {}
 
-type Outcome = { kind: "moved"; bytes: number } | { kind: "skipped" } | { kind: "waiting"; source?: string };
+type Outcome = { kind: "moved"; bytes: number } | { kind: "skipped" } | { kind: "waiting" };
 
 /**
  * Copies a Workspace's retained originals into its current location, one at a time per move.
@@ -68,7 +71,7 @@ export function createLocalSourceObjectMover({
   manifest: Pick<LocalSourceObjectManifest, "entry">;
   moves: LocalSourceObjectMoves;
   sourceObjects: {
-    destinationFor(workspaceId: string): RetainedObjectDestination | null;
+    destinationFor(workspaceId: string): HeldRetainedObjectDestination | null;
     storeFor(destinationId: string): Pick<SourceObjectStore, "open" | "put">;
   };
   sourceFileStore: Pick<LocalSourceFileStore, "open" | "delete">;
@@ -78,8 +81,21 @@ export function createLocalSourceObjectMover({
 }): LocalSourceObjectMover {
   let activeRun: Promise<void> | null = null;
   const slots = createSlots();
-  /** Source buckets that failed during a move's current pass; their originals wait for the next pass. */
-  const failingSources = new Map<string, { pass: number; destinations: Set<string> }>();
+  /**
+   * Read failures in a row per source, for each move's current pass. One unreadable original costs only
+   * itself; a source that keeps failing is skipped until the next pass.
+   */
+  const sourceFailures = new Map<string, { pass: number; counts: Map<string, number> }>();
+
+  const sourceFailuresOf = (move: SourceObjectMove) => {
+    const current = sourceFailures.get(move.id);
+
+    if (current?.pass === move.pass) return current.counts;
+    const counts = new Map<string, number>();
+    sourceFailures.set(move.id, { pass: move.pass, counts });
+
+    return counts;
+  };
 
   const iso = (offsetMs = 0) => new Date(now() + offsetMs).toISOString();
 
@@ -120,16 +136,22 @@ export function createLocalSourceObjectMover({
 
     if (owner === undefined) return false;
 
-    if (owner?.retained_object_key === item.new_key) {
-      // A library entry's local original has no other cleanup once the entry points elsewhere.
-      if (item.old_local_key && item.owner_kind === "evaluation_document") {
-        try {
-          await sourceFileStore.delete(item.old_local_key);
-        } catch (error) {
-          console.warn("Moved library original's local copy could not be deleted; it will be retried", error);
+    // A library entry's local original has no other cleanup once the entry stops referencing it.
+    const localLeftBehind =
+      item.owner_kind === "evaluation_document" && item.old_local_key && owner?.source_file_key !== item.old_local_key
+        ? item.old_local_key
+        : null;
 
-          return false;
+    if (owner?.retained_object_key === item.new_key) {
+      if (localLeftBehind) {
+        // Reads that opened the local file before the swap get the same grace as remote old copies.
+        if (Date.parse(item.created_at) + READ_GRACE_MS > now()) {
+          moves.linkItem(item.new_key);
+
+          return true;
         }
+
+        if (!(await deleteLocal(localLeftBehind))) return false;
       }
 
       moves.endItem({
@@ -145,9 +167,23 @@ export function createLocalSourceObjectMover({
 
     // Keys are unique to one owner, so an old copy its owner no longer references is unreferenced.
     if (item.old_key && owner?.retained_object_key !== item.old_key) release.push({ objectKey: item.old_key });
+
+    if (localLeftBehind && !(await deleteLocal(localLeftBehind))) return false;
     moves.endItem({ newKey: item.new_key, release });
 
     return true;
+  };
+
+  const deleteLocal = async (sourceFileKey: string) => {
+    try {
+      await sourceFileStore.delete(sourceFileKey);
+
+      return true;
+    } catch (error) {
+      console.warn("A moved library original's local copy could not be deleted; it will be retried", error);
+
+      return false;
+    }
   };
 
   const readOriginal = async (original: LocalRetainedOriginal, sourceDestination: string | null) => {
@@ -206,21 +242,26 @@ export function createLocalSourceObjectMover({
     } else if (!original.source_file_key) return { kind: "skipped" };
 
     if (!original.settled) return { kind: "waiting" };
-    const failing = failingSources.get(move.id);
+    const source = sourceDestination ?? "local";
+    const failures = sourceFailuresOf(move);
 
-    if (failing?.pass === move.pass && failing.destinations.has(sourceDestination ?? "local"))
-      return { kind: "waiting" };
+    if ((failures.get(source) ?? 0) >= SOURCE_FAILURE_LIMIT) return { kind: "waiting" };
 
-    return slots.with([target.id, sourceDestination ?? "local"], async () => {
+    return slots.with([target.id, source], async () => {
       let bytes: Uint8Array;
 
       try {
         bytes = await readOriginal(original, sourceDestination);
+        failures.delete(source);
       } catch (error) {
         if (!(error instanceof SourceUnavailable)) throw error;
-        console.warn("Original move could not read an original; it will be retried", error);
+        console.warn("Original move could not read an original", error);
+        failures.set(source, (failures.get(source) ?? 0) + 1);
 
-        return { kind: "waiting", source: sourceDestination ?? "local" };
+        if (move.pass >= MAX_PASSES)
+          throw new OriginalFailed("The original couldn't be read where it's stored, so it stayed there.");
+
+        return { kind: "waiting" };
       }
 
       const digest = sha256(bytes);
@@ -247,6 +288,7 @@ export function createLocalSourceObjectMover({
         owner_id: original.owner_id,
         old_key: original.retained_object_key,
         old_local_key: original.retained_object_key ? null : original.source_file_key,
+        created_at: iso(),
       };
 
       moves.beginItem({ ...item, destinationId: target.id, byteSize: bytes.byteLength });
@@ -288,14 +330,15 @@ export function createLocalSourceObjectMover({
       // Settling re-reads the owner, so a crash here and a restart take the same path.
       if (!(await settleItem(item))) return { kind: "waiting" };
 
-      // The Document was deleted, changed or reprocessed meanwhile; a later pass looks again.
-      return replaced ? { kind: "moved", bytes: bytes.byteLength } : { kind: "waiting" };
+      if (replaced) return { kind: "moved", bytes: bytes.byteLength };
+
+      // A deleted owner has nothing left to move; one that changed or is processing again gets a later pass.
+      return readOwner(move.workspace_id, item) === null ? { kind: "skipped" } : { kind: "waiting" };
     });
   };
 
-  const stopReason = (move: SourceObjectMove): string | null => {
+  const stopReason = (move: SourceObjectMove, target: RetainedObjectDestination | null): string | null => {
     if (!workspaceControl.workspaceExists({ workspaceId: move.workspace_id })) return "The Workspace was deleted.";
-    const target = sourceObjects.destinationFor(move.workspace_id);
 
     if (target?.id !== move.target_id)
       return "The Workspace's storage location changed during the move. Originals already moved stay readable where they are. Start a new move to continue.";
@@ -310,15 +353,25 @@ export function createLocalSourceObjectMover({
   };
 
   const runMove = async (move: SourceObjectMove) => {
-    const reason = stopReason(move);
+    // Held for the whole batch, so cleanup can't forget the target before a copy there is recorded.
+    const target = sourceObjects.destinationFor(move.workspace_id);
 
-    if (reason) {
+    try {
+      await runBatch(move, target);
+    } finally {
+      target?.release();
+    }
+  };
+
+  const runBatch = async (move: SourceObjectMove, target: RetainedObjectDestination | null) => {
+    const reason = stopReason(move, target);
+
+    if (reason || !target) {
       moves.finish({ moveId: move.id, status: "stopped", message: reason });
 
       return;
     }
 
-    const target = sourceObjects.destinationFor(move.workspace_id)!;
     let batch: LocalRetainedOriginal[];
 
     try {
@@ -364,14 +417,7 @@ export function createLocalSourceObjectMover({
       try {
         const outcome = await moveOriginal(current, target, original);
 
-        if (outcome.kind === "waiting" && outcome.source) {
-          const failing = failingSources.get(move.id);
-
-          if (failing?.pass === current.pass) failing.destinations.add(outcome.source);
-          else failingSources.set(move.id, { pass: current.pass, destinations: new Set([outcome.source]) });
-        }
-
-        moves.advance({ ...owner, outcome: outcome.kind === "moved" ? outcome : { kind: outcome.kind } });
+        moves.advance({ ...owner, outcome });
       } catch (error) {
         if (error instanceof OriginalFailed) {
           moves.advance({ ...owner, outcome: { kind: "failed", failure: { name: original.name, message: error.message } } });
@@ -405,7 +451,7 @@ export function createLocalSourceObjectMover({
       return;
     }
 
-    failingSources.delete(move.id);
+    sourceFailures.delete(move.id);
     moves.finish({ moveId: move.id, status: "completed" });
   };
 

@@ -64,7 +64,8 @@ export function useWorkspaceSourceStorageMove({ coreRequest, path, scope, showAc
   const load = useCallback(
     async ({ quiet = false } = {}) => {
       if (!scope) return;
-      const token = ++operation.current;
+      // A poll never supersedes a start or cancel in flight; it only yields to one.
+      const token = quiet ? operation.current : ++operation.current;
 
       if (!quiet) setState((previous) => ({ ...previous, scope, loading: true, error: "" }));
 

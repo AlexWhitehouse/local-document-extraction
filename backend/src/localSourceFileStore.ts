@@ -75,6 +75,9 @@ export function createLocalSourceFileStore({ stateDirectory }: { stateDirectory:
     resolveProcessingSource: async (sourceFileKey) => {
       const path = pathForKey(rootDirectory, sourceFileKey);
 
+      // A moved child's view is removed once its original is held remotely; the missing path lets processing restore it.
+      if (!await Bun.file(path).exists()) return { path, identity: sourceFileKey };
+
       return await readPdfSourceView(path) ?? { path, identity: sourceFileKey };
     },
     createPdfView: async ({ workspaceId, jobId, sourceFileKey, pages }) => {

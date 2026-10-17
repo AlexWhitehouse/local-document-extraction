@@ -49,6 +49,7 @@ export type SourceObjectMoveItem = {
   old_key: string | null;
   /** The local original being replaced; null for a remote original. */
   old_local_key: string | null;
+  created_at: string;
 };
 
 export const SOURCE_OBJECT_MOVE_ITEMS_SCHEMA = `
@@ -133,6 +134,8 @@ export type LocalSourceObjectMoves = {
   /** Commits the in-flight record and the new copy's manifest entry together. */
   beginItem(input: SourceObjectMoveItem & { destinationId: string; byteSize: number }): void;
   listItems(limit: number): SourceObjectMoveItem[];
+  /** Records that the owner references the new copy while the item stays for work still to do. */
+  linkItem(newKey: string): void;
   /** Drops an in-flight record, optionally handing copies to cleanup in the same transaction. */
   endItem(input: { newKey: string; release?: Array<{ objectKey: string; notBefore?: string }>; link?: string }): void;
 };
@@ -268,7 +271,7 @@ export function createLocalSourceObjectMoves({
             item.owner_id,
             item.old_key,
             item.old_local_key,
-            nowIso(),
+            item.created_at,
           );
         manifest.prepare({
           objectKey: item.new_key,
@@ -282,9 +285,12 @@ export function createLocalSourceObjectMoves({
     listItems: (limit) =>
       database
         .query<SourceObjectMoveItem, SQLQueryBindings[]>(
-          "SELECT new_key, move_id, workspace_id, owner_kind, owner_id, old_key, old_local_key FROM source_object_move_items ORDER BY created_at LIMIT ?",
+          "SELECT new_key, move_id, workspace_id, owner_kind, owner_id, old_key, old_local_key, created_at FROM source_object_move_items ORDER BY created_at LIMIT ?",
         )
         .all(limit),
+    linkItem: (newKey) => {
+      manifest.link({ objectKey: newKey });
+    },
     endItem: ({ newKey, release = [], link }) =>
       database.transaction(() => {
         if (link) manifest.link({ objectKey: link });

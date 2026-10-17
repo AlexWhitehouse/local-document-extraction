@@ -739,6 +739,40 @@ describe("Moving originals to the current location", () => {
     expect(screen.getByRole("button", { name: "Move to current location…" })).toBeTruthy();
   });
 
+  it("a poll during a cancel doesn't swallow the cancel's result", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const api = storageApi(
+      storageRecord(savedOverride),
+      spreadSummary({ move: runningMove({ moved: 4 }) }),
+      spreadSummary({ move: runningMove({ moved: 5 }) }),
+      spreadSummary({ move: runningMove({ status: "cancelled", moved: 5, finished_at: "2026-10-17T10:02:00.000Z" }) }),
+    );
+
+    const answer = api.request.getMockImplementation();
+    let finishCancel;
+    const cancelSent = new Promise((resolve) => (finishCancel = resolve));
+
+    api.request.mockImplementation((path, options) =>
+      kindOf(path, options) === "MOVE_DELETE" ? cancelSent.then(() => answer(path, options)) : answer(path, options),
+    );
+
+    const { showActionToast } = renderPanel(api);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel move…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Cancel the move?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel move" }));
+    await waitFor(() => expect(api.calls("MOVE_DELETE")).toHaveLength(1));
+
+    // A poll lands while the cancel is still on its way.
+    await vi.advanceTimersByTimeAsync(MOVE_POLL_MS);
+    await waitFor(() => expect(api.calls("MOVE_GET")).toHaveLength(2));
+    finishCancel();
+
+    await waitFor(() => expect(showActionToast).toHaveBeenCalledWith("workspace.sourceStorage.moveCancel", "success"));
+    expect(await screen.findByText("Move cancelled")).toBeTruthy();
+  });
+
   it("reports what couldn't be moved after a move ends", async () => {
     renderPanel(
       storageApi(

@@ -6,7 +6,7 @@ import {
   type LocalSourceObjectMoves,
   type SourceObjectMove,
 } from "./localSourceObjectMoves";
-import type { RetainedObjectDestination } from "./localRetainedSourceObjectRouting";
+import type { HeldRetainedObjectDestination } from "./localRetainedSourceObjectRouting";
 import type { LocalSourceStorageDestinations } from "./localSourceStorageDestinations";
 import type { LocalWorkspaceProductStore } from "./localWorkspaceProductStore";
 import type { SourceObjectStore } from "./s3SourceObjectStore";
@@ -55,7 +55,7 @@ export function createWorkspaceSourceObjectMoveHttp({
   manifest: Pick<LocalSourceObjectManifest, "usageByDestination">;
   destinations: Pick<LocalSourceStorageDestinations, "get">;
   sourceObjects: {
-    destinationFor(workspaceId: string): RetainedObjectDestination | null;
+    destinationFor(workspaceId: string): HeldRetainedObjectDestination | null;
     /** Throws when the destination's credentials can't be read. */
     storeFor(destinationId: string): Pick<SourceObjectStore, "open">;
   };
@@ -84,6 +84,9 @@ export function createWorkspaceSourceObjectMoveHttp({
 
   const describe = (workspaceId: string) => {
     const target = sourceObjects.destinationFor(workspaceId);
+
+    // Only the target's ID is needed; nothing is written here, so the upload hold goes straight back.
+    target?.release();
     let unavailableReason: "no_remote_storage" | "credentials_unavailable" | null = target ? null : "no_remote_storage";
 
     if (target) {
