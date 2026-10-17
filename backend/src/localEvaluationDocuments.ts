@@ -342,7 +342,7 @@ export function createLocalEvaluationDocuments({
             mimeType,
             path: temporaryPath,
             signal,
-          }).finally(() => destination?.release());
+          });
         } else {
           if (!sourceFileStore.promoteEvaluationDocument)
             throw new SourceUnavailableError("Local library storage is unavailable");
@@ -437,7 +437,8 @@ export function createLocalEvaluationDocuments({
           ownedUploads.delete(temporaryPath);
         }
       }
-    });
+      // Every exit releases the held bucket, including replays, rejections and failed uploads.
+    }).finally(() => destination?.release());
   };
 
   const update = async (

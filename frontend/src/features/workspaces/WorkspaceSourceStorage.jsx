@@ -13,7 +13,15 @@ import { DEFAULT_PREFIX, locationChanged, validateStorageDraft } from "./useWork
 const FORM_ID = "workspace-storage-form";
 
 // Field order for focusing the first problem after a submit or test.
-const FIELD_ORDER = ["endpoint", "region", "bucket", "access_key_id", "secret_access_key", "confirm_unversioned_bucket"];
+const FIELD_ORDER = [
+  "endpoint",
+  "region",
+  "bucket",
+  "prefix",
+  "access_key_id",
+  "secret_access_key",
+  "confirm_unversioned_bucket",
+];
 
 const UNREADABLE_KEYS_MESSAGE = "The saved access keys can't be read. Edit the settings and enter new keys.";
 
@@ -210,8 +218,12 @@ export function WorkspaceSourceStorage({ controller }) {
                 <TextInput {...field("bucket", { required: true, maxLength: 255, placeholder: "customer-documents" })} />
               </Field>
             </div>
-            <Field label="Prefix" hint={`Originals are saved under this path. Leave blank for ${DEFAULT_PREFIX}`}>
-              <TextInput {...field("prefix", { maxLength: 512, onBlur: undefined })} />
+            <Field
+              label="Prefix"
+              hint={`Originals are saved under this path. Leave blank for ${DEFAULT_PREFIX}`}
+              error={errors.prefix}
+            >
+              <TextInput {...field("prefix", { maxLength: 512 })} />
             </Field>
             <CheckboxField
               name="force_path_style"

@@ -222,6 +222,19 @@ describe("Workspace original document storage", () => {
     type("Endpoint", "https://s3.example.com/");
     fireEvent.blur(screen.getByLabelText("Endpoint"));
     expect(screen.queryByText("Enter an address like https://s3.example.com.")).toBeNull();
+    // Region, bucket and prefix follow the server's format rules on their own fields.
+    type("Region", "US_EAST_1");
+    fireEvent.blur(screen.getByLabelText("Region"));
+    expect(screen.getByText("Use lowercase letters, numbers and hyphens, like eu-west-2.")).toBeTruthy();
+    type("Bucket", "Bad_Bucket");
+    fireEvent.blur(screen.getByLabelText("Bucket"));
+    expect(screen.getByText(/Use 3 to 63 lowercase letters/)).toBeTruthy();
+    type("Prefix", "documents");
+    fireEvent.blur(screen.getByLabelText("Prefix"));
+    expect(screen.getByText('Use folder names separated by "/" and end with "/", like documents/.')).toBeTruthy();
+    type("Prefix", "documents/");
+    fireEvent.blur(screen.getByLabelText("Prefix"));
+    expect(screen.queryByText('Use folder names separated by "/" and end with "/", like documents/.')).toBeNull();
     type("Endpoint", "");
     type("Region", "eu-west-2");
     type("Bucket", "customer-documents");

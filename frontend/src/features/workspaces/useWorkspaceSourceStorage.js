@@ -84,9 +84,23 @@ export function validateStorageDraft(draft, override, { forSave = true } = {}) {
     }
   }
 
-  if (!draft.region.trim()) errors.region = "Enter a region.";
+  // Same rules as the server, so format problems show on their field rather than after a save.
+  const region = draft.region.trim();
+  const bucket = draft.bucket.trim();
+  const prefix = draft.prefix.trim();
 
-  if (!draft.bucket.trim()) errors.bucket = "Enter a bucket name.";
+  if (!region) errors.region = "Enter a region.";
+  else if (!/^[a-z0-9-]{1,64}$/.test(region)) errors.region = "Use lowercase letters, numbers and hyphens, like eu-west-2.";
+
+  if (!bucket) errors.bucket = "Enter a bucket name.";
+  else if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket))
+    errors.bucket = "Use 3 to 63 lowercase letters, numbers, dots or hyphens, starting and ending with a letter or number.";
+
+  if (
+    prefix &&
+    (!/^(?:[A-Za-z0-9!_.*'()-]+\/)+$/.test(prefix) || prefix.split("/").some((part) => part === "." || part === ".."))
+  )
+    errors.prefix = 'Use folder names separated by "/" and end with "/", like documents/.';
 
   const keyId = draft.access_key_id.trim();
   const secret = draft.secret_access_key.trim();

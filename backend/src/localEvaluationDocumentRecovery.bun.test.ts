@@ -236,6 +236,7 @@ async function harness({
   return {
     s3,
     manifest: realManifest,
+    sourceObjects,
     store,
     registry,
     stateDirectory,
@@ -256,6 +257,19 @@ async function harness({
     },
   };
 }
+
+test("every library save exit releases the bucket it held, so retired buckets can still be forgotten", async () => {
+  const h = await harness();
+  const operationId = crypto.randomUUID();
+  expect((await h.save(operationId)).status).toBe(201);
+  // A replay of the same operation, and a rejected save, both return before any upload.
+  expect((await h.save(operationId)).status).toBe(200);
+  const rejected = new FormData();
+  rejected.set("document", new File([new Uint8Array([137, 80, 78, 71])], "invoice.png", { type: "image/png" }));
+  rejected.set("metadata", "not json");
+  expect((await h.call("", { method: "POST", body: rejected })).status).toBe(400);
+  expect(h.sourceObjects?.heldDestinations().size).toBe(0);
+});
 
 test("an S3 library save puts one object in the library namespace before commit and deletion hands it to background cleanup", async () => {
   const h = await harness();
