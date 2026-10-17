@@ -55,6 +55,10 @@ export type LocalSourceObjectManifest = {
   markJobDeleting(input: { workspaceId: string; jobId: string }): void;
   markOwnerDeleting(input: { workspaceId: string; ownerKind: SourceObjectOwnerKind; ownerId: string }): void;
   markWorkspaceDeleting(input: { workspaceId: string }): void;
+  /**
+   * Due deletions, up to `limit` from each destination, so a backlog in one unreachable bucket can never
+   * crowd other buckets out of a sweep.
+   */
   listDueDeletions(input: { now: string; limit: number }): SourceObjectManifestEntry[];
   listStalePreparing(input: { before: string; limit: number }): SourceObjectManifestEntry[];
   deferDeletion(input: { objectKey: string; nextAttemptAt: string; failed: boolean }): void;
@@ -247,8 +251,10 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
     listDueDeletions: ({ now, limit }) =>
       database
         .query<SourceObjectManifestEntry, SQLQueryBindings[]>(
-          `SELECT object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM source_object_manifest
-       WHERE phase = 'deleting' AND next_attempt_at <= ? ORDER BY next_attempt_at, object_key LIMIT ?`,
+          `SELECT object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM (
+             SELECT *, ROW_NUMBER() OVER (PARTITION BY destination_id ORDER BY next_attempt_at, object_key) AS position
+             FROM source_object_manifest WHERE phase = 'deleting' AND next_attempt_at <= ?
+           ) WHERE position <= ? ORDER BY next_attempt_at, object_key`,
         )
         .all(now, limit),
     listStalePreparing: ({ before, limit }) =>

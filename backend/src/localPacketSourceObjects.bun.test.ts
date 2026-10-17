@@ -162,3 +162,55 @@ test("packet originals get a distinct opaque storage path and each attempt remai
   expect(retainedObjectKey(input)).not.toBe(first);
   expect(retainedObjectKey({ ...input, ownerKind: "job" })).toContain("/jobs/pkt_one/");
 });
+
+test("a backlog in one unreachable bucket never crowds other buckets out of a cleanup sweep", async () => {
+  const db = database();
+  const manifest = createLocalSourceObjectManifest(db);
+
+  for (let index = 0; index < 150; index += 1) {
+    manifest.prepare({
+      objectKey: `stuck-${String(index).padStart(3, "0")}`,
+      destinationId: "dst_unreachable",
+      workspaceId: "w",
+      ownerKind: "job",
+      ownerId: `job_${index}`,
+    });
+  }
+
+  manifest.prepare({
+    objectKey: "healthy",
+    destinationId: INSTALLATION_DESTINATION_ID,
+    workspaceId: "w",
+    ownerKind: "job",
+    ownerId: "job_healthy",
+  });
+  manifest.markWorkspaceDeleting({ workspaceId: "w" });
+  // Every stuck entry falls due before the healthy one.
+  db.query("UPDATE source_object_manifest SET created_at = ?, next_attempt_at = ?").run(at, at);
+  db.query("UPDATE source_object_manifest SET next_attempt_at = ? WHERE object_key = 'healthy'").run(
+    "2026-01-02T00:00:00.000Z",
+  );
+  const deleted: string[] = [];
+  let unreachableAttempts = 0;
+
+  await createLocalSourceObjectCleanup({
+    manifest,
+    productStoreRegistry: { acquire: () => null },
+    workspaceControl: { workspaceExists: () => false },
+    storeFor: (destinationId) => ({
+      delete: async (key) => {
+        if (destinationId === "dst_unreachable") {
+          unreachableAttempts += 1;
+          throw new Error("unreachable");
+        }
+
+        deleted.push(key);
+      },
+    }),
+    now: () => Date.parse("2026-01-03T00:00:00.000Z"),
+  }).run();
+
+  expect(deleted).toEqual(["healthy"]);
+  // The unreachable bucket stops at its first failure in the sweep.
+  expect(unreachableAttempts).toBe(1);
+});

@@ -353,13 +353,29 @@ test("a failed bucket test saves nothing and names the stage that failed", async
 test("link-local and cloud metadata endpoints are refused before any request is signed", async () => {
   const h = await harness({ resolveAddresses: async () => ["169.254.169.254"] });
 
-  for (const endpoint of ["http://storage.example.test:9000", "http://169.254.169.254", "http://metadata.google.internal", "http://[fe80::1]:9000"]) {
+  for (const endpoint of [
+    "http://storage.example.test:9000",
+    "http://169.254.169.254",
+    "http://metadata.google.internal",
+    "http://[fe80::1]:9000",
+    "http://[::ffff:169.254.169.254]",
+  ]) {
     expect(await errorCode(await h.save(bucketSettings(endpoint), { "if-none-match": "*" }))).toBe(
       "source_storage_endpoint_blocked",
     );
   }
 
   expect(isBlockedAddress("::ffff:169.254.10.1")).toBe(true);
+  // URL rewrites embedded IPv4 as hex, so every IPv4-in-IPv6 spelling must be decoded.
+  expect(new URL("http://[::ffff:169.254.169.254]").hostname).toBe("[::ffff:a9fe:a9fe]");
+  expect(isBlockedAddress("::ffff:a9fe:a9fe")).toBe(true);
+  expect(isBlockedAddress("0:0:0:0:0:ffff:a9fe:a9fe")).toBe(true);
+  expect(isBlockedAddress("::ffff:0:a9fe:a9fe")).toBe(true);
+  expect(isBlockedAddress("::a9fe:a9fe")).toBe(true);
+  expect(isBlockedAddress("::ffff:6464:64c8")).toBe(true);
+  expect(isBlockedAddress("::ffff:a00:5")).toBe(false);
+  expect(isBlockedAddress("::1")).toBe(false);
+  expect(isBlockedAddress("2001:db8::a9fe:a9fe")).toBe(false);
   expect(isBlockedAddress("fd00:ec2::254")).toBe(true);
   expect(isBlockedAddress("100.100.100.200")).toBe(true);
   // Private networks stay allowed, as for the model gateway.

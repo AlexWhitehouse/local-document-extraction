@@ -417,9 +417,9 @@ function blockedEndpoint() {
 
 export function isBlockedAddress(address: string): boolean {
   const normalized = address.toLowerCase();
-  const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+  const embedded = isIP(normalized) === 6 ? embeddedIPv4(normalized) : null;
 
-  if (mapped) return isBlockedAddress(mapped);
+  if (embedded) return isBlockedAddress(embedded);
 
   if (isIP(normalized) === 4) {
     const [first, second] = normalized.split(".").map(Number);
@@ -432,4 +432,48 @@ export function isBlockedAddress(address: string): boolean {
     return normalized === "::" || /^fe[89ab][0-9a-f]:/.test(normalized) || normalized === "fd00:ec2::254";
 
   return false;
+}
+
+/**
+ * The IPv4 address inside an IPv4-mapped (`::ffff:a.b.c.d`), IPv4-translated (`::ffff:0:a.b.c.d`) or
+ * IPv4-compatible (`::a.b.c.d`) IPv6 address, in any spelling. `URL` rewrites dotted forms as hex
+ * (`::ffff:a9fe:a9fe`), so both must be decoded before the IPv4 rules apply.
+ */
+function embeddedIPv4(address: string): string | null {
+  const groups = ipv6Groups(address);
+
+  if (!groups || groups.slice(0, 4).some((group) => group !== 0)) return null;
+  const [marker = 0, translation = 0, high = 0, low = 0] = groups.slice(4);
+  const mapped = marker === 0 && translation === 0xffff;
+  const translated = marker === 0xffff && translation === 0;
+  // `::` and `::1` are IPv6's own unspecified and loopback addresses, not embedded IPv4.
+  const compatible = marker === 0 && translation === 0 && (high !== 0 || low > 1);
+
+  if (!mapped && !translated && !compatible) return null;
+
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
+}
+
+/** Eight 16-bit groups of a valid IPv6 address, expanding `::` and a trailing dotted IPv4 part. */
+function ipv6Groups(address: string): number[] | null {
+  let text = address;
+  const dotted = text.match(/(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+
+  if (dotted) {
+    const [a = 0, b = 0, c = 0, d = 0] = dotted.split(".").map(Number);
+    text = `${text.slice(0, -dotted.length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+
+  const [head = "", tail, extra] = text.split("::");
+
+  if (extra !== undefined) return null;
+  const parse = (part: string) => (part ? part.split(":").map((group) => Number.parseInt(group, 16)) : []);
+  const left = parse(head);
+  const right = tail === undefined ? [] : parse(tail);
+  const missing = 8 - left.length - right.length;
+
+  if (tail === undefined ? missing !== 0 : missing < 0) return null;
+  const groups = [...left, ...new Array<number>(missing).fill(0), ...right];
+
+  return groups.every((group) => Number.isInteger(group) && group >= 0 && group <= 0xffff) ? groups : null;
 }
