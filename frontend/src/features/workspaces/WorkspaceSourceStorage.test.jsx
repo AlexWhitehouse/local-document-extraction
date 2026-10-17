@@ -215,6 +215,13 @@ describe("Workspace original document storage", () => {
     type("Endpoint", "not a url");
     fireEvent.blur(screen.getByLabelText("Endpoint"));
     expect(screen.getByText("Enter an address like https://s3.example.com.")).toBeTruthy();
+    // The server accepts only an origin, so a path is caught on the field instead of after a save.
+    type("Endpoint", "https://s3.example.com/documents");
+    fireEvent.blur(screen.getByLabelText("Endpoint"));
+    expect(screen.getByText("Enter an address like https://s3.example.com.")).toBeTruthy();
+    type("Endpoint", "https://s3.example.com/");
+    fireEvent.blur(screen.getByLabelText("Endpoint"));
+    expect(screen.queryByText("Enter an address like https://s3.example.com.")).toBeNull();
     type("Endpoint", "");
     type("Region", "eu-west-2");
     type("Bucket", "customer-documents");

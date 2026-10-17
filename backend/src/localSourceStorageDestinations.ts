@@ -122,6 +122,11 @@ const SCHEMA = `
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_source_storage_destinations_current
     ON source_storage_destinations(workspace_id) WHERE retired_at IS NULL;
+  -- Destinations are pruned, so revisions live apart from them: a stale ETag must never match a later bucket.
+  CREATE TABLE IF NOT EXISTS source_storage_revisions (
+    workspace_id TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL
+  );
 `;
 
 /**
@@ -214,7 +219,7 @@ export function createLocalSourceStorageDestinations({
                 location.region,
                 vault.encrypt(current.id, JSON.stringify(replacement)),
                 accessKeyIdHint(replacement.accessKeyId),
-                current.revision + 1,
+                nextRevision(database, workspaceId),
                 at,
                 current.id,
               );
@@ -227,7 +232,7 @@ export function createLocalSourceStorageDestinations({
           if (!carried) throw new Error("Credentials are required for a new storage location");
 
           if (current) retire("id = ?", current.id);
-          const revision = latestRevision(database, workspaceId) + 1;
+          const revision = nextRevision(database, workspaceId);
 
           return publicDestination(
             select("id = ?", insert({ workspaceId, location, credentials: carried, revision, at })),
@@ -271,14 +276,25 @@ export function createLocalSourceStorageDestinations({
   };
 }
 
-function latestRevision(database: Database, workspaceId: string): number {
-  return (
+/** The Workspace's next settings revision; it never repeats, even after its destinations are pruned. */
+function nextRevision(database: Database, workspaceId: string): number {
+  const recorded =
     database
       .query<{ revision: number | null }, SQLQueryBindings[]>(
         "SELECT MAX(revision) AS revision FROM source_storage_destinations WHERE workspace_id = ?",
       )
-      .get(workspaceId)?.revision ?? 0
-  );
+      .get(workspaceId)?.revision ?? 0;
+
+  const next = database
+    .query<{ revision: number }, SQLQueryBindings[]>(
+      `INSERT INTO source_storage_revisions (workspace_id, revision) VALUES (?, ? + 1)
+       ON CONFLICT(workspace_id) DO UPDATE SET revision = MAX(source_storage_revisions.revision, ?) + 1
+       RETURNING revision`,
+    )
+    .get(workspaceId, recorded, recorded);
+
+  // SAFETY: an upsert with RETURNING always yields the written row.
+  return next!.revision;
 }
 
 function rowLocation(row: DestinationRow): S3SourceStorageLocation {

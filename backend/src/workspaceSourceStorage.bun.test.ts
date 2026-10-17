@@ -350,6 +350,23 @@ test("owners save a tested Workspace bucket; secrets never come back and precond
   expect((await body(await h.settings())).override).toBeNull();
 });
 
+test("revisions never repeat, so a stale ETag cannot change a bucket saved after its history was pruned", async () => {
+  const h = await harness();
+  const first = fakeBucket();
+  const second = fakeBucket();
+  expect((await h.save(bucketSettings(first.endpoint), { "if-none-match": "*" })).status).toBe(200);
+  expect((await h.settings("", { method: "DELETE", headers: { "if-match": '"source-storage-1"' } })).status).toBe(204);
+  // Nothing was stored there, so the next cleanup forgets the retired bucket entirely.
+  await h.cleanupAt(Date.now() + LATER).run();
+  expect(await body(await h.settings())).toMatchObject({ override: null, previous_locations_pending: 0 });
+
+  const replacement = await h.save(bucketSettings(second.endpoint), { "if-none-match": "*" });
+  expect(replacement.headers.get("etag")).toBe('"source-storage-2"');
+  expect((await h.settings("", { method: "DELETE", headers: { "if-match": '"source-storage-1"' } })).status).toBe(412);
+  expect((await h.save(bucketSettings(second.endpoint), { "if-match": '"source-storage-1"' })).status).toBe(412);
+  expect(h.destinations.current(WORKSPACE_ID)).toMatchObject({ revision: 2 });
+});
+
 test("members cannot read or change storage settings, and the retention summary reports where originals go", async () => {
   const member = await harness({ role: "member" });
   expect(await errorCode(await member.settings())).toBe("insufficient_workspace_role");

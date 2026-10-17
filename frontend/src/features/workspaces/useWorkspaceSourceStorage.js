@@ -69,7 +69,15 @@ export function validateStorageDraft(draft, override, { forSave = true } = {}) {
     try {
       const url = new URL(endpoint);
 
-      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash)
+      // The server accepts only an origin: no credentials, path, query or fragment.
+      if (
+        !["http:", "https:"].includes(url.protocol) ||
+        url.username ||
+        url.password ||
+        url.pathname !== "/" ||
+        url.search ||
+        url.hash
+      )
         errors.endpoint = "Enter an address like https://s3.example.com.";
     } catch {
       errors.endpoint = "Enter an address like https://s3.example.com.";
