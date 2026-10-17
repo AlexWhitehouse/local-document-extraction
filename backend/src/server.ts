@@ -5,8 +5,10 @@ import { getModelPreparationSnapshot } from "./consumer/modelGateway";
 import { getPdfPageOperationsSnapshot } from "./lib/pdfPageOperations";
 import { closePdfInspection, getPdfInspectionSnapshot } from "./lib/sourceFilePageCount";
 import { createLocalSourceObjectCleanup } from "./localSourceObjectCleanup";
+import { createLocalSourceObjectMover } from "./localSourceObjectMover";
 import { createLocalRetainedSourceObjects } from "./localRetainedSourceObjectRouting";
 import { sourceObjectDestination } from "./s3SourceObjectStore";
+import { createWorkspaceSourceObjectMoveHttp } from "./workspaceSourceObjectMoveHttp";
 import { createWorkspaceSourceStorageHttp } from "./workspaceSourceStorageHttp";
 import { createLocalApplication } from "./localApplication";
 import { localBrowserOrigin, readLocalConfiguration, publicLocalConfiguration } from "./localConfiguration";
@@ -257,12 +259,30 @@ const sourceObjectCleanup = createLocalSourceObjectCleanup({
   workspaceControl: localAuth.workspaceControl,
 });
 
+const sourceObjectMover = createLocalSourceObjectMover({
+  manifest: sourceObjectManifest,
+  moves: localAuth.sourceObjectMoves,
+  sourceObjects: retainedSourceObjects,
+  sourceFileStore: localSourceFiles,
+  productStoreRegistry: localProductStoreRegistry,
+  workspaceControl: localAuth.workspaceControl,
+});
+
 const workspaceSourceStorageHttp = createWorkspaceSourceStorageHttp({
   workspaceControl: localAuth.workspaceControl,
   destinations: sourceStorageDestinations,
   manifest: sourceObjectManifest,
   installationProvider: configuration.sourceStorage.provider,
   overridesEnabled: configuration.sourceStorage.workspaceOverridesEnabled,
+  moves: createWorkspaceSourceObjectMoveHttp({
+    moves: localAuth.sourceObjectMoves,
+    manifest: sourceObjectManifest,
+    destinations: sourceStorageDestinations,
+    sourceObjects: retainedSourceObjects,
+    installation: s3SourceStorage,
+    productStoreRegistry: localProductStoreRegistry,
+    onStarted: () => runRecurringWork("Original move", sourceObjectMover.run),
+  }),
 });
 
 const localSourceFileRetention = createLocalSourceFileRetention({
@@ -384,6 +404,13 @@ const sourceObjectCleanupTimer = setInterval(() => {
   runRecurringWork("Retained object cleanup", sourceObjectCleanup.run);
 }, 60_000);
 
+// Moves resume after a restart; the first sweep also settles originals a crash left half-moved.
+runRecurringWork("Original move", sourceObjectMover.run);
+
+const sourceObjectMoveTimer = setInterval(() => {
+  runRecurringWork("Original move", sourceObjectMover.run);
+}, 5_000);
+
 const localEvaluations = createLocalEvaluations({
   auth: localAuth.auth,
   workspaceControl: localAuth.workspaceControl,
@@ -477,6 +504,7 @@ const runtimeShutdown = createLocalRuntimeShutdown({
     clearInterval(sourceRetentionTimer);
 
     clearInterval(sourceObjectCleanupTimer);
+    clearInterval(sourceObjectMoveTimer);
     removeMemoryPressureListener();
     localResourceController.stop();
     await Promise.all([...recurringWork, ...extractionRefills]);

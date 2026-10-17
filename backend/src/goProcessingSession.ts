@@ -453,10 +453,11 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
 
               if (!objects || !destination) throw new Error("Retained document storage unavailable");
               retainedObjectKey = destination.keyFor({ workspaceId, jobId: slot.job_id, mimeType: "application/pdf" });
-              objects.manifest.prepare({ objectKey: retainedObjectKey, destinationId: destination.id, workspaceId, ownerKind: "job", ownerId: slot.job_id });
+              const file = Bun.file(join(options.stateDirectory, "source-files", sourceFileKey));
+              objects.manifest.prepare({ objectKey: retainedObjectKey, destinationId: destination.id, workspaceId, ownerKind: "job", ownerId: slot.job_id, byteSize: file.size });
 
               if (!await write(() => store.reservePacketChildSource({ packetId: ownerId, jobId: slot.job_id, sourceFileKey, retainedObjectKey }))) continue;
-              await destination.store.put({ key: retainedObjectKey, file: Bun.file(join(options.stateDirectory, "source-files", sourceFileKey)), mimeType: "application/pdf" });
+              await destination.store.put({ key: retainedObjectKey, file, mimeType: "application/pdf" });
             }
 
             signal.throwIfAborted();

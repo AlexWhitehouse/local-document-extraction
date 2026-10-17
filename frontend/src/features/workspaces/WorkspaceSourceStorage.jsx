@@ -8,6 +8,7 @@ import { CheckboxField, Field, TextInput } from "../ui/Field.jsx";
 import { ErrorState, Skeleton } from "../ui/States.jsx";
 import { Badge, StatusDot } from "../ui/Status.jsx";
 import { TestConnectionButton } from "./WorkspaceModelConfiguration.jsx";
+import { WorkspaceSourceStorageMove } from "./WorkspaceSourceStorageMove.jsx";
 import { DEFAULT_PREFIX, locationChanged, validateStorageDraft } from "./useWorkspaceSourceStorage.js";
 
 const FORM_ID = "workspace-storage-form";
@@ -199,6 +200,7 @@ export function WorkspaceSourceStorage({ controller }) {
           removeLabel={noDefault ? "Remove bucket" : "Use default storage"}
         />
       ) : null}
+      {record && !showForm && controller.move ? <WorkspaceSourceStorageMove controller={controller.move} /> : null}
       {showForm ? (
         <form ref={formRef} id={FORM_ID} className="workspace-storage-form" noValidate onSubmit={submit}>
           {unavailable ? (
@@ -351,7 +353,7 @@ function StorageSummary({ record, saving, onRemove, removeLabel }) {
         </dl>
       ) : null}
       {record.previous_locations_pending > 0 ? (
-        <p className="workspace-storage-note">Originals saved in earlier locations stay there until they're deleted.</p>
+        <p className="workspace-storage-note">Originals saved in earlier locations stay there until they're moved or deleted.</p>
       ) : null}
       {override ? (
         <div>

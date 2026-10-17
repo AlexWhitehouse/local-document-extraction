@@ -8,6 +8,7 @@ import { Database, constants as sqliteConstants } from "bun:sqlite";
 import { createLocalAuth, type LocalAuth, type LocalAuthSettings } from "./localAuth";
 import { createLocalMailSink, type LocalMailLogger } from "./localMailSink";
 import { createLocalSourceObjectManifest, type LocalSourceObjectManifest } from "./localSourceObjectManifest";
+import { createLocalSourceObjectMoves, type LocalSourceObjectMoves } from "./localSourceObjectMoves";
 import {
   createLocalSourceStorageDestinations,
   type LocalSourceStorageDestinations,
@@ -24,6 +25,7 @@ export type LocalAuthRuntime = {
   close(): void;
   workspaceControl: LocalWorkspaceControl;
   sourceObjectManifest: LocalSourceObjectManifest;
+  sourceObjectMoves: LocalSourceObjectMoves;
   sourceStorageDestinations: LocalSourceStorageDestinations;
 };
 
@@ -101,11 +103,14 @@ export async function createLocalAuthRuntime({
       secret: await readOrCreateSecret(secretPath),
     });
 
+    const sourceObjectManifest = createLocalSourceObjectManifest(database);
+
     return {
       auth,
       close: () => database.close(),
       workspaceControl: createLocalWorkspaceControl(database),
-      sourceObjectManifest: createLocalSourceObjectManifest(database),
+      sourceObjectManifest,
+      sourceObjectMoves: createLocalSourceObjectMoves({ database, manifest: sourceObjectManifest }),
       sourceStorageDestinations: createLocalSourceStorageDestinations({
         database,
         // Shares the model credential key file; the purpose keeps the two kinds of ciphertext apart.

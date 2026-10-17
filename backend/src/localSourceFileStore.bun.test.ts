@@ -118,5 +118,9 @@ test("PDF Source views survive parent deletion and reopening, and isolate pages 
     await files.delete(nested);
     await files.delete(nested);
     expect(await files.open!(nested)).toBeNull();
+    // A deleted view, such as a moved child's working copy, resolves to a missing path so processing can restore it remotely.
+    const removed = await files.resolveProcessingSource!(nested);
+    expect(await Bun.file(removed.path).exists()).toBe(false);
+    expect(removed.pages).toBeUndefined();
   } finally { await rm(stateDirectory, { recursive: true, force: true }); }
 });

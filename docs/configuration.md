@@ -163,14 +163,14 @@ Apply these storage requirements:
 - Workspace owners and admins can disable **Retain original documents** on the Workspace page. This setting and the installation setting `SOURCE_ORIGINAL_RETENTION_ENABLED=false` affect new uploads only. Existing originals remain available until you delete their Document or Workspace.
 - If the bucket is unavailable, the app starts and existing results remain available. Uploads that require original retention fail with a message to try again.
 - Document or Workspace deletion removes access immediately. The app then deletes the original in the background. It retries until storage confirms deletion.
-- You can rotate S3 credentials at any time. Keep the endpoint, bucket, prefix, and addressing style unchanged while originals or pending deletions depend on them. The app refuses startup if these values change. It cannot move originals to another location.
+- You can rotate S3 credentials at any time. Keep the endpoint, bucket, prefix, and addressing style unchanged while originals or pending deletions depend on them. The app refuses startup if these values change. To leave an installation bucket, give each Workspace stored there its own bucket and move its originals (see [Moving originals](#moving-originals)), then let background cleanup finish.
 
 ### Workspace buckets
 
 Workspace owners and admins can store their Workspace's originals in its own S3-compatible bucket, under **Workspaces → Original document storage**. A Workspace bucket replaces installation storage for that Workspace's new uploads, document packets and Evaluation library saves. It works even when `SOURCE_STORAGE_PROVIDER` is `none`.
 
 - Before saving, the app writes, reads, and deletes a small test file in the bucket. If a step fails, it saves nothing. The admin must confirm that the bucket uses neither object versioning nor Object Lock.
-- A changed endpoint, bucket, prefix, or addressing style affects new uploads only. Originals already saved stay in their earlier location and remain available until they are deleted. Changing only the access keys keeps the location.
+- A changed endpoint, bucket, prefix, or addressing style affects new uploads only. Originals already saved stay in their earlier location and remain available until they are moved or deleted. Changing only the access keys keeps the location.
 - **Use default storage** sends new uploads back to installation storage. Originals in the Workspace bucket stay there and remain available.
 - Deleting a Document or Workspace deletes its originals from whichever bucket holds them. The app keeps each bucket's settings until it has deleted everything it stored there, even after the Workspace is gone.
 - Access keys are encrypted with `secrets/model-gateway.key` and never shown again. Include this file in backups. Workspace buckets themselves are not part of application backups.
@@ -182,6 +182,18 @@ A Workspace bucket keeps new originals unless the Workspace turns off **Retain o
 To turn Workspace buckets off, set `SOURCE_STORAGE_WORKSPACE_OVERRIDES_ENABLED=false`. Saved Workspace buckets then take no new originals. New uploads use installation storage instead, and existing originals stay readable.
 
 To require Workspaces to bring their own bucket before they can keep originals, set `SOURCE_STORAGE_PROVIDER=none` and leave Workspace buckets enabled. These are the defaults.
+
+### Moving originals
+
+The same page shows how many originals each location holds: the local data folder, the installation bucket, earlier Workspace buckets and the current one. Owners and admins can move them all into the current location, which is the Workspace bucket or, without one, the installation bucket. Moving into the local data folder isn't supported.
+
+- The move runs in the background, survives restarts and can be cancelled. Uploads, downloads and deletion keep working.
+- It covers Document, packet, packet child and Evaluation library originals. Documents still processing wait and are retried, up to six passes.
+- Each original is copied through the server, read back and compared by size and SHA-256. The Document is then pointed at the new copy, and the old copy is deleted by background cleanup about 10 minutes later. Providers may charge egress for data leaving the old bucket.
+- An unreachable bucket only holds back the originals in it. If the new location is unreachable, the move pauses and retries.
+- Emptied earlier Workspace buckets are forgotten automatically, along with their keys. Once no original depends on the installation bucket, you can change or remove `SOURCE_STORAGE_S3_*`.
+- Moves share each bucket with uploads and downloads, so each takes at most two requests per bucket at once and four overall. They don't count against `SUBMISSION_MAX_CONCURRENCY`.
+- MCP clients can't start moves.
 
 ## Reference
 

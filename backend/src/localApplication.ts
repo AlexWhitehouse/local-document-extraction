@@ -1494,10 +1494,19 @@ async function handleControlRequest(
     case "GET source-storage":
     case "PUT source-storage":
     case "DELETE source-storage":
+    case "GET source-storage :id":
     case "POST source-storage :id":
-      if (!sourceStorageControl || (resourceId !== undefined && resourceId !== "test")) return routeNotFound();
+    case "DELETE source-storage :id":
+      if (!sourceStorageControl) return routeNotFound();
 
-      return sourceStorageControl.handle({ request, workspaceId, userId, test: resourceId === "test" });
+      if (resourceId === undefined)
+        return sourceStorageControl.handle({ request, workspaceId, userId, resource: "settings" });
+
+      if (resourceId === "move") return sourceStorageControl.handle({ request, workspaceId, userId, resource: "move" });
+
+      if (resourceId !== "test" || method !== "POST") return routeNotFound();
+
+      return sourceStorageControl.handle({ request, workspaceId, userId, resource: "test" });
     case "GET source-retention": {
       const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId });
 
@@ -1711,7 +1720,14 @@ async function publishRetainedOriginal({
   }
 
   const objectKey = destination.keyFor({ workspaceId, jobId, mimeType: sourceMimeType, ownerKind });
-  objects.manifest.prepare({ objectKey, destinationId: destination.id, workspaceId, ownerKind, ownerId: jobId });
+  objects.manifest.prepare({
+    objectKey,
+    destinationId: destination.id,
+    workspaceId,
+    ownerKind,
+    ownerId: jobId,
+    byteSize: file.size,
+  });
 
   try {
     await destination.store.put({ key: objectKey, file, mimeType: sourceMimeType });
