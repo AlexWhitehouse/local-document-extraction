@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { describeError } from "../../lib/describeError";
+import { useWorkspaceSourceStorageMove } from "./useWorkspaceSourceStorageMove.js";
 
 export const DEFAULT_PREFIX = "document-extraction/";
 
@@ -219,6 +220,10 @@ export function useWorkspaceSourceStorage({
   const changed = useRef(onChanged);
   changed.current = onChanged;
   const path = `/workspaces/${encodeURIComponent(workspaceId)}/source-storage`;
+  // Saving or removing a bucket changes where a move would put originals.
+  const move = useWorkspaceSourceStorageMove({ coreRequest, path, scope, showActionToast });
+  const reloadMove = useRef(move.reload);
+  reloadMove.current = move.reload;
 
   const load = useCallback(async () => {
     if (!scope) return;
@@ -335,6 +340,7 @@ export function useWorkspaceSourceStorage({
       apply(response);
       notify.current?.("workspace.sourceStorage.save", "success");
       changed.current?.();
+      void reloadMove.current();
 
       return "saved";
     } catch (error) {
@@ -374,6 +380,7 @@ export function useWorkspaceSourceStorage({
         notify.current?.("workspace.sourceStorage.remove", "success");
         changed.current?.();
         void load();
+        void reloadMove.current();
       }
     } catch (error) {
       if (activeScope.current === scope && token === operation.current) {
@@ -430,5 +437,6 @@ export function useWorkspaceSourceStorage({
     remove,
     testConnection,
     reload: load,
+    move,
   };
 }

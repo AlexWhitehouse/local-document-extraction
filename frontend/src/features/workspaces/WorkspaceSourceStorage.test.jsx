@@ -1,6 +1,6 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceSourceStorage } from "./WorkspaceSourceStorage.jsx";
 import {
   sourceStorageSaveFailure,
@@ -8,6 +8,8 @@ import {
   useWorkspaceSourceStorage,
 } from "./useWorkspaceSourceStorage.js";
 import { getActionToast } from "../../lib/toastNotifications.js";
+import { describeError } from "../../lib/describeError.js";
+import { formatSize, MOVE_POLL_MS } from "./useWorkspaceSourceStorageMove.js";
 
 const savedOverride = {
   endpoint: "https://s3.example.com",
@@ -40,16 +42,47 @@ const props = { workspaceId: "workspace_a", sessionUserId: "user_a", role: "owne
 const apiError = (status, code, details = {}) =>
   Object.assign(new Error(code), { status, code, details: { code, ...details } });
 
-// A server double for the source-storage routes. `fail(method, error)` makes the next matching request throw.
-function storageApi(initial) {
+const installationLocation = {
+  id: "installation",
+  kind: "installation_bucket",
+  is_target: true,
+  retired: false,
+  bucket: "installation-documents",
+  prefix: "document-extraction/",
+  endpoint: null,
+  originals: 0,
+  bytes: 0,
+  unknown_size: 0,
+};
+
+// Every original is already in the current location, so there is nothing to report.
+const moveSummary = (extra = {}) => ({
+  workspace_id: "workspace_a",
+  target: { id: "installation", kind: "installation_bucket", bucket: "installation-documents", prefix: "document-extraction/", endpoint: null },
+  unavailable_reason: null,
+  locations: [installationLocation],
+  movable: 0,
+  move: null,
+  ...extra,
+});
+
+const kindOf = (path, options) =>
+  path.endsWith("/test") ? "TEST" : path.endsWith("/move") ? `MOVE_${options.method}` : options.method;
+
+// A server double for the source-storage routes. `fail(kind, error)` makes the next matching request throw.
+// `moves` answers the move routes in turn; the last answer repeats.
+function storageApi(initial, ...moves) {
   let saved = initial;
   const failures = [];
+  const moveAnswers = moves.length ? moves : [moveSummary()];
 
   const request = vi.fn(async (path, options) => {
-    const kind = path.endsWith("/test") ? "TEST" : options.method;
+    const kind = kindOf(path, options);
     const failure = failures.findIndex((entry) => entry.kind === kind);
 
     if (failure >= 0) throw failures.splice(failure, 1)[0].error;
+
+    if (kind.startsWith("MOVE_")) return { data: moveAnswers.length > 1 ? moveAnswers.shift() : moveAnswers[0] };
 
     if (kind === "GET") return response(saved);
 
@@ -85,8 +118,7 @@ function storageApi(initial) {
     replace: (next) => {
       saved = next;
     },
-    calls: (kind) =>
-      request.mock.calls.filter(([path, options]) => (path.endsWith("/test") ? "TEST" : options.method) === kind),
+    calls: (kind) => request.mock.calls.filter(([path, options]) => kindOf(path, options) === kind),
   };
 }
 
@@ -128,7 +160,7 @@ describe("Workspace original document storage", () => {
     expect(screen.getByText("document-extraction/")).toBeTruthy();
     expect(screen.getByText("Path style")).toBeTruthy();
     expect(screen.getByText("…WXYZ")).toBeTruthy();
-    expect(screen.getByText("Originals saved in earlier locations stay there until they're deleted.")).toBeTruthy();
+    expect(screen.getByText("Originals saved in earlier locations stay there until they're moved or deleted.")).toBeTruthy();
     expect(screen.queryByLabelText("Bucket")).toBeNull();
     expect(screen.getByRole("button", { name: "Use default storage" })).toBeTruthy();
     expect(api.request).toHaveBeenCalledWith(
@@ -521,5 +553,299 @@ describe("Workspace original document storage", () => {
       "Test failed. Your administrator has turned off workspace buckets.",
     );
     expect(getActionToast("workspace.sourceStorage.remove", "success").message).toBe("Workspace bucket removed");
+  });
+});
+
+const workspaceTarget = {
+  id: "dst_new",
+  kind: "workspace_bucket",
+  bucket: "customer-documents",
+  prefix: "document-extraction/",
+  endpoint: "https://s3.example.com",
+};
+
+const spreadLocations = [
+  { ...installationLocation, id: "dst_new", kind: "workspace_bucket", bucket: "customer-documents", is_target: true, originals: 4, bytes: 2048 },
+  {
+    ...installationLocation,
+    id: "dst_old",
+    kind: "workspace_bucket",
+    bucket: "old-documents",
+    is_target: false,
+    retired: true,
+    originals: 10,
+    bytes: 4.5 * 1024 * 1024,
+  },
+  { ...installationLocation, id: "local", kind: "local", bucket: null, prefix: null, is_target: false, originals: 5, bytes: 1024 * 1024, unknown_size: 2 },
+];
+
+const spreadSummary = (extra = {}) =>
+  moveSummary({ target: workspaceTarget, locations: spreadLocations, movable: 15, ...extra });
+
+const runningMove = (extra = {}) => ({
+  id: "mov_1",
+  status: "running",
+  target_id: "dst_new",
+  started_at: "2026-10-17T10:00:00.000Z",
+  finished_at: null,
+  total: 15,
+  moved: 0,
+  bytes_moved: 0,
+  failed: 0,
+  waiting: 0,
+  next_attempt_at: null,
+  message: null,
+  failures: [],
+  ...extra,
+});
+
+const movingSection = () => screen.findByRole("heading", { name: "Where originals are stored" });
+
+describe("Moving originals to the current location", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("stays hidden when every original is already in the current location", async () => {
+    const api = storageApi(storageRecord());
+    renderPanel(api);
+
+    expect(await screen.findByText("Default storage")).toBeTruthy();
+    await waitFor(() => expect(api.calls("MOVE_GET")).toHaveLength(1));
+    expect(api.calls("MOVE_GET")[0][0]).toBe("/workspaces/workspace_a/source-storage/move");
+    expect(screen.queryByRole("heading", { name: "Where originals are stored" })).toBeNull();
+  });
+
+  it("lists each location with its originals and size and marks the current one", async () => {
+    renderPanel(storageApi(storageRecord(savedOverride), spreadSummary()));
+
+    await movingSection();
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    expect(items[0].textContent).toContain("This workspace's bucket");
+    expect(within(items[0]).getByText("Current location")).toBeTruthy();
+    expect(items[0].textContent).toContain("4 originals · 2 KB");
+    expect(items[1].textContent).toContain("Earlier workspace bucket");
+    expect(items[1].textContent).toContain("old-documents");
+    expect(items[1].textContent).toContain("10 originals · 4.5 MB");
+    expect(items[2].textContent).toContain("Local data folder");
+    expect(items[2].textContent).toContain("5 originals · 1 MB (2 of unknown size)");
+    expect(screen.getByRole("button", { name: "Move to current location…" })).toBeTruthy();
+  });
+
+  it("explains the move, starts it after confirmation and shows its progress", async () => {
+    const api = storageApi(storageRecord(savedOverride), spreadSummary(), spreadSummary({ move: runningMove() }));
+    const { showActionToast } = renderPanel(api);
+
+    await movingSection();
+    fireEvent.click(screen.getByRole("button", { name: "Move to current location…" }));
+    let dialog = await screen.findByRole("alertdialog", { name: 'Move 15 originals to "customer-documents"?' });
+    expect(within(dialog).getByText(/About 5.5 MB plus 2 of unknown size is copied through Studio/).textContent).toContain(
+      "may charge for data leaving it",
+    );
+    expect(within(dialog).getByText(/Uploads and downloads keep working/)).toBeTruthy();
+    expect(within(dialog).getByText(/deleted only after its new copy is checked/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(api.calls("MOVE_POST")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Move to current location…" }));
+    dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move originals" }));
+
+    await waitFor(() => expect(showActionToast).toHaveBeenCalledWith("workspace.sourceStorage.moveStart", "success"));
+    const [path, options] = api.calls("MOVE_POST")[0];
+    expect(path).toBe("/workspaces/workspace_a/source-storage/move");
+    expect(options.body).toBe("{}");
+    expect(await screen.findByText("Moving originals…")).toBeTruthy();
+    expect(screen.getByText("0 of 15 originals moved")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Move to current location…" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel move…" })).toBeTruthy();
+  });
+
+  it("checks a running move every few seconds and stops once it finishes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const api = storageApi(
+      storageRecord(savedOverride),
+      spreadSummary({ move: runningMove({ moved: 3 }) }),
+      spreadSummary({
+        move: runningMove({
+          moved: 9,
+          bytes_moved: 3 * 1024 * 1024,
+          failed: 1,
+          waiting: 2,
+          next_attempt_at: "2026-10-17T10:05:00.000Z",
+          message: "The Workspace bucket couldn't be reached. Retrying at 10:05.",
+        }),
+      }),
+      spreadSummary({
+        movable: 0,
+        locations: [spreadLocations[0]],
+        move: runningMove({ status: "completed", moved: 15, finished_at: "2026-10-17T10:06:00.000Z" }),
+      }),
+    );
+
+    renderPanel(api);
+
+    expect(await screen.findByText("3 of 15 originals moved")).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(MOVE_POLL_MS);
+    expect(await screen.findByText("9 of 15 originals moved (3 MB)")).toBeTruthy();
+    expect(screen.getByText("Move paused")).toBeTruthy();
+    expect(screen.getByText("The Workspace bucket couldn't be reached. Retrying at 10:05.")).toBeTruthy();
+    expect(screen.getByText(/^Resumes at/)).toBeTruthy();
+    expect(screen.getByText(/Couldn't move 1 original\. It stays where it was/)).toBeTruthy();
+    expect(screen.getByText(/2 originals still processing or out of reach/)).toBeTruthy();
+
+    await vi.advanceTimersByTimeAsync(MOVE_POLL_MS);
+    expect(await screen.findByText("Move finished")).toBeTruthy();
+    expect(screen.getByText("15 of 15 originals moved")).toBeTruthy();
+    const checks = api.calls("MOVE_GET").length;
+    await vi.advanceTimersByTimeAsync(MOVE_POLL_MS * 3);
+    expect(api.calls("MOVE_GET")).toHaveLength(checks);
+  });
+
+  it("stops checking when the panel closes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const api = storageApi(storageRecord(savedOverride), spreadSummary({ move: runningMove() }));
+    const { unmount } = renderPanel(api);
+
+    expect(await screen.findByText("Moving originals…")).toBeTruthy();
+    unmount();
+    const checks = api.calls("MOVE_GET").length;
+    await vi.advanceTimersByTimeAsync(MOVE_POLL_MS * 3);
+    expect(api.calls("MOVE_GET")).toHaveLength(checks);
+  });
+
+  it("cancels a running move after confirmation", async () => {
+    const api = storageApi(
+      storageRecord(savedOverride),
+      spreadSummary({ move: runningMove({ moved: 4 }) }),
+      spreadSummary({ move: runningMove({ status: "cancelled", moved: 4, finished_at: "2026-10-17T10:02:00.000Z" }) }),
+    );
+
+    const { showActionToast } = renderPanel(api);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel move…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Cancel the move?" });
+    expect(within(dialog).getByText(/Originals already moved stay in the new location/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel move" }));
+
+    await waitFor(() => expect(showActionToast).toHaveBeenCalledWith("workspace.sourceStorage.moveCancel", "success"));
+    expect(api.calls("MOVE_DELETE")).toHaveLength(1);
+    expect(await screen.findByText("Move cancelled")).toBeTruthy();
+    expect(screen.getByText("4 of 15 originals moved")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Move to current location…" })).toBeTruthy();
+  });
+
+  it("reports what couldn't be moved after a move ends", async () => {
+    renderPanel(
+      storageApi(
+        storageRecord(savedOverride),
+        spreadSummary({
+          movable: 3,
+          move: runningMove({
+            status: "stopped",
+            moved: 12,
+            failed: 1,
+            finished_at: "2026-10-17T10:06:00.000Z",
+            message: "This workspace's storage location changed, so the move stopped.",
+            failures: [
+              { kind: "document", id: "job_1", name: "invoice.pdf", message: "The original is missing from its bucket." },
+              { kind: "library_document", id: "lib_2", name: null, message: "The original couldn't be read." },
+            ],
+          }),
+        }),
+      ),
+    );
+
+    expect(await screen.findByText("Move stopped")).toBeTruthy();
+    expect(screen.getByText("This workspace's storage location changed, so the move stopped.")).toBeTruthy();
+    const failures = within(screen.getByRole("list", { name: "Originals that couldn't be moved" })).getAllByRole("listitem");
+    expect(failures[0].textContent).toBe("Document: invoice.pdfThe original is missing from its bucket.");
+    expect(failures[1].textContent).toBe("Library document: lib_2The original couldn't be read.");
+    expect(screen.getByRole("button", { name: "Move to current location…" })).toBeTruthy();
+  });
+
+  it("explains why a move can't start", async () => {
+    renderPanel(
+      storageApi(
+        storageRecord(null, { installation_provider: "local" }),
+        moveSummary({
+          target: null,
+          unavailable_reason: "no_remote_storage",
+          locations: [{ ...spreadLocations[2] }],
+          movable: 0,
+        }),
+      ),
+    );
+
+    await movingSection();
+    expect(screen.getByText(/Originals can only be moved into a bucket, not into the local data folder/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Move to current location…" })).toBeNull();
+  });
+
+  it("asks for the bucket's keys when they can't be read", async () => {
+    renderPanel(
+      storageApi(
+        storageRecord({ ...savedOverride, credential_status: "unavailable" }),
+        spreadSummary({ unavailable_reason: "credentials_unavailable" }),
+      ),
+    );
+
+    await movingSection();
+    expect(screen.getByText(/bucket keys can't be read\. Edit the settings and enter the access keys again/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Move to current location…" })).toBeNull();
+  });
+
+  it("keeps a refused start inside the confirmation and refreshes the summary", async () => {
+    const api = storageApi(storageRecord(savedOverride), spreadSummary(), moveSummary({ target: workspaceTarget }));
+    const { showActionToast } = renderPanel(api);
+
+    await movingSection();
+    api.fail("MOVE_POST", apiError(409, "source_storage_move_nothing_to_move"));
+    fireEvent.click(screen.getByRole("button", { name: "Move to current location…" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move originals" }));
+
+    expect(await within(dialog).findByText("Every original is already in the current location.")).toBeTruthy();
+    expect(showActionToast).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.calls("MOVE_GET")).toHaveLength(2));
+  });
+
+  it("shows a load failure with Try again", async () => {
+    const api = storageApi(storageRecord(savedOverride), spreadSummary());
+    api.fail("MOVE_GET", apiError(500, "internal_error"));
+    renderPanel(api);
+
+    expect(await screen.findByText("Couldn't load where originals are stored.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await movingSection()).toBeTruthy();
+  });
+
+  it("refreshes the summary after the storage settings change", async () => {
+    const api = storageApi(storageRecord(savedOverride), spreadSummary());
+    const { showActionToast } = renderPanel(api);
+
+    await movingSection();
+    fireEvent.click(screen.getByRole("button", { name: "Use default storage" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Use default storage" }));
+    await waitFor(() => expect(showActionToast).toHaveBeenCalledWith("workspace.sourceStorage.remove", "success"));
+    await waitFor(() => expect(api.calls("MOVE_GET")).toHaveLength(2));
+  });
+
+  it("maps move errors to plain language", () => {
+    expect(describeError(apiError(409, "source_storage_move_unavailable"))).toBe(
+      "Originals can't be moved to the current location right now.",
+    );
+    expect(describeError(apiError(409, "source_storage_move_running"))).toBe("A move is already running.");
+    expect(describeError(apiError(409, "source_storage_move_not_running"))).toBe("The move has already finished.");
+    expect(describeError(apiError(403, "insufficient_workspace_role"))).toBe("Only workspace owners and admins can do that.");
+    expect(getActionToast("workspace.sourceStorage.moveStart", "success").message).toBe("Move started");
+    expect(getActionToast("workspace.sourceStorage.moveCancel", "success").message).toBe("Move cancelled");
+    expect(formatSize(0)).toBe("0 KB");
+    expect(formatSize(200)).toBe("1 KB");
+    expect(formatSize(3.25 * 1024 ** 3)).toBe("3.3 GB");
   });
 });
