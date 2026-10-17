@@ -204,8 +204,17 @@ export function modelConfigurationETag(revision: number): string {
   return `"workspace-model-${revision}"`;
 }
 
-/** Dedicated machine secret; reads never create or repair it. Explicit credential replacement can repair it. */
-export function createWorkspaceCredentialVault(stateDirectory: string) {
+/**
+ * Dedicated machine secret; reads never create or repair it. Explicit credential replacement can repair it.
+ * `purpose` binds each ciphertext to its use, so a model credential can never decrypt as another kind.
+ */
+export function createWorkspaceCredentialVault(
+  stateDirectory: string,
+  {
+    purpose = "workspace-model-credential",
+    unavailable = configurationUnavailable,
+  }: { purpose?: string; unavailable?: () => Error } = {},
+) {
   const directory = join(stateDirectory, "secrets");
   const path = join(directory, "model-gateway.key");
 
@@ -274,7 +283,7 @@ export function createWorkspaceCredentialVault(stateDirectory: string) {
       try {
         const nonce = randomBytes(12);
         const cipher = createCipheriv("aes-256-gcm", encryptionKey(), nonce);
-        cipher.setAAD(Buffer.from(`workspace-model-credential:1:${workspaceId}`));
+        cipher.setAAD(Buffer.from(`${purpose}:1:${workspaceId}`));
         const encrypted = Buffer.concat([cipher.update(credential, "utf8"), cipher.final()]);
 
         return JSON.stringify({
@@ -284,7 +293,7 @@ export function createWorkspaceCredentialVault(stateDirectory: string) {
           tag: cipher.getAuthTag().toString("base64"),
         });
       } catch {
-        throw configurationUnavailable();
+        throw unavailable();
       }
     },
     decrypt(workspaceId: string, envelope: string): string {
@@ -304,7 +313,7 @@ export function createWorkspaceCredentialVault(stateDirectory: string) {
 
         if (nonce.length !== 12 || tag.length !== 16) throw configurationUnavailable();
         const decipher = createDecipheriv("aes-256-gcm", readKey(), nonce);
-        decipher.setAAD(Buffer.from(`workspace-model-credential:1:${workspaceId}`));
+        decipher.setAAD(Buffer.from(`${purpose}:1:${workspaceId}`));
         decipher.setAuthTag(tag);
 
         const credential = Buffer.concat([
@@ -316,7 +325,7 @@ export function createWorkspaceCredentialVault(stateDirectory: string) {
 
         return credential;
       } catch {
-        throw configurationUnavailable();
+        throw unavailable();
       }
     },
   };

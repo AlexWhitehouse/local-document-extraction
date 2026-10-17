@@ -3,6 +3,7 @@ import { formatRoleLabel } from "../../lib/workspaceSelection";
 import { pluralize } from "../../lib/text";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
 import { WorkspaceDocumentProcessingSettings } from "./WorkspaceDocumentProcessingSettings.jsx";
+import { WorkspaceSourceStorage } from "./WorkspaceSourceStorage.jsx";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { ErrorState, ListStatus, Skeleton } from "../ui/States.jsx";
@@ -106,19 +107,25 @@ export function WorkspaceInvitationPage({
   );
 }
 
-function WorkspaceSourceRetention({ controller }) {
+// `canAddBucket`: the viewer can give this workspace its own bucket, which makes retention possible.
+function WorkspaceSourceRetention({ controller, canAddBucket }) {
   const { settings, loading, saving, error, canManage } = controller;
   const configured = settings?.storage_configured === true;
   const retaining = settings?.source_retention_disabled === false && configured;
+  const ownBucket = settings?.storage_location === "workspace";
 
   const explanation = !settings
     ? ""
     : !configured
-      ? "Originals can't be kept in this setup."
+      ? canAddBucket
+        ? "Add a bucket for this workspace below to keep originals."
+        : "Originals can't be kept in this setup."
       : !settings.installation_retains_originals
         ? "Your administrator has turned this off, so new uploads keep only extraction results."
         : retaining
-          ? "New uploads keep their original for viewing and download until it is deleted."
+          ? ownBucket
+            ? "New uploads keep their original in this workspace's own bucket until it is deleted."
+            : "New uploads keep their original for viewing and download until it is deleted."
           : "New uploads keep only extraction results. Existing originals stay available.";
 
   return (
@@ -159,6 +166,7 @@ function WorkspaceSourceRetention({ controller }) {
 export function AcceptedWorkspacePage({
   processingSettings,
   sourceRetention,
+  sourceStorage,
   modelConfiguration,
   modelConfigurationKey,
   workspaceId,
@@ -303,7 +311,15 @@ export function AcceptedWorkspacePage({
               </Callout>
             ) : null}
           </section>
-          {sourceRetention ? <WorkspaceSourceRetention controller={sourceRetention} /> : null}
+          {sourceRetention ? (
+            <WorkspaceSourceRetention
+              controller={sourceRetention}
+              canAddBucket={sourceStorage?.canManage === true && sourceStorage.record?.overrides_enabled === true}
+            />
+          ) : null}
+          {sourceStorage?.canManage ? (
+            <WorkspaceSourceStorage key={modelConfigurationKey} controller={sourceStorage} />
+          ) : null}
         </section>
         {modelConfiguration || processingSettings ? (
           <div className="studio-workspace-model-settings">

@@ -51,19 +51,25 @@ export const Select = forwardRef(function Select({ children, ...props }, ref) {
   );
 });
 
-// A checkbox with its title and optional description aligned beside it.
-export function CheckboxField({ label, description, checked, disabled, onChange, className, ...props }) {
+// A checkbox with its title and optional description aligned beside it. `error` shows validation text below.
+export function CheckboxField({ label, description, error, checked, disabled, onChange, className, ...props }) {
   const id = useId();
   const descriptionId = description ? `${id}-description` : undefined;
+  const errorId = error ? `${id}-error` : undefined;
 
   return (
-    <div className={["ui-checkbox-field", disabled && "is-disabled", className].filter(Boolean).join(" ")}>
+    <div
+      className={["ui-checkbox-field", disabled && "is-disabled", error && "has-error", className]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <input
         id={id}
         type="checkbox"
         checked={checked}
         disabled={disabled}
-        aria-describedby={descriptionId}
+        aria-describedby={[descriptionId, errorId].filter(Boolean).join(" ") || undefined}
+        aria-invalid={error ? true : undefined}
         onChange={(event) => onChange(event.target.checked)}
         {...props}
       />
@@ -73,6 +79,11 @@ export function CheckboxField({ label, description, checked, disabled, onChange,
       {description ? (
         <p id={descriptionId} className="ui-checkbox-field-description">
           {description}
+        </p>
+      ) : null}
+      {error ? (
+        <p id={errorId} className="ui-field-error ui-checkbox-field-error">
+          {error}
         </p>
       ) : null}
     </div>

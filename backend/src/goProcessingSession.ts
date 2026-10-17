@@ -23,7 +23,7 @@ import { classificationModelEnvironment, classificationModelOf, configurationMis
 import type { LocalWorkspaceProductStoreHandle } from "./localWorkspaceProductStoreRegistry";
 import type { LocalQueuedExtractionJob } from "./localExtractionQueue";
 import type { LocalSourceFileStore } from "./localSourceFileStore";
-import type { LocalRetainedSourceObjects } from "./localApplication";
+import type { LocalRetainedSourceObjects } from "./localRetainedSourceObjectRouting";
 import type { LocalWorkspaceExtractionJobSummary, LocalClaimedExtractionJob } from "./localWorkspaceProductStore";
 import type { PacketChildSlot, DocumentRouting, DocumentPacket } from "./localDocumentProcessingStore";
 
@@ -448,13 +448,15 @@ export function createGoProcessingSession(context: GoProcessingContext, options:
 
             if (packetSource?.source_retained && packetSource.retained_object_key) {
               const objects = options.sourceObjects;
+              // Child originals stay beside the packet's, so they never depend on a later settings change.
+              const destination = objects?.destinationOf(packetSource.retained_object_key);
 
-              if (!objects) throw new Error("Retained document storage unavailable");
-              retainedObjectKey = objects.keyFor({ workspaceId, jobId: slot.job_id, mimeType: "application/pdf" });
-              objects.manifest.prepare({ objectKey: retainedObjectKey, workspaceId, ownerKind: "job", ownerId: slot.job_id });
+              if (!objects || !destination) throw new Error("Retained document storage unavailable");
+              retainedObjectKey = destination.keyFor({ workspaceId, jobId: slot.job_id, mimeType: "application/pdf" });
+              objects.manifest.prepare({ objectKey: retainedObjectKey, destinationId: destination.id, workspaceId, ownerKind: "job", ownerId: slot.job_id });
 
               if (!await write(() => store.reservePacketChildSource({ packetId: ownerId, jobId: slot.job_id, sourceFileKey, retainedObjectKey }))) continue;
-              await objects.store.put({ key: retainedObjectKey, file: Bun.file(join(options.stateDirectory, "source-files", sourceFileKey)), mimeType: "application/pdf" });
+              await destination.store.put({ key: retainedObjectKey, file: Bun.file(join(options.stateDirectory, "source-files", sourceFileKey)), mimeType: "application/pdf" });
             }
 
             signal.throwIfAborted();

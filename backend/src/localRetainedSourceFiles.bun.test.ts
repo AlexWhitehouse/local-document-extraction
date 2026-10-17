@@ -20,7 +20,7 @@ import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProduc
 import { createFetchRequest, createSignedInUser } from "./testing/localAuthTestClient";
 import { configureTestWorkspace } from "./testing/workspaceModelFixture";
 
-const LOCAL_RETENTION: LocalSourceStorageConfiguration = { provider: "local", originalRetentionEnabled: true };
+const LOCAL_RETENTION: LocalSourceStorageConfiguration = { provider: "local", originalRetentionEnabled: true, workspaceOverridesEnabled: false };
 
 const cleanups: Array<() => void | Promise<void>> = [];
 
@@ -151,7 +151,7 @@ test("originals are not retained without installation storage or when the Worksp
   for (const options of [
     {},
     { sourceStorage: LOCAL_RETENTION, sourceRetentionDisabled: true },
-    { sourceStorage: { provider: "local", originalRetentionEnabled: false } as const },
+    { sourceStorage: { provider: "local", originalRetentionEnabled: false, workspaceOverridesEnabled: false } as const },
   ]) {
     const harness = await apiKeyHarness(options);
     const jobId = await harness.submit(await pdfBytes());
@@ -321,6 +321,7 @@ test("Workspace owners and admins control source retention through the session-o
   await expect(get(ownerRequest)).resolves.toEqual({
     workspace_id: workspace.id,
     storage_configured: true,
+    storage_location: "installation",
     installation_retains_originals: true,
     source_retention_disabled: false,
     retains_new_originals: true,

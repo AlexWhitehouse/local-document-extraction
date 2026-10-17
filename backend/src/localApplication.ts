@@ -44,8 +44,15 @@ import {
 } from "./workspaceModelConfiguration";
 import type { FetchApplication } from "./localRuntime";
 import type { LocalSourceStorageConfiguration } from "./localConfiguration";
-import type { LocalSourceObjectManifest } from "./localSourceObjectManifest";
-import { SourceObjectMissingError, type SourceObjectStore } from "./s3SourceObjectStore";
+import type { LocalRetainedSourceObjects, RetainedObjectDestination } from "./localRetainedSourceObjectRouting";
+import {
+  workspaceSourceStorageResolver,
+  type LocalSourceStorageDestinations,
+  type WorkspaceSourceStorage,
+  type WorkspaceSourceStorageResolver,
+} from "./localSourceStorageDestinations";
+import { SourceObjectMissingError } from "./s3SourceObjectStore";
+import type { WorkspaceSourceStorageHttp } from "./workspaceSourceStorageHttp";
 import type { LocalAuth, LocalSession } from "./localAuth";
 import { LocalWorkspaceControlError, type LocalWorkspaceControl } from "./localWorkspaceControl";
 import {
@@ -83,22 +90,11 @@ export type ProductServices = {
   access: LocalWorkspaceProductDataAccess;
   operations: LocalWorkspaceProductOperations;
   sourceFileStore: LocalSourceFileStore;
-  sourceStorage: LocalSourceStorageConfiguration;
-  sourceObjects?: LocalRetainedSourceObjects & { activeReads: { count: number } };
+  /** Where each Workspace's new originals go: installation storage or the Workspace's own bucket. */
+  sourceStorage: WorkspaceSourceStorageResolver;
+  sourceObjects: LocalRetainedSourceObjects | undefined;
   stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
-};
-
-/** Remote retained originals: the object store, the installation manifest and the key scheme. */
-export type LocalRetainedSourceObjects = {
-  store: SourceObjectStore;
-  manifest: Pick<
-    LocalSourceObjectManifest,
-    "prepare" | "link" | "markDeleting" | "markJobDeleting" | "markWorkspaceDeleting"
-  >;
-  keyFor(input: { workspaceId: string; jobId: string; mimeType: string; ownerKind?: "job" | "packet" }): string;
-  /** Concurrent remote preview/download streams, so reads cannot starve uploads and cleanup. */
-  maxConcurrentReads?: number;
 };
 
 type AuthorizedWorkspace = {
@@ -108,7 +104,11 @@ type AuthorizedWorkspace = {
   source_retention_disabled: boolean;
 };
 
-const NO_SOURCE_STORAGE: LocalSourceStorageConfiguration = { provider: "none", originalRetentionEnabled: false };
+const NO_SOURCE_STORAGE: LocalSourceStorageConfiguration = {
+  provider: "none",
+  originalRetentionEnabled: false,
+  workspaceOverridesEnabled: false,
+};
 
 export function createLocalApplication({
   auth,
@@ -127,6 +127,8 @@ export function createLocalApplication({
   scheduleQueuedJob = async () => {},
   sourceFileStore,
   sourceStorage = NO_SOURCE_STORAGE,
+  sourceStorageDestinations,
+  sourceStorageControl,
   sourceObjects,
   stateDirectory,
   workspaceControl,
@@ -151,7 +153,11 @@ export function createLocalApplication({
   productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
   scheduleQueuedJob?: (job: LocalQueuedExtractionJob) => void | Promise<void>;
   sourceFileStore?: LocalSourceFileStore;
+  /** The installation's storage; Workspaces with their own bucket override it for new uploads. */
   sourceStorage?: LocalSourceStorageConfiguration;
+  sourceStorageDestinations?: Pick<LocalSourceStorageDestinations, "current">;
+  /** Owner/admin routes for a Workspace's own bucket; absent, those routes are not found. */
+  sourceStorageControl?: WorkspaceSourceStorageHttp;
   sourceObjects?: LocalRetainedSourceObjects;
   stateDirectory?: string;
   workspaceControl?: LocalWorkspaceControl;
@@ -161,6 +167,7 @@ export function createLocalApplication({
 } = {}): FetchApplication {
   const localJobPageSize = Number.isSafeInteger(jobPageSize) && jobPageSize > 0 ? jobPageSize : DEFAULT_JOB_PAGE_SIZE;
   const jobCursorSecret = randomBytes(32);
+  const workspaceSourceStorage = workspaceSourceStorageResolver(sourceStorage, sourceStorageDestinations);
   let product: ProductServices | null = null;
   let localWorkspaceDeletion = workspaceDeletion ?? null;
 
@@ -189,8 +196,8 @@ export function createLocalApplication({
         access: createLocalWorkspaceProductDataAccess({ registry, operations }),
         operations,
         sourceFileStore: files,
-        sourceStorage,
-        sourceObjects: sourceObjects && { ...sourceObjects, activeReads: { count: 0 } },
+        sourceStorage: workspaceSourceStorage,
+        sourceObjects,
         stateDirectory,
         workspaceControl,
       };
@@ -357,7 +364,8 @@ export function createLocalApplication({
           session,
           workspaceControl,
           localWorkspaceDeletion,
-          sourceStorage,
+          workspaceSourceStorage,
+          sourceStorageControl,
           liveUpdateHub,
         );
       } catch (error) {
@@ -794,7 +802,13 @@ export function handleLocalDocumentSubmission({
       });
 
       // Captured once, when the server begins accepting the upload; later setting changes apply to later uploads.
-      const sourceRetained = retainsNewOriginals(sourceStorage, workspace);
+      const storage = sourceStorage(workspaceId);
+      const sourceRetained = retainsNewOriginals(storage, workspace);
+
+      // The bucket is fixed with the decision: this upload finishes there even if the settings change meanwhile.
+      const destination =
+        sourceRetained && storage.provider === "s3" ? (product.sourceObjects?.destinationFor(workspaceId) ?? null) : null;
+
       const maximumBytes = workspace.max_source_file_bytes ?? maxSourceFileBytes;
       const signal = AbortSignal.any([request.signal, workspaceSignal]);
 
@@ -889,9 +903,10 @@ export function handleLocalDocumentSubmission({
           sourceBytes = new ArrayBuffer(0);
 
           const retainedObjectKey =
-            sourceRetained && sourceStorage.provider === "s3"
+            sourceRetained && storage.provider === "s3"
               ? await publishRetainedOriginal({
                   product,
+                  destination,
                   workspaceId,
                   jobId,
                   sourceFileKey,
@@ -1098,6 +1113,8 @@ export function handleLocalDocumentSubmission({
         if (error instanceof HttpError) return httpErrorResponse(error);
 
         return errorResponse(500, "document_submission_failed", "Document submission could not be queued");
+      } finally {
+        destination?.release();
       }
     },
   );
@@ -1366,7 +1383,8 @@ async function handleControlRequest(
   session: LocalSession,
   workspaceControl: LocalWorkspaceControl,
   workspaceDeletion: LocalWorkspaceDeletion | null,
-  sourceStorage: LocalSourceStorageConfiguration,
+  sourceStorage: WorkspaceSourceStorageResolver,
+  sourceStorageControl: WorkspaceSourceStorageHttp | undefined,
   liveUpdateHub?: LocalLiveUpdateHub,
 ): Promise<Response> {
   const { method } = request;
@@ -1473,6 +1491,13 @@ async function handleControlRequest(
 
     case "DELETE invitations :id":
       return Response.json(workspaceControl.cancelInvitation({ workspaceId, invitationId: resourceId!, userId }));
+    case "GET source-storage":
+    case "PUT source-storage":
+    case "DELETE source-storage":
+    case "POST source-storage :id":
+      if (!sourceStorageControl || (resourceId !== undefined && resourceId !== "test")) return routeNotFound();
+
+      return sourceStorageControl.handle({ request, workspaceId, userId, test: resourceId === "test" });
     case "GET source-retention": {
       const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId });
 
@@ -1484,7 +1509,7 @@ async function handleControlRequest(
 
       if (!isBoolean(disabled)) return errorResponse(400, "invalid_source_retention", "disabled must be true or false");
 
-      if (disabled === false && sourceStorage.provider === "none") {
+      if (disabled === false && sourceStorage(workspaceId).provider === "none") {
         return errorResponse(
           409,
           "source_storage_not_configured",
@@ -1516,19 +1541,20 @@ async function handleControlRequest(
   }
 }
 
-function retainsNewOriginals(sourceStorage: LocalSourceStorageConfiguration, workspace: AuthorizedWorkspace): boolean {
-  return (
-    sourceStorage.provider !== "none" && sourceStorage.originalRetentionEnabled && !workspace.source_retention_disabled
-  );
+function retainsNewOriginals(storage: WorkspaceSourceStorage, workspace: AuthorizedWorkspace): boolean {
+  return storage.provider !== "none" && storage.originalRetentionEnabled && !workspace.source_retention_disabled;
 }
 
-function sourceRetentionSettings(sourceStorage: LocalSourceStorageConfiguration, workspace: AuthorizedWorkspace) {
+function sourceRetentionSettings(sourceStorage: WorkspaceSourceStorageResolver, workspace: AuthorizedWorkspace) {
+  const storage = sourceStorage(workspace.id);
+
   return {
     workspace_id: workspace.id,
-    storage_configured: sourceStorage.provider !== "none",
-    installation_retains_originals: sourceStorage.originalRetentionEnabled,
+    storage_configured: storage.provider !== "none",
+    storage_location: storage.location,
+    installation_retains_originals: storage.originalRetentionEnabled,
     source_retention_disabled: workspace.source_retention_disabled,
-    retains_new_originals: retainsNewOriginals(sourceStorage, workspace),
+    retains_new_originals: retainsNewOriginals(storage, workspace),
   };
 }
 
@@ -1577,17 +1603,9 @@ export function handleRetainedSourceFileRead({
 
     if (retained.retained_object_key) {
       const objects = product.sourceObjects;
+      const release = objects?.acquireRead(retained.retained_object_key);
 
-      if (!objects || objects.activeReads.count >= (objects.maxConcurrentReads ?? 8)) return unavailable();
-      objects.activeReads.count += 1;
-      let released = false;
-
-      const release = () => {
-        if (!released) {
-          released = true;
-          objects.activeReads.count -= 1;
-        }
-      };
+      if (!objects || !release) return unavailable();
 
       try {
         const object = await objects.store.open(retained.retained_object_key);
@@ -1666,6 +1684,7 @@ class SourceStorageUnavailableError extends Error {}
  */
 async function publishRetainedOriginal({
   product,
+  destination,
   workspaceId,
   jobId,
   sourceFileKey,
@@ -1674,6 +1693,8 @@ async function publishRetainedOriginal({
   ownerKind = "job",
 }: {
   product: ProductServices;
+  /** Resolved and held when the upload started; null when no bucket was available then. */
+  destination: RetainedObjectDestination | null;
   workspaceId: string;
   jobId: string;
   ownerKind?: "job" | "packet";
@@ -1682,18 +1703,18 @@ async function publishRetainedOriginal({
   signal: AbortSignal;
 }): Promise<string> {
   const objects = product.sourceObjects;
-  const file = objects && (await product.sourceFileStore.open?.(sourceFileKey));
+  const file = objects && destination && (await product.sourceFileStore.open?.(sourceFileKey));
 
-  if (!objects || !file) {
+  if (!objects || !destination || !file) {
     await deleteLocalSourceFileQuietly(product.sourceFileStore, sourceFileKey);
     throw new SourceStorageUnavailableError("Object storage is not available for retained originals");
   }
 
-  const objectKey = objects.keyFor({ workspaceId, jobId, mimeType: sourceMimeType, ownerKind });
-  objects.manifest.prepare({ objectKey, workspaceId, ownerKind, ownerId: jobId });
+  const objectKey = destination.keyFor({ workspaceId, jobId, mimeType: sourceMimeType, ownerKind });
+  objects.manifest.prepare({ objectKey, destinationId: destination.id, workspaceId, ownerKind, ownerId: jobId });
 
   try {
-    await objects.store.put({ key: objectKey, file, mimeType: sourceMimeType });
+    await destination.store.put({ key: objectKey, file, mimeType: sourceMimeType });
     signal.throwIfAborted();
   } catch (error) {
     objects.manifest.markDeleting({ objectKey });

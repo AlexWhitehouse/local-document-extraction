@@ -299,7 +299,7 @@ describe("macOS/Linux release installer", () => {
         google: true,
         verify: true,
         provider: "cloudflare",
-        storage: { provider: "local", originalRetentionEnabled: true },
+        storage: { provider: "local", originalRetentionEnabled: true, workspaceOverridesEnabled: true },
         secret: googleSecret,
         token: emailToken,
       });

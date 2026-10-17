@@ -46,6 +46,7 @@ import { useWorkspaceController } from "./features/workspaces/useWorkspaceContro
 import { useWorkspaceDocumentProcessingSettings } from "./features/workspaces/useWorkspaceDocumentProcessingSettings.js";
 import { useWorkspaceModelConfiguration } from "./features/workspaces/useWorkspaceModelConfiguration.js";
 import { useWorkspaceSourceRetention } from "./features/workspaces/useWorkspaceSourceRetention.js";
+import { useWorkspaceSourceStorage } from "./features/workspaces/useWorkspaceSourceStorage.js";
 import { WorkspaceCosts } from "./features/workspaces/costs/WorkspaceCosts.jsx";
 import {
   confirmLeavingUnsavedEdits,
@@ -236,6 +237,17 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     sessionUserId,
     role: workspaceContext.selectedWorkspaceRole,
     enabled: hasApiAccess && !isWorkspaceInvitationSelected,
+  });
+
+  // Saving or removing a bucket changes where originals go, so the retention status reloads.
+  const workspaceSourceStorage = useWorkspaceSourceStorage({
+    coreRequest,
+    showActionToast,
+    workspaceId,
+    sessionUserId,
+    role: workspaceContext.selectedWorkspaceRole,
+    enabled: hasApiAccess && !isWorkspaceInvitationSelected,
+    onChanged: workspaceSourceRetention.reload,
   });
 
   const templateController = useTemplateController({
@@ -1054,6 +1066,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               workspaceRole={workspaceContext.selectedWorkspaceRole}
               modelConfiguration={workspaceModel}
               sourceRetention={workspaceSourceRetention}
+              sourceStorage={workspaceSourceStorage}
               processingSettings={workspaceDocumentProcessing}
               modelConfigurationKey={`${sessionUserId}:${workspaceId}`}
             />
@@ -1082,7 +1095,9 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               {...documentController.documentPage}
               viewingLayout={documentViewingLayout}
               onViewingLayoutChange={setDocumentViewingLayout}
-              sourceStorageConfigured={sourceStorageConfigured}
+              sourceStorageConfigured={
+                sourceStorageConfigured || workspaceSourceRetention.settings?.storage_configured === true
+              }
               onImproveTemplate={hasApiAccess ? improveTemplate : undefined}
               onOpenWorkspace={() => setActivePage("workspace")}
             />

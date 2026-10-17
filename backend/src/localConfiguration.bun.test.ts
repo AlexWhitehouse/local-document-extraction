@@ -30,7 +30,17 @@ test("a clean local install has usable private defaults and a secret-free public
     limits: { maxSourceFileBytes: 10485760 },
     sourceStorage: { configured: false, retainsOriginals: false },
   });
-  expect(config.sourceStorage).toEqual({ provider: "none", originalRetentionEnabled: false });
+  // No installation store; Workspace buckets keep originals under their own switch.
+  expect(config.sourceStorage).toEqual({
+    provider: "none",
+    originalRetentionEnabled: false,
+    workspaceOverridesEnabled: true,
+  });
+  expect(read({ SOURCE_STORAGE_WORKSPACE_OVERRIDES_ENABLED: "false" }).sourceStorage).toEqual({
+    provider: "none",
+    originalRetentionEnabled: false,
+    workspaceOverridesEnabled: false,
+  });
 });
 
 test("MCP needs no callback allowlist and still requires HTTPS outside loopback", () => {
@@ -44,10 +54,12 @@ test("selecting local Source storage retains originals by default and can be tur
   expect(read({ SOURCE_STORAGE_PROVIDER: "local" }).sourceStorage).toEqual({
     provider: "local",
     originalRetentionEnabled: true,
+    workspaceOverridesEnabled: true,
   });
   expect(read({ SOURCE_STORAGE_PROVIDER: "local", SOURCE_ORIGINAL_RETENTION_ENABLED: "false" }).sourceStorage).toEqual({
     provider: "local",
     originalRetentionEnabled: false,
+    workspaceOverridesEnabled: true,
   });
   expect(publicLocalConfiguration(read({ SOURCE_STORAGE_PROVIDER: "local" })).sourceStorage).toEqual({
     configured: true,
@@ -75,6 +87,7 @@ test("S3 Source storage reads a private destination and keeps credentials out of
   expect(config.sourceStorage).toEqual({
     provider: "s3",
     originalRetentionEnabled: true,
+    workspaceOverridesEnabled: true,
     s3: {
       bucket: "document-extraction-qual",
       region: "us-east-1",

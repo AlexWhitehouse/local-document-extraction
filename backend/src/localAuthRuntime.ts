@@ -8,6 +8,12 @@ import { Database, constants as sqliteConstants } from "bun:sqlite";
 import { createLocalAuth, type LocalAuth, type LocalAuthSettings } from "./localAuth";
 import { createLocalMailSink, type LocalMailLogger } from "./localMailSink";
 import { createLocalSourceObjectManifest, type LocalSourceObjectManifest } from "./localSourceObjectManifest";
+import {
+  createLocalSourceStorageDestinations,
+  type LocalSourceStorageDestinations,
+} from "./localSourceStorageDestinations";
+import { SourceObjectUnavailableError } from "./s3SourceObjectStore";
+import { createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
 import { createLocalWorkspaceControl, type LocalWorkspaceControl } from "./localWorkspaceControl";
 import { createCloudflareMailSink } from "./cloudflareMailSink";
 import type { LocalEmailConfiguration } from "./localConfiguration";
@@ -18,6 +24,7 @@ export type LocalAuthRuntime = {
   close(): void;
   workspaceControl: LocalWorkspaceControl;
   sourceObjectManifest: LocalSourceObjectManifest;
+  sourceStorageDestinations: LocalSourceStorageDestinations;
 };
 
 export async function createLocalAuthRuntime({
@@ -99,6 +106,14 @@ export async function createLocalAuthRuntime({
       close: () => database.close(),
       workspaceControl: createLocalWorkspaceControl(database),
       sourceObjectManifest: createLocalSourceObjectManifest(database),
+      sourceStorageDestinations: createLocalSourceStorageDestinations({
+        database,
+        // Shares the model credential key file; the purpose keeps the two kinds of ciphertext apart.
+        vault: createWorkspaceCredentialVault(stateDirectory, {
+          purpose: "source-storage-credential",
+          unavailable: () => new SourceObjectUnavailableError("Workspace storage credentials are unavailable"),
+        }),
+      }),
     };
   } catch (error) {
     database.close();

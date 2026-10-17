@@ -1,10 +1,10 @@
-import { isString } from "../shared/json";
 import { type SQLQueryBindings, Database } from "bun:sqlite";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { readLocalConfiguration, type S3SourceStorageConfiguration } from "../backend/src/localConfiguration";
-import { createS3SourceObjectStore, sourceObjectDestination } from "../backend/src/s3SourceObjectStore";
+import { INSTALLATION_DESTINATION_ID } from "../backend/src/localSourceObjectManifest";
+import { probeS3SourceStorage as probeBucket, sourceObjectDestination } from "../backend/src/s3SourceObjectStore";
 import {
   createSetupTerminal,
   dotenvValue,
@@ -243,44 +243,7 @@ function dependentDestinationError() {
   );
 }
 
-/** Writes, reads back and deletes a small synthetic object under the configured prefix. */
-export const probeS3SourceStorage: SourceStorageProbe = async (configuration) => {
-  const store = createS3SourceObjectStore(configuration, { writeDeadlineMs: 15_000, readDeadlineMs: 15_000 });
-  const key = `${configuration.prefix}.setup-probe/${crypto.randomUUID()}.txt`;
-  const body = `document-extraction storage check ${new Date().toISOString()}`;
-
-  const stage = async <T>(label: string, work: () => Promise<T>) => {
-    try {
-      return await work();
-    } catch (error) {
-      const cause = error instanceof Error ? error.cause : null;
-      const code = cause instanceof Error && "code" in cause && isString(cause.code) ? cause.code : undefined;
-      throw new Error(`could not ${label}${code ? ` (${code})` : ""}`, { cause: error });
-    }
-  };
-
-  try {
-    await stage("write a test object", () =>
-      store.put({ key, file: new Blob([body], { type: "text/plain" }), mimeType: "text/plain" }),
-    );
-  } catch (error) {
-    // A timed-out write cannot be cancelled and may still land, so try to remove it and name it.
-    await store.delete(key).catch(() => undefined);
-    throw new Error(
-      `${error instanceof Error ? error.message : "could not write a test object"}; if ${key} appears in the bucket later, delete it`,
-      { cause: error },
-    );
-  }
-
-  try {
-    const object = await stage("read the test object back", () => store.open(key));
-    const text = await stage("read the test object back", () => new Response(object.stream()).text());
-
-    if (text !== body) throw new Error("the test object read back did not match");
-  } finally {
-    await stage(`delete the test object ${key}`, () => store.delete(key));
-  }
-};
+export const probeS3SourceStorage: SourceStorageProbe = (configuration) => probeBucket(configuration);
 
 /** Reads values written by the installer's dotenv serializer (quoted or bare, with escaped dollars). */
 export function parseConfigurationValues(contents: string) {
@@ -322,8 +285,20 @@ export function dependentSourceDestination(stateDirectory: string): string | nul
 
     if (!tables.has("source_object_manifest") || !tables.has("source_storage_installation")) return null;
 
+    const manifestColumns = new Set(
+      database
+        .query<{ name: string }, SQLQueryBindings[]>("PRAGMA table_info(source_object_manifest)")
+        .all()
+        .map((column) => column.name),
+    );
+
+    // Objects in Workspace-owned buckets do not depend on the installation's destination.
     const { count } = database
-      .query<{ count: number }, SQLQueryBindings[]>("SELECT COUNT(*) AS count FROM source_object_manifest")
+      .query<{ count: number }, SQLQueryBindings[]>(
+        manifestColumns.has("destination_id")
+          ? `SELECT COUNT(*) AS count FROM source_object_manifest WHERE destination_id = '${INSTALLATION_DESTINATION_ID}'`
+          : "SELECT COUNT(*) AS count FROM source_object_manifest",
+      )
       .get()!;
 
     if (!count) return null;

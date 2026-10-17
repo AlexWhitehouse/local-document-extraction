@@ -11,6 +11,9 @@ import { createLocalSourceFileStore } from "./localSourceFileStore";
 import { createConfiguredTestProductStore } from "./testing/workspaceModelFixture";
 import type { DocumentClassification, DocumentSplitAssessment } from "./consumer/documentAssessment";
 import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
+import type { LocalRetainedSourceObjects, RetainedObjectDestination } from "./localRetainedSourceObjectRouting";
+import { INSTALLATION_DESTINATION_ID } from "./localSourceObjectManifest";
+import type { SourceObjectStore } from "./s3SourceObjectStore";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 
@@ -626,37 +629,29 @@ test("remote retained children get independent manifest ownership and the parent
   const removed: string[] = [];
   const objects = new Map<string, Blob>();
 
-  const sourceObjects = {
-    keyFor: ({ jobId }: { jobId: string }) => `remote-${jobId}`,
-    store: {
-      put: async ({ key, file }: { key: string; file: Blob }) => {
-        objects.set(key, file);
-      },
-      open: async (key: string) => {
-        const file = objects.get(key)!;
+  const sourceObjects = singleBucketSourceObjects({
+    put: async ({ key, file }) => {
+      objects.set(key, file);
+    },
+    open: async (key) => {
+      const file = objects.get(key)!;
 
-        return { size: file.size, stream: () => file.stream() };
-      },
-      delete: async (key: string) => {
-        objects.delete(key);
-      },
+      return { size: file.size, stream: () => file.stream() };
     },
     manifest: {
-      prepare: (entry: { objectKey: string; ownerKind: string; ownerId: string }) => {
+      prepare: (entry) => {
         prepared.push(entry);
       },
-      link: ({ objectKey }: { objectKey: string }) => {
+      link: ({ objectKey }) => {
         linked.push(objectKey);
 
         return true;
       },
-      markDeleting: ({ objectKey }: { objectKey: string }) => {
+      markDeleting: ({ objectKey }) => {
         removed.push(objectKey);
       },
-      markJobDeleting: () => {},
-      markWorkspaceDeleting: () => {},
     },
-  };
+  });
 
   const runner = f.runner({
     sourceObjects,
@@ -788,27 +783,19 @@ test("partial remote fan-out failure preserves committed children, releases fail
   let splitCalls = 0;
   const deleting: string[] = [];
 
-  const sourceObjects = {
-    keyFor: ({ jobId }: { jobId: string }) => `remote-${jobId}`,
-    store: {
-      put: async () => {
-        if (++writes === 2) throw new Error("Retained storage unavailable");
-      },
-      open: async () => {
-        throw new Error("Not expected");
-      },
-      delete: async () => {},
+  const sourceObjects = singleBucketSourceObjects({
+    put: async () => {
+      if (++writes === 2) throw new Error("Retained storage unavailable");
+    },
+    open: async () => {
+      throw new Error("Not expected");
     },
     manifest: {
-      prepare: () => {},
-      link: () => true,
-      markDeleting: ({ objectKey }: { objectKey: string }) => {
+      markDeleting: ({ objectKey }) => {
         deleting.push(objectKey);
       },
-      markJobDeleting: () => {},
-      markWorkspaceDeleting: () => {},
     },
-  };
+  });
 
   const runner = f.runner({
     sourceObjects,
@@ -896,3 +883,37 @@ test("manual all-blank completion immediately cleans the unretained original wit
   expect(f.scheduled).toHaveLength(0);
   expect(f.store.getDocumentPacket("pkt_manual_blank")?.status).toBe("completed");
 });
+
+/** One in-memory bucket behind the routing seam; child keys are `remote-<jobId>`. */
+function singleBucketSourceObjects({
+  put,
+  open,
+  manifest,
+}: {
+  put: SourceObjectStore["put"];
+  open: SourceObjectStore["open"];
+  manifest: Partial<LocalRetainedSourceObjects["manifest"]>;
+}): LocalRetainedSourceObjects {
+  const destination: RetainedObjectDestination = {
+    id: INSTALLATION_DESTINATION_ID,
+    store: { put },
+    keyFor: ({ jobId }) => `remote-${jobId}`,
+    documentKeyFor: ({ documentId }) => `remote-${documentId}`,
+  };
+
+  return {
+    store: { open },
+    manifest: {
+      prepare: () => {},
+      link: () => true,
+      markDeleting: () => {},
+      markJobDeleting: () => {},
+      markOwnerDeleting: () => {},
+      markWorkspaceDeleting: () => {},
+      ...manifest,
+    },
+    destinationFor: () => ({ ...destination, release: () => {} }),
+    destinationOf: () => destination,
+    acquireRead: () => () => {},
+  };
+}

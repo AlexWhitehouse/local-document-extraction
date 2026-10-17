@@ -14,7 +14,7 @@ import type { LocalSourceStorageConfiguration, S3SourceStorageConfiguration } fr
 import { createLocalEvaluationDocuments } from "./localEvaluationDocuments";
 import { createLocalSourceFileStore, type LocalSourceFileStore } from "./localSourceFileStore";
 import { createLocalSourceObjectCleanup } from "./localSourceObjectCleanup";
-import { createLocalSourceObjectManifest, type LocalSourceObjectManifest } from "./localSourceObjectManifest";
+import { INSTALLATION_DESTINATION_ID, createLocalSourceObjectManifest, type LocalSourceObjectManifest } from "./localSourceObjectManifest";
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 
 import { createLocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
@@ -22,7 +22,8 @@ import {
   createLocalWorkspaceProductStoreRegistry,
   type LocalWorkspaceProductStoreRegistry,
 } from "./localWorkspaceProductStoreRegistry";
-import { createS3SourceObjectStore, evaluationDocumentObjectKey, retainedObjectKey } from "./s3SourceObjectStore";
+import { createLocalRetainedSourceObjects } from "./localRetainedSourceObjectRouting";
+import { createS3SourceObjectStore, evaluationDocumentObjectKey } from "./s3SourceObjectStore";
 import { startFakeS3Server } from "./testing/fakeS3Server";
 import { configureTestWorkspace } from "./testing/workspaceModelFixture";
 
@@ -116,10 +117,15 @@ async function harness({
   const namespace = manifest.namespace();
   const sourceFiles = { ...createLocalSourceFileStore({ stateDirectory }), ...sourceFileOverride };
 
+  const sourceObjects =
+    provider === "s3"
+      ? createLocalRetainedSourceObjects({ manifest, installation: configuration, namespace, createStore: () => store })
+      : undefined;
+
   const sourceStorage: LocalSourceStorageConfiguration =
     provider === "s3"
-      ? { provider: "s3", originalRetentionEnabled: true, s3: configuration }
-      : { provider: "local", originalRetentionEnabled: true };
+      ? { provider: "s3", originalRetentionEnabled: true, workspaceOverridesEnabled: false, s3: configuration }
+      : { provider: "local", originalRetentionEnabled: true, workspaceOverridesEnabled: false };
 
   const workspaceControl = workspaceControlFixture({
     authorizeApiKey: ({ apiKey }: { apiKey: string }) => (apiKey === "key-a" ? workspace : null),
@@ -150,14 +156,7 @@ async function harness({
       stateDirectory,
       maxSourceFileBytes: 1024 * 1024,
       now,
-      sourceObjects:
-        provider === "s3"
-          ? {
-              store,
-              manifest,
-              keyFor: (input) => evaluationDocumentObjectKey({ prefix: configuration.prefix, namespace, ...input }),
-            }
-          : undefined,
+      sourceObjects,
     });
 
   const service = library();
@@ -172,14 +171,7 @@ async function harness({
     workspaceProductOperations: operations,
     evaluationDocuments: service,
     scheduleQueuedJob: async () => {},
-    sourceObjects:
-      provider === "s3"
-        ? {
-            store,
-            manifest,
-            keyFor: (input) => retainedObjectKey({ prefix: configuration.prefix, namespace, ...input }),
-          }
-        : undefined,
+    sourceObjects,
   });
 
   const call = (path: string, init: RequestInit = {}) => {
@@ -227,7 +219,7 @@ async function harness({
   const cleanupAt = (at: number) =>
     createLocalSourceObjectCleanup({
       manifest: realManifest,
-      objectStore: store,
+      storeFor: () => store,
       productStoreRegistry: registry,
       workspaceControl,
       now: () => at,
@@ -244,6 +236,7 @@ async function harness({
   return {
     s3,
     manifest: realManifest,
+    sourceObjects,
     store,
     registry,
     stateDirectory,
@@ -264,6 +257,19 @@ async function harness({
     },
   };
 }
+
+test("every library save exit releases the bucket it held, so retired buckets can still be forgotten", async () => {
+  const h = await harness();
+  const operationId = crypto.randomUUID();
+  expect((await h.save(operationId)).status).toBe(201);
+  // A replay of the same operation, and a rejected save, both return before any upload.
+  expect((await h.save(operationId)).status).toBe(200);
+  const rejected = new FormData();
+  rejected.set("document", new File([new Uint8Array([137, 80, 78, 71])], "invoice.png", { type: "image/png" }));
+  rejected.set("metadata", "not json");
+  expect((await h.call("", { method: "POST", body: rejected })).status).toBe(400);
+  expect(h.sourceObjects?.heldDestinations().size).toBe(0);
+});
 
 test("an S3 library save puts one object in the library namespace before commit and deletion hands it to background cleanup", async () => {
   const h = await harness();
@@ -356,6 +362,7 @@ test("recovery links a committed library object whose link was lost and releases
 
   h.manifest.prepare({
     objectKey: orphanKey,
+    destinationId: INSTALLATION_DESTINATION_ID,
     workspaceId: WORKSPACE_ID,
     ownerKind: "evaluation_document",
     ownerId: "evd_never_committed",
@@ -368,7 +375,7 @@ test("recovery links a committed library object whose link was lost and releases
   // Unreadable product data is uncertainty: neither entry is settled.
   const unreadable = createLocalSourceObjectCleanup({
     manifest: h.manifest,
-    objectStore: h.store,
+    storeFor: () => h.store,
     workspaceControl: { workspaceExists: () => true },
     now: () => Date.now() + LATER,
     productStoreRegistry: {
@@ -604,13 +611,18 @@ test("existing job manifest rows migrate to explicit job ownership without chang
   expect(rows()).toEqual(migrated);
   expect(manifest.namespace()).toBe("ns1");
   expect(() => manifest.assertDestination("s3|aws|other|app/|path")).toThrow("3 retained original(s)");
-  expect(manifest.listDueDeletions({ now: "2026-01-04T00:00:00.000Z", limit: 10 })).toMatchObject([
+  expect(manifest.listDueDeletions({
+      now: "2026-01-04T00:00:00.000Z",
+      destinationId: INSTALLATION_DESTINATION_ID,
+      limit: 10,
+    })).toMatchObject([
     { owner_kind: "job", owner_id: "job_c", attempts: 4 },
   ]);
 
   // Job-scoped release never touches a library owner that happens to share the ID.
   manifest.prepare({
     objectKey: "app/ns1/workspaces/w/evaluation-documents/job_a/4.pdf",
+    destinationId: INSTALLATION_DESTINATION_ID,
     workspaceId: "w",
     ownerKind: "evaluation_document",
     ownerId: "job_a",

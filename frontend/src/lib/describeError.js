@@ -21,6 +21,7 @@ const READABLE_CODES = new Set([
   "invalid_tags",
   "invalid_template_tags",
   "model_gateway_test_rejected",
+  "invalid_source_storage",
 ]);
 
 const CODE_MESSAGES = {
@@ -31,6 +32,11 @@ const CODE_MESSAGES = {
   document_not_found: "This document no longer exists.",
   revision_conflict: "This changed while you were editing. Reload and try again.",
   precondition_failed: "This changed elsewhere. Check the latest settings and try again.",
+  precondition_required: "Reload and try again.",
+  source_storage_confirmation_required: "Confirm the bucket doesn't use versioning or Object Lock.",
+  source_storage_endpoint_blocked: "That endpoint address isn't allowed. Use the storage service's own address.",
+  source_storage_overrides_disabled: "Your administrator has turned off workspace buckets.",
+  source_storage_credentials_unavailable: "The saved access keys can't be read. Enter both keys again.",
   operation_conflict: "Another change is in progress. Try again in a moment.",
   capacity_exhausted: "Studio is busy. Try again in a moment.",
   request_body_too_large: "This is too large to upload.",

@@ -165,6 +165,24 @@ Apply these storage requirements:
 - Document or Workspace deletion removes access immediately. The app then deletes the original in the background. It retries until storage confirms deletion.
 - You can rotate S3 credentials at any time. Keep the endpoint, bucket, prefix, and addressing style unchanged while originals or pending deletions depend on them. The app refuses startup if these values change. It cannot move originals to another location.
 
+### Workspace buckets
+
+Workspace owners and admins can store their Workspace's originals in its own S3-compatible bucket, under **Workspaces → Original document storage**. A Workspace bucket replaces installation storage for that Workspace's new uploads, document packets and Evaluation library saves. It works even when `SOURCE_STORAGE_PROVIDER` is `none`.
+
+- Before saving, the app writes, reads, and deletes a small test file in the bucket. If a step fails, it saves nothing. The admin must confirm that the bucket uses neither object versioning nor Object Lock.
+- A changed endpoint, bucket, prefix, or addressing style affects new uploads only. Originals already saved stay in their earlier location and remain available until they are deleted. Changing only the access keys keeps the location.
+- **Use default storage** sends new uploads back to installation storage. Originals in the Workspace bucket stay there and remain available.
+- Deleting a Document or Workspace deletes its originals from whichever bucket holds them. The app keeps each bucket's settings until it has deleted everything it stored there, even after the Workspace is gone.
+- Access keys are encrypted with `secrets/model-gateway.key` and never shown again. Include this file in backups. Workspace buckets themselves are not part of application backups.
+- Endpoints on link-local or cloud metadata addresses, such as `169.254.169.254`, are refused. Private network addresses are allowed, so give the owner and admin roles only to people you trust.
+- If one Workspace's bucket is slow or unavailable, other Workspaces' uploads, downloads, and cleanup carry on.
+
+A Workspace bucket keeps new originals unless the Workspace turns off **Retain original documents**. `SOURCE_ORIGINAL_RETENTION_ENABLED` applies to installation storage only.
+
+To turn Workspace buckets off, set `SOURCE_STORAGE_WORKSPACE_OVERRIDES_ENABLED=false`. Saved Workspace buckets then take no new originals. New uploads use installation storage instead, and existing originals stay readable.
+
+To require Workspaces to bring their own bucket before they can keep originals, set `SOURCE_STORAGE_PROVIDER=none` and leave Workspace buckets enabled. These are the defaults.
+
 ## Reference
 
 ### Network and access
@@ -266,7 +284,8 @@ Some limits are fixed in the code rather than configurable:
 | `SOURCE_RETENTION_SWEEP_INTERVAL_MS` | 1 hour (`3600000`) | How often uploaded files that are not kept as originals are cleaned up. |
 | `FAILED_SOURCE_RETENTION_MS` | 7 days (`604800000`) | How long to keep the uploaded file of a failed job when originals are not kept. `0` removes it at the next cleanup. |
 | `SOURCE_STORAGE_PROVIDER` | `none` | Where to keep original documents: `none`, `local` or `s3`. See [Keep original documents](#keep-original-documents). |
-| `SOURCE_ORIGINAL_RETENTION_ENABLED` | `true` when storage is set | Keep originals of new uploads. `false` stops keeping new ones without removing existing ones. |
+| `SOURCE_ORIGINAL_RETENTION_ENABLED` | `true` when storage is set | Keep originals of new uploads in installation storage. `false` stops keeping new ones without removing existing ones. Workspace buckets are not affected. |
+| `SOURCE_STORAGE_WORKSPACE_OVERRIDES_ENABLED` | `true` | Let Workspace owners and admins keep their originals in their own S3-compatible bucket. See [Workspace buckets](#workspace-buckets). |
 | `SOURCE_STORAGE_S3_*` | — | S3 endpoint, region, bucket, prefix (default `document-extraction/`), path-style addressing, access key ID, secret access key and optional session token. |
 | `LOCAL_SHUTDOWN_TIMEOUT_MS` | `10000` | How long to wait for work to finish when stopping. |
 | `LOCAL_ANALYTICS_ENABLED` | `true` | Write privacy-filtered usage events to local files. Nothing is sent anywhere. |

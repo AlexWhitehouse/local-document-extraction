@@ -1,5 +1,6 @@
 import type { LocalSourceFileStore } from "./localSourceFileStore";
 import type { LocalSourceObjectManifest } from "./localSourceObjectManifest";
+import type { LocalSourceStorageDestinations } from "./localSourceStorageDestinations";
 import { eraseLocalWorkspaceProductData } from "./localWorkspaceProductStore";
 import type { LocalWorkspaceControl } from "./localWorkspaceControl";
 import type { LocalWorkspaceProductOperations } from "./localWorkspaceProductOperations";
@@ -18,6 +19,7 @@ export function createLocalWorkspaceDeletion({
   workspaceProductOperations,
   productStoreRegistry,
   sourceObjectManifest,
+  sourceStorageDestinations,
   onWorkspaceAccessRevoked,
   onWorkspaceErased,
 }: {
@@ -28,6 +30,8 @@ export function createLocalWorkspaceDeletion({
   productStoreRegistry?: LocalWorkspaceProductStoreRegistry;
   /** Remote originals are released to background cleanup; logical deletion never waits on remote storage. */
   sourceObjectManifest?: Pick<LocalSourceObjectManifest, "markWorkspaceDeleting">;
+  /** The Workspace's own buckets stop taking uploads but stay known until cleanup has emptied them. */
+  sourceStorageDestinations?: Pick<LocalSourceStorageDestinations, "retireWorkspace">;
   onWorkspaceAccessRevoked?: (input: { workspaceId: string; reason: "workspace_access"; occurredAt: string }) => void;
   /** Runs once the Workspace's product data and Source files have been erased. */
   onWorkspaceErased?: (workspaceId: string) => void;
@@ -39,6 +43,7 @@ export function createLocalWorkspaceDeletion({
     await productStoreRegistry?.invalidate({ workspaceId });
     // Every remote object already has a manifest entry, so this covers them all before product data goes.
     sourceObjectManifest?.markWorkspaceDeleting({ workspaceId });
+    sourceStorageDestinations?.retireWorkspace(workspaceId);
     await Promise.all([
       eraseLocalWorkspaceProductData({ stateDirectory, workspaceId }),
       sourceFileStore.eraseWorkspace(workspaceId),

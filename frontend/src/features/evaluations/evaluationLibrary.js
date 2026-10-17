@@ -126,7 +126,8 @@ export function summaryCompatibility(summary, fields) {
 }
 
 export const SAVE_UNAVAILABLE = {
-  storage_unconfigured: "Saving isn’t available right now.",
+  storage_unconfigured:
+    "Saving needs somewhere to keep original documents. An owner or admin can set this up from the Workspaces page.",
   retention_disabled:
     "Saving needs original documents to be kept. An owner or admin can turn this on from the Workspaces page.",
   workspace_opted_out: "This workspace doesn’t keep original documents, so they can’t be saved to the library.",

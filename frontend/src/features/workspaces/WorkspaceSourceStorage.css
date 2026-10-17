@@ -1,0 +1,13 @@
+.workspace-storage-title { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.workspace-storage-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; flex-shrink: 0; }
+.workspace-storage-summary { display: grid; gap: 10px; }
+.workspace-storage-note { margin: 0; color: var(--text-2); font-size: var(--font-size-3); line-height: 1.5; }
+.workspace-storage-facts { margin-top: 0; }
+.workspace-storage-form { display: grid; gap: 14px; }
+.workspace-storage-form fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 14px; min-width: 0; }
+.workspace-storage-form input[type="url"] { font-family: var(--font-mono); font-size: var(--font-size-3); }
+/* Short fields share a row on wide panes. */
+.workspace-storage-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.workspace-storage-footer { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.workspace-storage-footer small { color: var(--text-2); font-size: var(--font-size-2); }
+@media (max-width: 600px) { .workspace-storage-pair { grid-template-columns: minmax(0, 1fr); } }

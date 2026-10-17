@@ -45,7 +45,7 @@ Frontend changes follow `docs/agents/ui-guidelines.md`, which covers the feedbac
 
 ### Issue tracker
 
-Issues and PRDs are local Markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+By default, create issues and PRDs as GitHub issues in `AlexWhitehouse/local-document-extraction` with `gh issue create`. Use local Markdown under `.scratch/` only when the user asks for local or private planning. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
