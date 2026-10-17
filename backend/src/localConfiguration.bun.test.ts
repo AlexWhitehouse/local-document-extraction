@@ -30,10 +30,10 @@ test("a clean local install has usable private defaults and a secret-free public
     limits: { maxSourceFileBytes: 10485760 },
     sourceStorage: { configured: false, retainsOriginals: false },
   });
-  // No installation store, but a Workspace may still keep originals in its own bucket.
+  // No installation store; Workspace buckets keep originals under their own switch.
   expect(config.sourceStorage).toEqual({
     provider: "none",
-    originalRetentionEnabled: true,
+    originalRetentionEnabled: false,
     workspaceOverridesEnabled: true,
   });
   expect(read({ SOURCE_STORAGE_WORKSPACE_OVERRIDES_ENABLED: "false" }).sourceStorage).toEqual({
@@ -68,10 +68,7 @@ test("selecting local Source storage retains originals by default and can be tur
 });
 
 test("Source storage settings reject retention without a store and unsupported providers", () => {
-  expect(() =>
-    read({ SOURCE_ORIGINAL_RETENTION_ENABLED: "true", SOURCE_STORAGE_WORKSPACE_OVERRIDES_ENABLED: "false" }),
-  ).toThrow("requires SOURCE_STORAGE_PROVIDER");
-  expect(read({ SOURCE_ORIGINAL_RETENTION_ENABLED: "true" }).sourceStorage.originalRetentionEnabled).toBe(true);
+  expect(() => read({ SOURCE_ORIGINAL_RETENTION_ENABLED: "true" })).toThrow("requires SOURCE_STORAGE_PROVIDER");
   expect(() => read({ SOURCE_STORAGE_PROVIDER: "s3" })).toThrow("requires SOURCE_STORAGE_S3_BUCKET");
   expect(() => read({ SOURCE_STORAGE_PROVIDER: "ftp" })).toThrow("must be none, local or s3");
 });

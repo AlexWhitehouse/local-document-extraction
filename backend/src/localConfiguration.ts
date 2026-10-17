@@ -24,7 +24,7 @@ export type S3SourceStorageConfiguration = {
 
 export type LocalSourceStorageConfiguration = {
   provider: SourceStorageProvider;
-  /** Installation default for retaining originals of new uploads; Workspaces may opt out. */
+  /** Whether installation storage retains originals of new uploads; Workspaces may opt out. */
   originalRetentionEnabled: boolean;
   /** Workspace owners and admins may store their Workspace's originals in their own S3-compatible bucket. */
   workspaceOverridesEnabled: boolean;
@@ -282,18 +282,13 @@ function readSourceStorageConfiguration(
 
   if (provider !== "none" && provider !== "local" && provider !== "s3")
     throw new Error("SOURCE_STORAGE_PROVIDER must be none, local or s3.");
+  // Workspace buckets have their own switch; SOURCE_ORIGINAL_RETENTION_ENABLED governs installation storage only.
   const workspaceOverridesEnabled = boolean("SOURCE_STORAGE_WORKSPACE_OVERRIDES_ENABLED", true);
+  // Selecting a store enables retention by default; installations without one never retain there.
+  const originalRetentionEnabled = boolean("SOURCE_ORIGINAL_RETENTION_ENABLED", provider !== "none");
 
-  // Retention applies wherever a store exists: the installation's, or a Workspace's own bucket.
-  const originalRetentionEnabled = boolean(
-    "SOURCE_ORIGINAL_RETENTION_ENABLED",
-    provider !== "none" || workspaceOverridesEnabled,
-  );
-
-  if (originalRetentionEnabled && provider === "none" && !workspaceOverridesEnabled) {
-    throw new Error(
-      "SOURCE_ORIGINAL_RETENTION_ENABLED requires SOURCE_STORAGE_PROVIDER to be local or s3, or Workspace storage to be enabled.",
-    );
+  if (originalRetentionEnabled && provider === "none") {
+    throw new Error("SOURCE_ORIGINAL_RETENTION_ENABLED requires SOURCE_STORAGE_PROVIDER to be local or s3.");
   }
 
   if (provider !== "s3") return { provider, originalRetentionEnabled, workspaceOverridesEnabled };

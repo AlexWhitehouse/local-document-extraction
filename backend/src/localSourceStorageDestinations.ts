@@ -71,8 +71,9 @@ export type WorkspaceSourceStorage = {
 export type WorkspaceSourceStorageResolver = (workspaceId: string) => WorkspaceSourceStorage;
 
 /**
- * A Workspace with its own bucket retains originals there under the installation's retention switch.
- * With Workspace storage turned off, saved buckets are ignored for new uploads but keep serving reads.
+ * A Workspace bucket retains new originals unless the Workspace opts out; the installation's retention
+ * switch covers installation storage only. With Workspace storage turned off, saved buckets are ignored
+ * for new uploads but keep serving reads.
  */
 export function workspaceSourceStorageResolver(
   installation: LocalSourceStorageConfiguration,
@@ -80,7 +81,7 @@ export function workspaceSourceStorageResolver(
 ): WorkspaceSourceStorageResolver {
   return (workspaceId) =>
     installation.workspaceOverridesEnabled && destinations?.current(workspaceId)
-      ? { provider: "s3", originalRetentionEnabled: installation.originalRetentionEnabled, location: "workspace" }
+      ? { provider: "s3", originalRetentionEnabled: true, location: "workspace" }
       : {
           provider: installation.provider,
           originalRetentionEnabled: installation.originalRetentionEnabled,

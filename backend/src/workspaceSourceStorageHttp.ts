@@ -104,7 +104,7 @@ export function createWorkspaceSourceStorageHttp({
 
     if (!credentials && !current)
       throw invalid("Enter an access key ID and secret access key for the bucket.");
-    await assertEndpointAllowed(location.endpoint, resolveAddresses);
+    await assertEndpointAllowed(location, resolveAddresses);
 
     const configuration: S3SourceStorageConfiguration = {
       ...location,
@@ -392,25 +392,32 @@ function pickCredentials(configuration: S3SourceStorageConfiguration): SourceSto
 }
 
 /**
- * Workspace admins choose the endpoint, so the server refuses link-local and cloud metadata addresses.
+ * Workspace admins choose the endpoint, so the server refuses link-local and cloud metadata addresses for
+ * every host a request goes to, including a virtual-hosted bucket's own hostname.
  * Private networks stay allowed, as for the model gateway. The check runs on save and test; a hostname
  * that later resolves elsewhere is not re-checked.
  */
-async function assertEndpointAllowed(endpoint: string | undefined, resolveAddresses: EndpointAddressLookup) {
-  if (!endpoint) return;
-  const hostname = new URL(endpoint).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+async function assertEndpointAllowed(location: S3SourceStorageLocation, resolveAddresses: EndpointAddressLookup) {
+  if (!location.endpoint) return;
+  const hostname = new URL(location.endpoint).hostname.replace(/^\[|\]$/g, "").toLowerCase();
 
-  if (BLOCKED_HOSTNAMES.has(hostname)) throw blockedEndpoint();
-  let addresses: string[];
+  // Virtual-hosted requests go to `<bucket>.<endpoint host>`, which can resolve differently from the host.
+  const requestHosts =
+    location.forcePathStyle || isIP(hostname) ? [hostname] : [hostname, `${location.bucket}.${hostname}`];
 
-  try {
-    addresses = isIP(hostname) ? [hostname] : await resolveAddresses(hostname);
-  } catch {
-    // An unresolvable endpoint fails the bucket test with a clearer message.
-    return;
+  for (const host of requestHosts) {
+    if (BLOCKED_HOSTNAMES.has(host)) throw blockedEndpoint();
+    let addresses: string[];
+
+    try {
+      addresses = isIP(host) ? [host] : await resolveAddresses(host);
+    } catch {
+      // An unresolvable endpoint fails the bucket test with a clearer message.
+      continue;
+    }
+
+    if (addresses.some(isBlockedAddress)) throw blockedEndpoint();
   }
-
-  if (addresses.some(isBlockedAddress)) throw blockedEndpoint();
 }
 
 function blockedEndpoint() {

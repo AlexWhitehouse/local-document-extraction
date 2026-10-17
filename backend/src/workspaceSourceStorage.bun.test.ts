@@ -107,7 +107,8 @@ async function harness({
 
   const sourceStorage: LocalSourceStorageConfiguration = installationBucket
     ? { provider: "s3", originalRetentionEnabled: true, workspaceOverridesEnabled: overridesEnabled, s3: installation }
-    : { provider: "none", originalRetentionEnabled: true, workspaceOverridesEnabled: overridesEnabled };
+    : // Installers write SOURCE_ORIGINAL_RETENTION_ENABLED=false with no store; Workspace buckets still retain.
+      { provider: "none", originalRetentionEnabled: false, workspaceOverridesEnabled: overridesEnabled };
 
   const createdStores: string[] = [];
 
@@ -442,6 +443,27 @@ test("link-local and cloud metadata endpoints are refused before any request is 
       "source_storage_endpoint_blocked",
     );
   }
+
+  // A virtual-hosted request goes to `<bucket>.<host>`, so that name is checked as well.
+  const virtualHosted = await harness({
+    resolveAddresses: async (hostname) =>
+      hostname.startsWith("tenant-documents.") ? ["169.254.169.254"] : ["10.0.0.5"],
+  });
+
+  expect(
+    await errorCode(
+      await virtualHosted.save(bucketSettings("http://storage.example.test:9000", { force_path_style: false }), {
+        "if-none-match": "*",
+      }),
+    ),
+  ).toBe("source_storage_endpoint_blocked");
+  expect(
+    await errorCode(
+      await virtualHosted.save(bucketSettings("http://storage.example.test:9000", { force_path_style: true }), {
+        "if-none-match": "*",
+      }),
+    ),
+  ).not.toBe("source_storage_endpoint_blocked");
 
   expect(isBlockedAddress("::ffff:169.254.10.1")).toBe(true);
   // URL rewrites embedded IPv4 as hex, so every IPv4-in-IPv6 spelling must be decoded.
