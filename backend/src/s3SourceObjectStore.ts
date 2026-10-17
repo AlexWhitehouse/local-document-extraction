@@ -104,6 +104,8 @@ const DEFAULT_WRITE_DEADLINE_MS = 60_000;
 
 const DEFAULT_READ_DEADLINE_MS = 15_000;
 
+const PROBE_READ_DEADLINE_MS = 15_000;
+
 /**
  * Bun's S3 client accepts no AbortSignal, so deadlines bound how long callers wait but cannot stop the
  * request. Callers therefore write each attempt under a unique key and treat a timed-out write as
@@ -191,7 +193,10 @@ export class SourceStorageProbeError extends Error {
 /** Writes, reads back and deletes a small synthetic object under the configured prefix. */
 export async function probeS3SourceStorage(
   configuration: S3SourceStorageConfiguration,
-  { createStore = createS3SourceObjectStore }: { createStore?: typeof createS3SourceObjectStore } = {},
+  {
+    createStore = createS3SourceObjectStore,
+    readDeadlineMs = PROBE_READ_DEADLINE_MS,
+  }: { createStore?: typeof createS3SourceObjectStore; readDeadlineMs?: number } = {},
 ): Promise<void> {
   const store = createStore(configuration, { writeDeadlineMs: 15_000, readDeadlineMs: 15_000 });
   const key = `${configuration.prefix}.setup-probe/${crypto.randomUUID()}.txt`;
@@ -224,10 +229,47 @@ export async function probeS3SourceStorage(
 
   try {
     const object = await run("read", "read the test object back", () => store.open(key));
-    const text = await run("read", "read the test object back", () => new Response(object.stream()).text());
+
+    const text = await run("read", "read the test object back", () =>
+      readSmallText(object.stream(), Buffer.byteLength(body), readDeadlineMs),
+    );
 
     if (text !== body) throw new SourceStorageProbeError("read", "the test object read back did not match");
   } finally {
     await run("delete", `delete the test object ${key}`, () => store.delete(key));
+  }
+}
+
+
+/**
+ * Reads a small text body under a deadline and a byte bound, cancelling the stream on either, so an
+ * endpoint that stalls or streams far more than the expected bytes cannot hang the caller or fill memory.
+ */
+async function readSmallText(stream: ReadableStream<Uint8Array>, expectedBytes: number, deadlineMs: number) {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new SourceObjectUnavailableError(`S3 read exceeded ${deadlineMs}ms`)), deadlineMs);
+  });
+
+  try {
+    for (;;) {
+      const { done, value } = await Promise.race([reader.read(), deadline]);
+
+      if (done) break;
+      received += value.byteLength;
+
+      // One byte past the expected length is enough to know the body does not match.
+      if (received > expectedBytes) return new TextDecoder().decode(Buffer.concat([...chunks, value]).subarray(0, expectedBytes + 1));
+      chunks.push(value);
+    }
+
+    return new TextDecoder().decode(Buffer.concat(chunks));
+  } finally {
+    clearTimeout(timer);
+    await reader.cancel().catch(() => undefined);
   }
 }

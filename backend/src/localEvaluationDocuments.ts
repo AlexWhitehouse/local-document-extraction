@@ -44,7 +44,7 @@ import type {
   LocalWorkspaceProductStoreHandle,
   LocalWorkspaceProductStoreRegistry,
 } from "./localWorkspaceProductStoreRegistry";
-import type { LocalRetainedSourceObjects } from "./localRetainedSourceObjectRouting";
+import type { LocalRetainedSourceObjects, RetainedObjectDestination } from "./localRetainedSourceObjectRouting";
 import {
   workspaceSourceStorageResolver,
   type LocalSourceStorageDestinations,
@@ -260,6 +260,8 @@ export function createLocalEvaluationDocuments({
     // Captured once, when the server begins accepting the save; later setting changes apply to later saves.
     const storage = storageFor(workspace.id);
     const status = saveStatus(storage, workspace);
+    // The bucket is fixed with the decision: this save finishes there even if the settings change meanwhile.
+    const destination = storage.provider === "s3" ? (sourceObjects?.destinationFor(workspace.id) ?? null) : null;
     const workspaceId = workspace.id;
 
     return access.run({ workspaceId, mode: "create" }, async ({ store, signal: workspaceSignal }) => {
@@ -334,6 +336,7 @@ export function createLocalEvaluationDocuments({
         if (storage.provider === "s3") {
           objectKey = await publishOriginal({
             objects: sourceObjects,
+            destination,
             workspaceId,
             documentId,
             mimeType,
@@ -851,6 +854,7 @@ function saveStatus(
  */
 async function publishOriginal({
   objects,
+  destination,
   workspaceId,
   documentId,
   mimeType,
@@ -858,15 +862,14 @@ async function publishOriginal({
   signal,
 }: {
   objects?: LocalRetainedSourceObjects;
+  /** Resolved when the save started; null when no bucket was available then. */
+  destination: RetainedObjectDestination | null;
   workspaceId: string;
   documentId: string;
   mimeType: string;
   path: string;
   signal: AbortSignal;
 }): Promise<string> {
-  // Resolved once: this save finishes in the bucket it starts in, even if the Workspace's settings change.
-  const destination = objects?.destinationFor(workspaceId);
-
   if (!objects || !destination)
     throw new SourceUnavailableError("Object storage is not available for library originals");
   const objectKey = destination.documentKeyFor({ workspaceId, documentId, mimeType });

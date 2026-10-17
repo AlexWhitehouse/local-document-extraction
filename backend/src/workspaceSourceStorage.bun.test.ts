@@ -167,6 +167,43 @@ async function harness({
       body: JSON.stringify({ confirm_unversioned_bucket: true, ...body }),
     });
 
+  /** Starts an upload whose body pauses part-way until `resume` is called. */
+  const submitPaused = async () => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage();
+    const form = new FormData();
+    form.set("template_id", "tpl_invoice");
+    form.set("document", new File([new Uint8Array(await pdf.save())], "invoice.pdf", { type: "application/pdf" }));
+    const encoded = new Response(form);
+    // Bun drops the generated multipart type once the body is read, so take it first.
+    const contentType = encoded.headers.get("content-type") ?? "";
+    const bytes = new Uint8Array(await encoded.arrayBuffer());
+    let resume = () => {};
+
+    const resumed = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(bytes.subarray(0, 64));
+        await resumed;
+        controller.enqueue(bytes.subarray(64));
+        controller.close();
+      },
+    });
+
+    const response = application(
+      new Request("http://localhost/v1/extract", {
+        method: "POST",
+        body,
+        headers: { authorization: "Bearer key-a", "content-type": contentType },
+      }),
+    );
+
+    return { response, resume };
+  };
+
   const submit = async () => {
     const pdf = await PDFDocument.create();
     pdf.addPage();
@@ -214,6 +251,7 @@ async function harness({
 
   return {
     api,
+    submitPaused,
     cleanupAt,
     createdStores,
     destinations,
@@ -442,6 +480,66 @@ test("new originals go to the Workspace bucket, and a new location leaves earlie
   await h.cleanupAt(Date.now() + LATER).run();
   expect(first.objects.has(firstKey)).toBe(false);
   expect(await body(await h.settings())).toMatchObject({ previous_locations_pending: 0 });
+});
+
+test("an upload that starts before the bucket moves finishes in the bucket it started with", async () => {
+  const h = await harness();
+  const first = fakeBucket();
+  const second = fakeBucket();
+  expect((await h.save(bucketSettings(first.endpoint), { "if-none-match": "*" })).status).toBe(200);
+
+  const upload = await h.submitPaused();
+  await Bun.sleep(20);
+  expect((await h.save(bucketSettings(second.endpoint), { "if-match": '"source-storage-1"' })).status).toBe(200);
+  upload.resume();
+  const response = await upload.response;
+  expect(response.status).toBe(202);
+  const key = h.retainedKey((await readJobAdmission(response)).job_id);
+  expect(first.objects.has(key)).toBe(true);
+  expect(second.objects.has(key)).toBe(false);
+});
+
+test("the bucket test gives up on an endpoint that stalls or streams an oversized object", async () => {
+  for (const behaviour of ["stall", "oversized"] as const) {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(request) {
+        if (request.method === "PUT" || request.method === "DELETE") return new Response(null, { status: 200 });
+
+        if (request.method === "HEAD")
+          return new Response(null, { headers: { "content-length": "64", etag: '"1"', "last-modified": new Date().toUTCString() } });
+
+        const body = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            if (behaviour === "stall") await Bun.sleep(60_000);
+            controller.enqueue(new Uint8Array(1024 * 1024).fill(65));
+          },
+        });
+
+        return new Response(body, { headers: { "content-type": "text/plain" } });
+      },
+    });
+
+    cleanups.push(() => server.stop(true));
+    const started = Date.now();
+
+    const probing = probeS3SourceStorage(
+      {
+        bucket: "tenant-documents",
+        region: "eu-west-2",
+        endpoint: `http://127.0.0.1:${server.port}`,
+        forcePathStyle: true,
+        prefix: "tenant/",
+        accessKeyId: "tenant-access-key",
+        secretAccessKey: "tenant-secret-key",
+      },
+      { readDeadlineMs: 200 },
+    );
+
+    await expect(probing).rejects.toMatchObject({ stage: "read" });
+    expect(Date.now() - started).toBeLessThan(5_000);
+  }
 });
 
 test("rotating credentials keeps the location and rebuilds its client; unreadable credentials need new keys", async () => {

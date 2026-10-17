@@ -44,7 +44,7 @@ import {
 } from "./workspaceModelConfiguration";
 import type { FetchApplication } from "./localRuntime";
 import type { LocalSourceStorageConfiguration } from "./localConfiguration";
-import type { LocalRetainedSourceObjects } from "./localRetainedSourceObjectRouting";
+import type { LocalRetainedSourceObjects, RetainedObjectDestination } from "./localRetainedSourceObjectRouting";
 import {
   workspaceSourceStorageResolver,
   type LocalSourceStorageDestinations,
@@ -804,6 +804,11 @@ export function handleLocalDocumentSubmission({
       // Captured once, when the server begins accepting the upload; later setting changes apply to later uploads.
       const storage = sourceStorage(workspaceId);
       const sourceRetained = retainsNewOriginals(storage, workspace);
+
+      // The bucket is fixed with the decision: this upload finishes there even if the settings change meanwhile.
+      const destination =
+        sourceRetained && storage.provider === "s3" ? (product.sourceObjects?.destinationFor(workspaceId) ?? null) : null;
+
       const maximumBytes = workspace.max_source_file_bytes ?? maxSourceFileBytes;
       const signal = AbortSignal.any([request.signal, workspaceSignal]);
 
@@ -901,6 +906,7 @@ export function handleLocalDocumentSubmission({
             sourceRetained && storage.provider === "s3"
               ? await publishRetainedOriginal({
                   product,
+                  destination,
                   workspaceId,
                   jobId,
                   sourceFileKey,
@@ -1676,6 +1682,7 @@ class SourceStorageUnavailableError extends Error {}
  */
 async function publishRetainedOriginal({
   product,
+  destination,
   workspaceId,
   jobId,
   sourceFileKey,
@@ -1684,6 +1691,8 @@ async function publishRetainedOriginal({
   ownerKind = "job",
 }: {
   product: ProductServices;
+  /** Resolved when the upload started; null when no bucket was available then. */
+  destination: RetainedObjectDestination | null;
   workspaceId: string;
   jobId: string;
   ownerKind?: "job" | "packet";
@@ -1692,8 +1701,6 @@ async function publishRetainedOriginal({
   signal: AbortSignal;
 }): Promise<string> {
   const objects = product.sourceObjects;
-  // Resolved once: this attempt finishes in the bucket it starts in, even if the Workspace's settings change.
-  const destination = objects?.destinationFor(workspaceId);
   const file = objects && destination && (await product.sourceFileStore.open?.(sourceFileKey));
 
   if (!objects || !destination || !file) {
