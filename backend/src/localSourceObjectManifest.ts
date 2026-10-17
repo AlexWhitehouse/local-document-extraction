@@ -55,11 +55,10 @@ export type LocalSourceObjectManifest = {
   markJobDeleting(input: { workspaceId: string; jobId: string }): void;
   markOwnerDeleting(input: { workspaceId: string; ownerKind: SourceObjectOwnerKind; ownerId: string }): void;
   markWorkspaceDeleting(input: { workspaceId: string }): void;
-  /**
-   * Due deletions, up to `limit` from each destination, so a backlog in one unreachable bucket can never
-   * crowd other buckets out of a sweep.
-   */
-  listDueDeletions(input: { now: string; limit: number }): SourceObjectManifestEntry[];
+  /** Destinations with due deletions, earliest due first. */
+  dueDestinations(input: { now: string }): string[];
+  /** One destination's due deletions, so a backlog in one bucket never crowds out another. */
+  listDueDeletions(input: { now: string; destinationId: string; limit: number }): SourceObjectManifestEntry[];
   listStalePreparing(input: { before: string; limit: number }): SourceObjectManifestEntry[];
   deferDeletion(input: { objectKey: string; nextAttemptAt: string; failed: boolean }): void;
   remove(input: { objectKey: string }): void;
@@ -248,15 +247,21 @@ export function createLocalSourceObjectManifest(database: Database): LocalSource
     markWorkspaceDeleting: ({ workspaceId }) => {
       setPhase("workspace_id = ?", workspaceId);
     },
-    listDueDeletions: ({ now, limit }) =>
+    dueDestinations: ({ now }) =>
+      database
+        .query<{ destination_id: string }, SQLQueryBindings[]>(
+          `SELECT destination_id FROM source_object_manifest WHERE phase = 'deleting' AND next_attempt_at <= ?
+           GROUP BY destination_id ORDER BY MIN(next_attempt_at), destination_id`,
+        )
+        .all(now)
+        .map((row) => row.destination_id),
+    listDueDeletions: ({ now, destinationId, limit }) =>
       database
         .query<SourceObjectManifestEntry, SQLQueryBindings[]>(
-          `SELECT object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM (
-             SELECT *, ROW_NUMBER() OVER (PARTITION BY destination_id ORDER BY next_attempt_at, object_key) AS position
-             FROM source_object_manifest WHERE phase = 'deleting' AND next_attempt_at <= ?
-           ) WHERE position <= ? ORDER BY next_attempt_at, object_key`,
+          `SELECT object_key, destination_id, workspace_id, owner_kind, owner_id, phase, created_at, attempts FROM source_object_manifest
+       WHERE phase = 'deleting' AND destination_id = ? AND next_attempt_at <= ? ORDER BY next_attempt_at, object_key LIMIT ?`,
         )
-        .all(now, limit),
+        .all(destinationId, now, limit),
     listStalePreparing: ({ before, limit }) =>
       database
         .query<SourceObjectManifestEntry, SQLQueryBindings[]>(
@@ -327,4 +332,6 @@ const MANIFEST_INDEXES = `
     ON source_object_manifest(workspace_id, owner_kind, owner_id);
   CREATE INDEX IF NOT EXISTS idx_source_object_manifest_destination
     ON source_object_manifest(destination_id);
+  CREATE INDEX IF NOT EXISTS idx_source_object_manifest_destination_due
+    ON source_object_manifest(destination_id, next_attempt_at, object_key) WHERE phase = 'deleting';
 `;

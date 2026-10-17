@@ -6,6 +6,12 @@ import type { SourceObjectStore } from "./s3SourceObjectStore";
 
 const BATCH_SIZE = 100;
 
+/** Buckets swept per run; the rest wait their turn, least recently swept first. */
+const MAX_DESTINATIONS_PER_SWEEP = 8;
+
+/** Buckets swept at the same time, so many Workspace buckets cannot exhaust sockets or memory. */
+const DESTINATION_CONCURRENCY = 4;
+
 /** Longer than any admission can take, so an in-flight upload is never treated as abandoned. */
 const PREPARING_GRACE_MS = 15 * 60_000;
 
@@ -35,8 +41,9 @@ export type LocalSourceObjectCleanup = {
  * Unreadable product data is uncertainty, not proof. Failed deletions retry with backoff
  * indefinitely; intent is never discarded after a retry limit.
  *
- * Each bucket is swept independently and concurrently. A bucket stops for the rest of a sweep at its
- * first failure, so an unreachable Workspace bucket costs one timed-out request per sweep, not a batch.
+ * Each bucket is swept independently, a few at a time, taking turns across runs. A bucket stops for the
+ * rest of a sweep at its first failure, so an unreachable Workspace bucket costs one timed-out request
+ * per sweep, not a batch, and never delays another bucket's turn.
  */
 export function createLocalSourceObjectCleanup({
   manifest,
@@ -66,6 +73,7 @@ export function createLocalSourceObjectCleanup({
   random?: () => number;
 }): LocalSourceObjectCleanup {
   let activeRun: Promise<void> | null = null;
+  const lastSwept = new Map<string, number>();
 
   const snapshot: LocalSourceObjectCleanupSnapshot = {
     deleted: 0,
@@ -155,10 +163,28 @@ export function createLocalSourceObjectCleanup({
     return true;
   };
 
-  const sweepDestination = async (entries: SourceObjectManifestEntry[]) => {
-    for (const entry of entries) {
+  const sweepDestination = async (destinationId: string, at: string) => {
+    lastSwept.set(destinationId, now());
+
+    for (const entry of manifest.listDueDeletions({ now: at, destinationId, limit: BATCH_SIZE })) {
       if (!(await deleteObject(entry))) return;
     }
+  };
+
+  /** Due buckets, least recently swept first; ties keep the earliest-due order. */
+  const destinationsInTurn = (at: string) => {
+    const due = manifest.dueDestinations({ now: at });
+    const dueSet = new Set(due);
+
+    for (const destinationId of lastSwept.keys()) {
+      if (!dueSet.has(destinationId)) lastSwept.delete(destinationId);
+    }
+
+    return due
+      .map((destinationId, order) => ({ destinationId, order, swept: lastSwept.get(destinationId) ?? -Infinity }))
+      .sort((a, b) => a.swept - b.swept || a.order - b.order)
+      .slice(0, MAX_DESTINATIONS_PER_SWEEP)
+      .map((turn) => turn.destinationId);
   };
 
   const sweep = async () => {
@@ -169,16 +195,15 @@ export function createLocalSourceObjectCleanup({
       settlePreparing(entry);
     }
 
-    const byDestination = new Map<string, SourceObjectManifestEntry[]>();
+    const at = new Date(now()).toISOString();
+    const queue = destinationsInTurn(at);
 
-    for (const entry of manifest.listDueDeletions({ now: new Date(now()).toISOString(), limit: BATCH_SIZE })) {
-      const entries = byDestination.get(entry.destination_id);
+    const worker = async () => {
+      for (let destinationId = queue.shift(); destinationId !== undefined; destinationId = queue.shift())
+        await sweepDestination(destinationId, at);
+    };
 
-      if (entries) entries.push(entry);
-      else byDestination.set(entry.destination_id, [entry]);
-    }
-
-    await Promise.all([...byDestination.values()].map(sweepDestination));
+    await Promise.all(Array.from({ length: Math.min(DESTINATION_CONCURRENCY, queue.length) }, worker));
     // Uploads resolve their destination just before recording it, so wait out that window before forgetting one.
     destinations?.pruneRetired({
       pending: manifest.countsByDestination(),

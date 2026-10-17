@@ -22,7 +22,7 @@ export type SourceStorageCredentialVault = {
   decrypt(destinationId: string, envelope: string): string;
 };
 
-/** A Workspace-owned S3-compatible bucket. Its location never changes; only its credentials can. */
+/** A Workspace-owned S3-compatible bucket. Its location never changes; its region and credentials can. */
 export type WorkspaceSourceStorageDestination = {
   id: string;
   workspaceId: string;
@@ -202,14 +202,16 @@ export function createLocalSourceStorageDestinations({
           if ((current?.revision ?? null) !== expectedRevision) return null;
           const at = nowIso();
 
+          // The region only signs requests; objects stay where they are, so it can change in place.
           if (current && sourceObjectDestination(rowLocation(current)) === sourceObjectDestination(location)) {
             const replacement = credentials ?? credentialsOf(current);
             database
               .query(
-                `UPDATE source_storage_destinations SET credential_ciphertext = ?, access_key_id_hint = ?, revision = ?, updated_at = ?
+                `UPDATE source_storage_destinations SET region = ?, credential_ciphertext = ?, access_key_id_hint = ?, revision = ?, updated_at = ?
                  WHERE id = ?`,
               )
               .run(
+                location.region,
                 vault.encrypt(current.id, JSON.stringify(replacement)),
                 accessKeyIdHint(replacement.accessKeyId),
                 current.revision + 1,

@@ -597,7 +597,11 @@ test("existing job manifest rows migrate to explicit job ownership without chang
   expect(rows()).toEqual(migrated);
   expect(manifest.namespace()).toBe("ns1");
   expect(() => manifest.assertDestination("s3|aws|other|app/|path")).toThrow("3 retained original(s)");
-  expect(manifest.listDueDeletions({ now: "2026-01-04T00:00:00.000Z", limit: 10 })).toMatchObject([
+  expect(manifest.listDueDeletions({
+      now: "2026-01-04T00:00:00.000Z",
+      destinationId: INSTALLATION_DESTINATION_ID,
+      limit: 10,
+    })).toMatchObject([
     { owner_kind: "job", owner_id: "job_c", attempts: 4 },
   ]);
 

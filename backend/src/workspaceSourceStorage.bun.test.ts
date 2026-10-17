@@ -19,7 +19,7 @@ import { createLocalSourceStorageDestinations } from "./localSourceStorageDestin
 import { createLocalWorkspaceDeletion } from "./localWorkspaceDeletion";
 import type { LocalWorkspace } from "./localWorkspaceControl";
 import { createLocalWorkspaceProductStoreRegistry } from "./localWorkspaceProductStoreRegistry";
-import { createS3SourceObjectStore, SourceObjectUnavailableError } from "./s3SourceObjectStore";
+import { createS3SourceObjectStore, probeS3SourceStorage, SourceObjectUnavailableError } from "./s3SourceObjectStore";
 import { startFakeS3Server } from "./testing/fakeS3Server";
 import { configureTestWorkspace } from "./testing/workspaceModelFixture";
 import { createWorkspaceCredentialVault } from "./workspaceModelConfiguration";
@@ -47,11 +47,13 @@ async function harness({
   overridesEnabled = true,
   role = "owner",
   resolveAddresses = async () => ["10.0.0.5"],
+  probe = probeS3SourceStorage,
 }: {
   installationBucket?: boolean;
   overridesEnabled?: boolean;
   role?: LocalWorkspace["role"];
   resolveAddresses?: (hostname: string) => Promise<string[]>;
+  probe?: (configuration: S3SourceStorageConfiguration) => Promise<void>;
 } = {}) {
   const installationS3 = fakeBucket();
   const stateDirectory = await mkdtemp(join(tmpdir(), "workspace-source-storage-"));
@@ -149,6 +151,7 @@ async function harness({
       installationProvider: sourceStorage.provider,
       overridesEnabled,
       resolveAddresses,
+      probe,
     }),
     sourceObjects,
     scheduleQueuedJob: async () => {},
@@ -321,6 +324,24 @@ test("members cannot read or change storage settings, and the retention summary 
   expect(await retention()).toMatchObject({ storage_configured: true, storage_location: "workspace" });
 });
 
+test("a member removed or demoted while the bucket test runs cannot save it", async () => {
+  let duringProbe = () => {};
+
+  const h = await harness({
+    probe: async () => {
+      duringProbe();
+    },
+  });
+
+  duringProbe = () => {
+    h.workspace.role = "member";
+  };
+
+  const saved = await h.save(bucketSettings("http://storage.internal:9000"), { "if-none-match": "*" });
+  expect(await errorCode(saved)).toBe("insufficient_workspace_role");
+  expect(h.destinations.current(WORKSPACE_ID)).toBeNull();
+});
+
 test("a failed bucket test saves nothing and names the stage that failed", async () => {
   const h = await harness();
   const tenant = fakeBucket();
@@ -436,6 +457,14 @@ test("rotating credentials keeps the location and rebuilds its client; unreadabl
 
   expect(rotated.status).toBe(200);
   expect(h.destinations.current(WORKSPACE_ID)).toMatchObject({ id: destinationId, revision: 2, accessKeyIdHint: "…-key" });
+
+  // The region only signs requests, so correcting it keeps the destination and its objects.
+  const corrected = await h.save(bucketSettings(tenant.endpoint, { region: "us-west-1", access_key_id: "rotated-access-key" }), {
+    "if-match": '"source-storage-2"',
+  });
+
+  expect(await body(corrected)).toMatchObject({ override: { region: "us-west-1", revision: 3 } });
+  expect(h.destinations.current(WORKSPACE_ID)).toMatchObject({ id: destinationId, location: { region: "us-west-1" } });
   expect((await h.api(`/jobs/${jobId}/source`)).status).toBe(200);
   expect(h.createdStores.filter((store) => store.startsWith("tenant-documents:"))).toEqual([
     "tenant-documents:tenant-access-key",
@@ -448,7 +477,7 @@ test("rotating credentials keeps the location and rebuilds its client; unreadabl
   expect(
     await errorCode(
       await h.save(bucketSettings(tenant.endpoint, { access_key_id: null, secret_access_key: null }), {
-        "if-match": '"source-storage-2"',
+        "if-match": '"source-storage-3"',
       }),
     ),
   ).toBe("source_storage_credentials_unavailable");

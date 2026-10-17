@@ -60,7 +60,11 @@ test("widens the existing manifest constraint atomically without losing cleanup 
   const migrated = db.query("SELECT * FROM source_object_manifest ORDER BY object_key").all();
   createLocalSourceObjectManifest(db);
   expect(db.query("SELECT * FROM source_object_manifest ORDER BY object_key").all()).toEqual(migrated);
-  expect(manifest.listDueDeletions({ now: "2026-01-04T00:00:00.000Z", limit: 10 })).toMatchObject([
+  expect(manifest.listDueDeletions({
+      now: "2026-01-04T00:00:00.000Z",
+      destinationId: INSTALLATION_DESTINATION_ID,
+      limit: 10,
+    })).toMatchObject([
     { object_key: "job", attempts: 4 },
   ]);
 });
@@ -213,4 +217,57 @@ test("a backlog in one unreachable bucket never crowds other buckets out of a cl
   expect(deleted).toEqual(["healthy"]);
   // The unreachable bucket stops at its first failure in the sweep.
   expect(unreachableAttempts).toBe(1);
+});
+
+test("cleanup sweeps a few buckets at a time and gives every due bucket a turn", async () => {
+  const db = database();
+  const manifest = createLocalSourceObjectManifest(db);
+  const failing = Array.from({ length: 9 }, (_, index) => `dst_failing_${index}`);
+
+  for (const destinationId of [...failing, "dst_healthy"]) {
+    manifest.prepare({
+      objectKey: `${destinationId}/object`,
+      destinationId,
+      workspaceId: "w",
+      ownerKind: "job",
+      ownerId: `job_${destinationId}`,
+    });
+  }
+
+  manifest.markWorkspaceDeleting({ workspaceId: "w" });
+  db.query("UPDATE source_object_manifest SET created_at = ?, next_attempt_at = ?").run(at, at);
+  // The healthy bucket falls due last, behind more failing buckets than one sweep takes.
+  db.query("UPDATE source_object_manifest SET next_attempt_at = ? WHERE destination_id = 'dst_healthy'").run(
+    "2026-01-02T00:00:00.000Z",
+  );
+  const deleted: string[] = [];
+  let inFlight = 0;
+  let peak = 0;
+
+  const cleanup = createLocalSourceObjectCleanup({
+    manifest,
+    productStoreRegistry: { acquire: () => null },
+    workspaceControl: { workspaceExists: () => false },
+    storeFor: (destinationId) => ({
+      delete: async (key) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await Bun.sleep(5);
+        inFlight -= 1;
+
+        if (destinationId !== "dst_healthy") throw new Error("unreachable");
+        deleted.push(key);
+      },
+    }),
+    // Failed deletions back off well past this instant, so only never-tried work stays due.
+    now: () => Date.parse("2026-01-03T00:00:00.000Z"),
+    random: () => 0,
+  });
+
+  await cleanup.run();
+  expect(peak).toBe(4);
+  expect(deleted).toEqual([]);
+
+  await cleanup.run();
+  expect(deleted).toEqual(["dst_healthy/object"]);
 });

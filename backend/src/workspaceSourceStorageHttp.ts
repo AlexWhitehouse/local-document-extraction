@@ -122,19 +122,23 @@ export function createWorkspaceSourceStorageHttp({
     return { location, credentials };
   };
 
+  const assertManager = (workspaceId: string, userId: string) => {
+    const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId });
+
+    if (!workspace) throw new HttpError(403, "forbidden", "Workspace access is unavailable.");
+
+    if (workspace.role !== "owner" && workspace.role !== "admin")
+      throw new HttpError(
+        403,
+        "insufficient_workspace_role",
+        "Only Workspace owners and admins can manage document storage.",
+      );
+  };
+
   return {
     async handle({ request, workspaceId, userId, test }) {
       try {
-        const workspace = workspaceControl.getAcceptedWorkspaceContext({ workspaceId, userId });
-
-        if (!workspace) throw new HttpError(403, "forbidden", "Workspace access is unavailable.");
-
-        if (workspace.role !== "owner" && workspace.role !== "admin")
-          throw new HttpError(
-            403,
-            "insufficient_workspace_role",
-            "Only Workspace owners and admins can manage document storage.",
-          );
+        assertManager(workspaceId, userId);
         const allowed = test ? ["POST"] : ["GET", "PUT", "DELETE"];
 
         if (!allowed.includes(request.method))
@@ -181,6 +185,8 @@ export function createWorkspaceSourceStorageHttp({
             "Confirm that the bucket does not use object versioning or Object Lock.",
           );
         const { location, credentials } = await testedConfiguration(body, current);
+        // The bucket test can take many seconds; a member removed or demoted meanwhile must not save.
+        assertManager(workspaceId, userId);
         let saved: WorkspaceSourceStorageDestination | null;
 
         try {
