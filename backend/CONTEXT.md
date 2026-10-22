@@ -24,6 +24,14 @@ _Avoid_: outbound delivery, SMTP, email bypass
 A user with application-wide account management authority, separate from any workspace-scoped role.
 _Avoid_: workspace admin, owner, support user
 
+**Installation admin**:
+An Application admin or an account whose normalised email is configured in `DOCUMENT_EXTRACTION_ADMIN_EMAILS`. In invite-only mode, this grants installation access and Workspace creation; it does not promote an existing account's Application admin role.
+_Avoid_: workspace admin, installation owner
+
+**Invite-only sign-up**:
+Account creation restricted to configured admin emails and pending, unexpired Workspace invitations. Sessions require installation admin status, a pending invitation, or Workspace membership.
+_Avoid_: closed registration, disabled sign-up
+
 **Workspace**:
 An environment a user can access only after they have a workspace membership.
 _Avoid_: group, account, tenant
@@ -580,7 +588,7 @@ The **Go document processor** executes Document processing stages through a priv
 - A **Workspace member action** may remove a member, make a member an admin, make an admin a member, or transfer workspace ownership to a member.
 - Only the owner makes a member an admin or an admin a member. An owner is never demoted directly: transferring ownership makes the previous owner an admin. Nobody applies a **Workspace member action** to themselves; unpermitted actions return `403 forbidden` and an unknown target returns `404 not_found`.
 - **Leave Workspace** removes a non-owner member's **Workspace membership** without deleting the **Workspace**.
-- **Leave Workspace** creates a **Replacement personal Workspace** when it removes the user's last accepted **Workspace**.
+- In open mode, **Leave Workspace** creates a **Replacement personal Workspace** when it removes the user's last accepted **Workspace**. In invite-only mode, non-installation-admins cannot leave their last Workspace; only installation admins can create Workspaces.
 - A **Pending workspace invitation context** is locked until the **Workspace invitation** is accepted or declined.
 - **Workspace control data** identifies which **Workspace product data** a user or **Workspace API key** may access.
 - **Workspace product data** belongs to exactly one **Workspace**.

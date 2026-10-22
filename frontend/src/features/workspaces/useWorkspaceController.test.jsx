@@ -98,3 +98,40 @@ describe("workspace refresh scope", () => {
     expect(result.current.context.workspaceName).toBe("Workspace A");
   });
 });
+
+describe("workspace creation permission", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  function renderWith(workspaceList) {
+    const coreRequest = vi.fn(async (path) => (path === "/workspaces" ? workspaceList : { invitations: [], users: [] }));
+
+    const props = {
+      coreRequest,
+      hasSession: true,
+      sessionUserId: "user_1",
+      sessionId: "session_1",
+      showActionToast: vi.fn(),
+      onActivePageChange: vi.fn(),
+      onClearWorkspaceScopedData: vi.fn(),
+    };
+
+    return renderHook((value) => useWorkspaceController(value), { initialProps: props });
+  }
+
+  it("allows creation when an older server doesn't say", async () => {
+    const { result } = renderWith({ workspaces });
+
+    await waitFor(() => expect(result.current.context.workspaceId).toBe("workspace_a"));
+    expect(result.current.toolbar.canCreateWorkspace).toBe(true);
+  });
+
+  it("follows the server and resets on sign-out", async () => {
+    const { result } = renderWith({ workspaces: [{ ...workspaces[0], role: "member" }], can_create_workspaces: false });
+
+    await waitFor(() => expect(result.current.toolbar.canCreateWorkspace).toBe(false));
+    expect(result.current.toolbar.workspacePrimaryAction.unavailableReason).toBe("You can't leave your only workspace.");
+
+    act(() => result.current.actions.clearSessionWorkspaceData());
+    expect(result.current.toolbar.canCreateWorkspace).toBe(true);
+  });
+});

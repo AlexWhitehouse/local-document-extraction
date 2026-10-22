@@ -108,6 +108,7 @@ export function ActionMenu({ label, icon, items, disabled = false, size = "sm", 
               role="menuitem"
               className={item.danger ? "ui-action-menu-item danger" : "ui-action-menu-item"}
               disabled={item.disabled}
+              title={item.title}
               onClick={() => choose(item)}
             >
               {item.label}

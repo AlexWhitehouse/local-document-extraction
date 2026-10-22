@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
 import { useAuthProfileController } from "./useAuthProfileController.js";
 
 function renderProfile(authClient) {
@@ -79,6 +80,47 @@ describe("profile menu feedback", () => {
     expect(result.current.profileMenu.isSigningOut).toBe(false);
   });
 
+  describe("a session that ends", () => {
+    function renderSession() {
+      const props = {
+        toast: { error: vi.fn(), success: vi.fn() },
+        authClient,
+        refetchSession: vi.fn(async () => {}),
+        hasSession: true,
+        sessionUserName: "Ada Lovelace",
+        sessionUserEmail: "ada@example.com",
+        onSessionChanging: vi.fn(),
+        onClearWorkspaceScopedTemplates: vi.fn(),
+        onClearWorkspaceScopedDocuments: vi.fn(),
+        onClearSessionWorkspaceData: vi.fn(),
+      };
+
+      return { props, ...renderHook((value) => useAuthProfileController(value), { initialProps: props }) };
+    }
+
+    it("clears session state once when it ends without signing out here", () => {
+      const { props, rerender } = renderSession();
+
+      rerender({ ...props, hasSession: false });
+      rerender({ ...props, hasSession: false, sessionUserName: "" });
+
+      expect(props.onSessionChanging).toHaveBeenCalledOnce();
+      expect(props.onClearWorkspaceScopedTemplates).toHaveBeenCalledOnce();
+      expect(props.onClearWorkspaceScopedDocuments).toHaveBeenCalledOnce();
+      expect(props.onClearSessionWorkspaceData).toHaveBeenCalledOnce();
+    });
+
+    it("doesn't clear session state again after signing out", async () => {
+      const { props, result, rerender } = renderSession();
+
+      await act(async () => result.current.profileMenu.onSignOut());
+      rerender({ ...props, hasSession: false });
+
+      expect(props.onSessionChanging).toHaveBeenCalledOnce();
+      expect(props.onClearSessionWorkspaceData).toHaveBeenCalledOnce();
+    });
+  });
+
   it("marks only sign out as pending while the request runs", async () => {
     let finishSignOut;
     authClient.signOut.mockImplementation(() => new Promise((resolve) => (finishSignOut = resolve)));
@@ -102,11 +144,12 @@ describe("profile menu feedback", () => {
 });
 
 describe("auth form feedback", () => {
-  function renderAuth(authClient, initialAuthMode = "signin") {
+  function renderAuth(authClient, initialAuthMode = "signin", authOptions = DEFAULT_RUNTIME_CONFIGURATION.auth) {
     const toast = { error: vi.fn(), success: vi.fn() };
 
     const props = {
       toast,
+      authOptions,
       authClient,
       refetchSession: vi.fn(async () => {}),
       initialAuthMode,
@@ -168,6 +211,64 @@ describe("auth form feedback", () => {
     expect(authClient.signUp.email).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith("Passwords do not match.", expect.objectContaining({ id: "auth-form" }));
     expect(result.current.authScreen.fieldErrors).toEqual({ confirmPassword: "Passwords do not match." });
+  });
+
+  describe("invite-only sign-up", () => {
+    const inviteOnly = { emailPasswordEnabled: true, googleEnabled: false, signupEnabled: false };
+    const persistent = expect.objectContaining({ duration: Infinity });
+
+    async function submitSignUp(result) {
+      act(() => result.current.authScreen.onNameChange("Ada"));
+      act(() => result.current.authScreen.onEmailChange("ada@example.com"));
+      act(() => result.current.authScreen.onPasswordChange("Passw0rd!"));
+      act(() => result.current.authScreen.onConfirmPasswordChange("Passw0rd!"));
+      await act(async () => result.current.authScreen.onSubmit(event()));
+    }
+
+    it("still offers sign-up and sends it", async () => {
+      const authClient = { signUp: { email: vi.fn(async () => ({ data: {} })) } };
+      const { result } = renderAuth(authClient, "signin", inviteOnly);
+
+      act(() => result.current.authScreen.onSwitchMode("signup"));
+      expect(result.current.authScreen.mode).toBe("signup");
+      await submitSignUp(result);
+
+      expect(authClient.signUp.email).toHaveBeenCalledWith({ name: "Ada", email: "ada@example.com", password: "Passw0rd!" });
+    });
+
+    it("explains a sign-up without an invitation by its code", async () => {
+      const authClient = {
+        signUp: { email: vi.fn(async () => ({ error: { code: "INVITATION_REQUIRED", message: "Server wording", status: 403 } })) },
+      };
+
+      const { result, toast } = renderAuth(authClient, "signup", inviteOnly);
+
+      await submitSignUp(result);
+
+      expect(toast.error).toHaveBeenCalledWith(
+        "Sign-up is by invitation only. Ask a workspace admin to invite this email address.",
+        persistent,
+      );
+    });
+
+    it("explains a sign-in refused for lack of access, even when the wording mentions verification", async () => {
+      const authClient = {
+        signIn: {
+          email: vi.fn(async () => ({ error: { code: "ACCESS_REQUIRED", message: "Verified account has no access", status: 403 } })),
+        },
+      };
+
+      const { result, toast } = renderAuth(authClient, "signin", inviteOnly);
+
+      act(() => result.current.authScreen.onEmailChange("ada@example.com"));
+      act(() => result.current.authScreen.onPasswordChange("Passw0rd!"));
+      await act(async () => result.current.authScreen.onSubmit(event()));
+
+      expect(toast.error).toHaveBeenCalledWith(
+        "This account doesn't have access to any workspace. Ask a workspace admin to invite you.",
+        persistent,
+      );
+    });
   });
 
   it("clears a field error when that field changes", async () => {

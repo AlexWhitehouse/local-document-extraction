@@ -7,6 +7,7 @@ function unexpectedControlCall(): never {
 /** A complete dependency seam: unexpected control operations fail the test immediately. */
 export function workspaceControlFixture(overrides: Partial<LocalWorkspaceControl>): LocalWorkspaceControl {
   return {
+    canCreateWorkspaces: () => true,
     acceptInvitation: unexpectedControlCall,
     applyWorkspaceMemberAction: unexpectedControlCall,
     assertWorkspaceDeletion: unexpectedControlCall,

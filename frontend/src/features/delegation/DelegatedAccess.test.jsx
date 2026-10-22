@@ -177,7 +177,11 @@ describe("MCP connect: sign-in continuation", () => {
     await waitFor(() => expect(authCalls.signInSocial).toHaveBeenCalled());
     expect(authCalls.signInSocial.mock.calls[0]).toEqual([
       "delegated",
-      { provider: "google", callbackURL: `${window.location.origin}/mcp/connect?${SIGNED_QUERY}` },
+      {
+        provider: "google",
+        callbackURL: `${window.location.origin}/mcp/connect?${SIGNED_QUERY}`,
+        errorCallbackURL: `${window.location.origin}/mcp/connect?${SIGNED_QUERY}`,
+      },
     ]);
     // Google sign-in leaves the page; start again for sign-up.
     unmount();

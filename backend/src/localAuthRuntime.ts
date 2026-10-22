@@ -108,7 +108,7 @@ export async function createLocalAuthRuntime({
     return {
       auth,
       close: () => database.close(),
-      workspaceControl: createLocalWorkspaceControl(database),
+      workspaceControl: createLocalWorkspaceControl(database, { signupEnabled: settings.signupEnabled, adminEmails }),
       sourceObjectManifest,
       sourceObjectMoves: createLocalSourceObjectMoves({ database, manifest: sourceObjectManifest }),
       sourceStorageDestinations: createLocalSourceStorageDestinations({

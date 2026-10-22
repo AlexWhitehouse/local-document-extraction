@@ -146,6 +146,20 @@ export const TOUR_STEPS = [
   },
 ];
 
+// Without workspace creation, the tour starts in the workspace the user was invited to and
+// leaves its name alone.
+const WORKSPACE_SETUP_STEPS = new Set(["create-workspace", "workspace-name"]);
+
+export function getTourSteps({ canCreateWorkspace }) {
+  return canCreateWorkspace ? TOUR_STEPS : TOUR_STEPS.filter((step) => !WORKSPACE_SETUP_STEPS.has(step.id));
+}
+
+// A member of someone else's workspace couldn't finish the tour there: setting up the model needs
+// an owner or admin, and the tour's templates and uploads would land in a shared workspace.
+export function canOfferTour({ canCreateWorkspace, workspaceRole }) {
+  return canCreateWorkspace || ["owner", "admin"].includes(workspaceRole);
+}
+
 export function canContinueTour(check, { workspace, template, model, upload, busy }) {
   const fields = template.templateFields;
 

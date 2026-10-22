@@ -74,13 +74,13 @@ test("default signup establishes a session and bootstraps a Workspace without ma
   }
 });
 
-test("closed registration and disabled password login block signup without creating accounts", async () => {
+test("invite-only registration and disabled password login block uninvited signup without creating accounts", async () => {
   for (const settings of [{ signupEnabled: false }, { emailPasswordEnabled: false, googleEnabled: true }]) {
     const { database, messages, auth } = await fixture(settings);
 
     try {
       const response = await auth.handler(signup());
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(settings.signupEnabled === false ? 403 : 400);
       expect(database.query("SELECT count(*) AS count FROM user").get()).toEqual({ count: 0 });
       expect(messages).toHaveLength(0);
     } finally {
@@ -141,7 +141,7 @@ test("verification uses the configured sender and ignores untrusted forwarding h
   }
 });
 
-test("closed Google registration rejects new identities while existing Google accounts can sign in", async () => {
+test("invite-only Google registration admits admins and invitees and gates existing accounts", async () => {
   const originalFetch = globalThis.fetch;
   const database = new Database(":memory:");
   let identity = "existing";
@@ -166,6 +166,7 @@ test("closed Google registration rejects new identities while existing Google ac
         baseURL: origin,
         database,
         signupEnabled,
+        adminEmails: ["operator@example.org"],
         googleEnabled: true,
         googleClientId: "test-google-client",
         googleClientSecret: "test-google-secret",
@@ -180,7 +181,7 @@ test("closed Google registration rejects new identities while existing Google ac
         new Request(`${origin}/api/auth/sign-in/social`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ provider: "google", callbackURL: origin, requestSignUp: true }),
+          body: JSON.stringify({ provider: "google", callbackURL: origin, errorCallbackURL: `${origin}/auth`, requestSignUp: true }),
         }),
       );
 
@@ -201,12 +202,29 @@ test("closed Google registration rejects new identities while existing Google ac
     const created = await completeGoogleLogin(true);
     expect(created.headers.get("location")).toBe(origin);
     expect(database.query("SELECT count(*) AS count FROM user").get()).toEqual({ count: 1 });
+    const existingId = database.query<{ id: string }, []>("SELECT id FROM user WHERE email = 'existing@example.org'").get()!.id;
+    const control = createLocalWorkspaceControl(database, { signupEnabled: false, adminEmails: ["operator@example.org"] });
     const existing = await completeGoogleLogin(false);
-    expect(existing.headers.get("location")).toBe(origin);
+    expect(new URL(existing.headers.get("location")!).pathname).toBe("/auth");
+    expect(new URL(existing.headers.get("location")!).searchParams.get("error")).toBe("ACCESS_REQUIRED");
     identity = "new";
     const blocked = await completeGoogleLogin(false);
-    expect(blocked.headers.get("location")).toContain("signup_disabled");
+    expect(new URL(blocked.headers.get("location")!).searchParams.get("error")).toBe("INVITATION_REQUIRED");
     expect(database.query("SELECT count(*) AS count FROM user").get()).toEqual({ count: 1 });
+    identity = "operator";
+    expect((await completeGoogleLogin(false)).headers.get("location")).toBe(origin);
+    const operatorId = database.query<{ id: string }, []>("SELECT id FROM user WHERE email = 'operator@example.org'").get()!.id;
+    const workspace = control.listAcceptedWorkspaces({ userId: operatorId })[0]!;
+
+    for (const email of ["existing@example.org", "new@example.org"]) {
+      control.createInvitation({ workspaceId: workspace.id, inviterUserId: operatorId, email });
+      identity = email.split("@")[0]!;
+      expect((await completeGoogleLogin(false)).headers.get("location")).toBe(origin);
+    }
+
+    expect(control.listAcceptedWorkspaces({ userId: existingId })).toHaveLength(1);
+    expect((await completeGoogleLogin(false)).headers.get("location")).toBe(origin);
+    expect(database.query("SELECT count(*) AS count FROM user").get()).toEqual({ count: 3 });
   } finally {
     globalThis.fetch = originalFetch;
     database.close();

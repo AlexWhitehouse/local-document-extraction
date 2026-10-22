@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isString } from "../../../../shared/json.ts";
 import { createNotifier, defaultToast } from "../../lib/notify";
 import { useAsyncAction } from "../ui/useAsyncAction";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
+import {
+  describeSignInRedirectError,
+  getAccessMessage,
+  readSignInRedirectError,
+  withoutSignInRedirectError,
+} from "./signInAccess";
 
 const PROFILE_SAVE_ERROR = "Couldn't save profile. Try again.";
 
@@ -9,6 +16,15 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Validation toasts share one id, so a newer problem replaces the last instead of stacking.
 const AUTH_FORM_TOAST_ID = "auth-form";
+
+const SIGN_IN_REDIRECT_TOAST_ID = "auth-sign-in-redirect";
+
+// Must-act auth toasts (access refusals, verification and reset links) stay until dismissed. They
+// share one id, so the newest replaces the last.
+const MUST_ACT_TOAST = { persistent: true, id: "auth-must-act" };
+
+// The auth screen's feedback is about getting a session, so it goes once one starts.
+const AUTH_SCREEN_TOAST_IDS = [AUTH_FORM_TOAST_ID, SIGN_IN_REDIRECT_TOAST_ID, MUST_ACT_TOAST.id];
 
 export const ACCOUNT_PASSWORD_REQUIREMENTS = [
   { label: "At least 8 characters", test: (password) => password.length >= 8 },
@@ -35,6 +51,7 @@ export function useAuthProfileController({
   onSessionChanging,
   confirmSignOut,
   continuationURL = "",
+  showSignInRedirectError = false,
 }) {
   const [authMode, setAuthMode] = useState(initialAuthMode);
   const [isStartingGoogleSignIn, setIsStartingGoogleSignIn] = useState(false);
@@ -47,8 +64,16 @@ export function useAuthProfileController({
   const [fieldErrors, setFieldErrors] = useState({});
   const [focusRequest, setFocusRequest] = useState(null);
   const notify = useMemo(() => createNotifier(toast), [toast]);
+
   // A delegated access page asks sign-in, verification and Google to return to it.
-  const callback = continuationURL ? { callbackURL: new URL(continuationURL, window.location.origin).href } : {};
+  const callback = continuationURL
+    ? { callbackURL: withoutSignInRedirectError(new URL(continuationURL, window.location.origin).href) }
+    : {};
+
+  // A failed Google sign-in or verification link returns here with `?error=`.
+  const [signInRedirectError] = useState(() =>
+    showSignInRedirectError ? describeSignInRedirectError(readSignInRedirectError(window.location.search), authOptions) : null,
+  );
 
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -108,6 +133,34 @@ export function useAuthProfileController({
     };
   }, [isProfileMenuOpen]);
 
+  // The error leaves the address once shown, so a reload doesn't repeat it.
+  useEffect(() => {
+    if (!signInRedirectError) return;
+
+    window.history.replaceState(window.history.state, "", withoutSignInRedirectError(window.location.href));
+    notify("auth.signIn", "failure", { ...signInRedirectError, id: SIGN_IN_REDIRECT_TOAST_ID });
+  }, [notify, signInRedirectError]);
+
+  // A session that ends without signing out here (access removed, expired, or signed out in
+  // another tab) clears the same state as signing out.
+  const hadSessionRef = useRef(hasSession);
+  const clearEndedSessionRef = useRef(null);
+
+  clearEndedSessionRef.current = () => {
+    onSessionChanging?.();
+    clearSessionState();
+  };
+
+  useEffect(() => {
+    if (hadSessionRef.current && !hasSession) clearEndedSessionRef.current();
+
+    if (!hadSessionRef.current && hasSession) {
+      for (const id of AUTH_SCREEN_TOAST_IDS) notify.dismiss(id);
+    }
+
+    hadSessionRef.current = hasSession;
+  }, [hasSession, notify]);
+
   // Invalid fields are outlined and the first one takes focus; its message is a toast.
   function rejectSubmit(errors) {
     const [field, message] = Object.entries(errors)[0];
@@ -152,16 +205,13 @@ export function useAuthProfileController({
       });
 
       if (result.error) {
-        throw new Error(result.error.message || "Sign in failed");
+        throw authFailure(result.error, "Sign in failed");
       }
 
       setAuthPassword("");
       await refetchSession();
     } catch (error) {
-      const message = getSignInErrorMessage(error.message, authOptions.mailDelivery);
-
-      // A verification prompt is must-act, so it stays until dismissed.
-      notify("auth.signIn", "failure", { message, persistent: message.startsWith("Verify") });
+      notify("auth.signIn", "failure", getSignInFailure(error, authOptions.mailDelivery));
     }
   }
 
@@ -192,7 +242,7 @@ export function useAuthProfileController({
       });
 
       if (result.error) {
-        throw new Error(result.error.message || "Sign up failed");
+        throw authFailure(result.error, "Sign up failed");
       }
 
       const signedUpEmail = authEmail.trim();
@@ -202,29 +252,34 @@ export function useAuthProfileController({
       setSignUpSubmitAttempted(false);
 
       if (authOptions.requireEmailVerification) {
-        // The verification link is must-act, so the toast stays until dismissed.
         notify("auth.signUp", "success", {
           message: getVerificationSentMessage(signedUpEmail, authOptions.mailDelivery),
-          persistent: true,
+          ...MUST_ACT_TOAST,
         });
         switchAuthMode("signin");
       } else {
         await refetchSession();
       }
     } catch (error) {
-      notify("auth.signUp", "failure", { message: getSignUpErrorMessage(error.message) });
+      notify("auth.signUp", "failure", getSignUpFailure(error));
     }
   }
 
   async function signInWithGoogle() {
     setIsStartingGoogleSignIn(true);
 
+    // A refused or failed Google sign-in returns to the same page with `?error=`.
+    const returnURL =
+      callback.callbackURL ||
+      (window.location.pathname === "/reset-password"
+        ? window.location.origin
+        : withoutSignInRedirectError(window.location.href));
+
     try {
       const result = await authClient.signIn.social({
         provider: "google",
-        callbackURL:
-          callback.callbackURL ||
-          (window.location.pathname === "/reset-password" ? window.location.origin : window.location.href),
+        callbackURL: returnURL,
+        errorCallbackURL: returnURL,
       });
 
       if (result?.error) {
@@ -260,7 +315,7 @@ export function useAuthProfileController({
 
       notify("auth.requestPasswordReset", "success", {
         message: getResetLinkSentMessage(requestedEmail, authOptions.mailDelivery),
-        persistent: true,
+        ...MUST_ACT_TOAST,
       });
       switchAuthMode("signin");
     } catch {
@@ -271,7 +326,7 @@ export function useAuthProfileController({
   async function submitAuthForm(event) {
     event.preventDefault();
 
-    if (!authOptions.emailPasswordEnabled || (authMode === "signup" && !authOptions.signupEnabled)) return;
+    if (!authOptions.emailPasswordEnabled) return;
 
     if (authMode === "reset-request") {
       await runRequestAccountPasswordReset();
@@ -289,7 +344,6 @@ export function useAuthProfileController({
   }
 
   function switchAuthMode(nextMode) {
-    if (nextMode === "signup" && !authOptions.signupEnabled) return;
     setAuthMode(nextMode);
     setAuthPassword("");
     setAuthConfirmPassword("");
@@ -321,13 +375,19 @@ export function useAuthProfileController({
     setFieldErrors((previous) => withFieldError(previous, field, ""));
   }
 
+  function clearSessionState() {
+    onClearWorkspaceScopedTemplates();
+    onClearWorkspaceScopedDocuments();
+    onClearSessionWorkspaceData();
+  }
+
   async function signOut() {
     try {
       onSessionChanging?.();
       await authClient.signOut();
-      onClearWorkspaceScopedTemplates();
-      onClearWorkspaceScopedDocuments();
-      onClearSessionWorkspaceData();
+      clearSessionState();
+      // Already cleared, so the session ending next isn't treated as ending elsewhere.
+      hadSessionRef.current = false;
       await refetchSession();
     } catch (error) {
       // A failed sign out keeps the current session in place.
@@ -474,28 +534,45 @@ function getResetLinkSentMessage(email, mailDelivery) {
     : `If an account exists for ${email}, we sent it a reset link.`;
 }
 
-function getSignInErrorMessage(message, mailDelivery) {
-  const normalized = String(message || "").toLowerCase();
-
-  if (normalized.includes("verify") || normalized.includes("verified") || normalized.includes("verification")) {
-    return mailDelivery === "local"
-      ? "Verify your account before signing in. Run `document-extraction mail` to open the link."
-      : "Verify your email before signing in. We sent you a new account verification link.";
-  }
-
-  return "Sign in failed. Check your email and password and try again.";
+// Keeps Better Auth's error code, so invite-only refusals map on the code rather than the wording.
+function authFailure(error, fallback) {
+  return Object.assign(new Error(error.message || fallback), { code: isString(error.code) ? error.code : "" });
 }
 
-function getSignUpErrorMessage(message) {
-  const normalized = String(message || "").toLowerCase();
+function getSignInFailure(error, mailDelivery) {
+  const accessMessage = getAccessMessage(error.code);
+
+  if (accessMessage) return { message: accessMessage, ...MUST_ACT_TOAST };
+
+  const normalized = String(error.message || "").toLowerCase();
+
+  if (normalized.includes("verify") || normalized.includes("verified") || normalized.includes("verification")) {
+    return {
+      message:
+        mailDelivery === "local"
+          ? "Verify your account before signing in. Run `document-extraction mail` to open the link."
+          : "Verify your email before signing in. We sent you a new account verification link.",
+      ...MUST_ACT_TOAST,
+    };
+  }
+
+  return { message: "Sign in failed. Check your email and password and try again." };
+}
+
+function getSignUpFailure(error) {
+  const accessMessage = getAccessMessage(error.code);
+
+  if (accessMessage) return { message: accessMessage, ...MUST_ACT_TOAST };
+
+  const normalized = String(error.message || "").toLowerCase();
 
   if (normalized.includes("already") || normalized.includes("exists")) {
-    return "An account already exists for this email. Sign in instead.";
+    return { message: "An account already exists for this email. Sign in instead." };
   }
 
   if (normalized.includes("invalid") && normalized.includes("email")) {
-    return "Enter a valid email address and try again.";
+    return { message: "Enter a valid email address and try again." };
   }
 
-  return "Couldn't create account. Try again.";
+  return { message: "Couldn't create account. Try again." };
 }

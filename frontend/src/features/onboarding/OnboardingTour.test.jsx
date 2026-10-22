@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { OnboardingTour } from "./OnboardingTour.jsx";
 import { TourSpotlight } from "./TourSpotlight.jsx";
-import { canContinueTour } from "./tourSteps.js";
+import { canContinueTour, getTourSteps } from "./tourSteps.js";
 
 function props(overrides = {}) {
   return {
@@ -76,6 +76,36 @@ describe("first-use tour", () => {
     expect(screen.getByRole("dialog").textContent).toContain("A space for your documents");
     rerender(<OnboardingTour {...options} workspaceId="created" />);
     await waitFor(() => expect(screen.getByRole("dialog").textContent).toContain("Make it yours"));
+  });
+
+  it("starts without the workspace setup steps for an admin who can't create workspaces", () => {
+    render(<OnboardingTour {...props({ canCreateWorkspace: false, workspaceRole: "admin" })} />);
+    fireEvent.click(screen.getByRole("button", { name: /Take the tour/ }));
+
+    const dialog = screen.getByRole("dialog");
+
+    expect(dialog.textContent).toContain("Choose what to extract");
+    expect(dialog.textContent).not.toContain("Create workspace");
+    expect(getTourSteps({ canCreateWorkspace: false })).toHaveLength(getTourSteps({ canCreateWorkspace: true }).length - 2);
+  });
+
+  it("isn't offered to a member who can't create workspaces, there or from the profile", () => {
+    const renderProfile = (tourAction) => <section aria-label="Profile">{tourAction}</section>;
+    const { rerender } = render(<OnboardingTour {...props({ canCreateWorkspace: false, workspaceRole: "member", renderProfile })} />);
+
+    expect(screen.queryByRole("complementary", { name: "Welcome tour" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Take a tour" })).toBeNull();
+
+    // Owners and admins of their workspace still get it, and so does a member who can create workspaces.
+    for (const offer of [
+      { canCreateWorkspace: false, workspaceRole: "admin" },
+      { canCreateWorkspace: false, workspaceRole: "owner" },
+      { canCreateWorkspace: true, workspaceRole: "member" },
+    ]) {
+      rerender(<OnboardingTour {...props({ ...offer, renderProfile })} />);
+      expect(screen.getByRole("complementary", { name: "Welcome tour" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Take a tour" })).toBeTruthy();
+    }
   });
 
   it("blocks unrelated clicks and focus, including controls in other portals", () => {

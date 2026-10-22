@@ -31,5 +31,8 @@ export function createNotifier(toast = sonnerToast) {
 
   notify.documentUpload = (options) => showToast(toast, getDocumentUploadToast(options));
 
+  // Takes down the toast shown with this `id` once what it says no longer applies.
+  notify.dismiss = (id) => toast.dismiss(id);
+
   return notify;
 }

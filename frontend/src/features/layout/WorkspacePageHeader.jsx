@@ -15,6 +15,7 @@ export function WorkspacePageHeader({
   workspaceId,
   workspacePrimaryAction,
   isDeletingWorkspace,
+  canCreateWorkspace = true,
   isCreatingWorkspace = false,
   isDeletingTemplate,
   isDeletingDocument,
@@ -103,13 +104,15 @@ export function WorkspacePageHeader({
   } else {
     compactActions = [
       onViewCosts ? { key: "view-costs", label: "Costs", onSelect: onViewCosts } : null,
-      {
-        key: "create-workspace",
-        label: isCreatingWorkspace ? "Creating…" : "Create workspace",
-        disabled: isCreatingWorkspace,
-        onSelect: onCreateWorkspace,
-        "data-tour": "create-workspace",
-      },
+      canCreateWorkspace
+        ? {
+            key: "create-workspace",
+            label: isCreatingWorkspace ? "Creating…" : "Create workspace",
+            disabled: isCreatingWorkspace,
+            onSelect: onCreateWorkspace,
+            "data-tour": "create-workspace",
+          }
+        : null,
     ];
 
     if (!isWorkspaceInvitationSelected) {
@@ -125,7 +128,12 @@ export function WorkspacePageHeader({
             : workspacePrimaryAction.label || "Delete workspace",
           danger: true,
           disabled:
-            isDeletingWorkspace || !hasApiAccess || !workspaceId.trim() || workspacePrimaryAction.type === "none",
+            isDeletingWorkspace ||
+            !hasApiAccess ||
+            !workspaceId.trim() ||
+            workspacePrimaryAction.type === "none" ||
+            Boolean(workspacePrimaryAction.unavailableReason),
+          title: workspacePrimaryAction.unavailableReason,
           onSelect: onWorkspacePrimaryAction,
         },
       ];

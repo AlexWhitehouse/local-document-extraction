@@ -92,7 +92,8 @@ export function resolveAcceptedWorkspace({ storedWorkspacePreference, userWorksp
   );
 }
 
-export function getWorkspacePrimaryAction(workspaceRole) {
+// `canLeave` is false when leaving would leave the user with no workspace and nothing to replace it.
+export function getWorkspacePrimaryAction(workspaceRole, { canLeave = true } = {}) {
   const role = workspaceRole.trim().toLowerCase();
 
   if (role === "owner") {
@@ -100,7 +101,9 @@ export function getWorkspacePrimaryAction(workspaceRole) {
   }
 
   if (role === "admin" || role === "member") {
-    return { type: "leave", label: "Leave workspace" };
+    return canLeave
+      ? { type: "leave", label: "Leave workspace" }
+      : { type: "leave", label: "Leave workspace", unavailableReason: "You can't leave your only workspace." };
   }
 
   return { type: "none", label: "" };

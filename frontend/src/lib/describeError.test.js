@@ -4,6 +4,15 @@ import { describeError } from "./describeError";
 const failure = (message, extra) => Object.assign(new Error(message), extra);
 
 describe("describeError", () => {
+  it("explains invite-only workspace refusals without the server's wording", () => {
+    expect(describeError({ code: "workspace_creation_restricted", status: 403, message: "Only installation admins can create workspaces." })).toBe(
+      "Your account can't create workspaces.",
+    );
+    expect(describeError({ code: "last_workspace", status: 409, message: "" })).toBe(
+      "You can't leave or delete your only workspace.",
+    );
+  });
+
   it("maps HTTP statuses to plain messages", () => {
     expect(describeError(failure("nope", { status: 403 }))).toBe("You don't have permission to do that.");
     expect(describeError(failure("gone", { status: 404 }))).toBe("This item no longer exists.");

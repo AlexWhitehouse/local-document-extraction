@@ -12,7 +12,7 @@ const createAuthClient = () => ({
   signOut: auth.signOut,
 });
 
-const toast = { error: vi.fn(), success: vi.fn() };
+const toast = { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() };
 
 import { App } from "./App.jsx";
 

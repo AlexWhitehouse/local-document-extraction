@@ -1,6 +1,7 @@
 import { createNotifier } from "./notify";
 
-export function createAppRuntimeCore({ apiBase, toast }) {
+// onUnauthorized runs on every 401, so the caller can check whether the session has ended.
+export function createAppRuntimeCore({ apiBase, toast, onUnauthorized }) {
   const baseUrl = apiBase.replace(/\/+$/, "");
 
   const notify = createNotifier(toast);
@@ -44,6 +45,9 @@ export function createAppRuntimeCore({ apiBase, toast }) {
       error.status = response.status;
       error.code = data?.error?.code || null;
       error.details = data?.error || null;
+
+      if (response.status === 401) onUnauthorized?.();
+
       throw error;
     }
 

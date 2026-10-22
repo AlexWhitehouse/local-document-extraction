@@ -1410,6 +1410,7 @@ async function handleControlRequest(
   if (pathname === "/v1/workspaces") {
     if (method === "GET") {
       return Response.json({
+        can_create_workspaces: workspaceControl.canCreateWorkspaces(session.id),
         workspaces: workspaceControl.listAcceptedWorkspaces({ userId: session.id, userName: session.name }),
       });
     }
