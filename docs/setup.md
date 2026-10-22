@@ -219,7 +219,7 @@ Before deleting a source checkout, move `.local/` and `.env` to a safe location.
 | No verification email | Verification is disabled by default. Without Cloudflare, read saved links with the launcher's `mail` command or server log. |
 | Email or Google links use the wrong address | Set `BETTER_AUTH_URL` to the browser address, including its port. Then request a new link. |
 | No Google sign-in button | Set `AUTH_GOOGLE_ENABLED=true`. Supply both Google credentials. Restart the app. |
-| Account creation fails | Verify `AUTH_SIGNUP_ENABLED`. Create required accounts before disabling signup. |
+| Account creation fails | With `AUTH_SIGNUP_ENABLED=false`, register using a configured admin email or an email with a pending, unexpired Workspace invitation. Existing accounts need installation admin status, a pending invitation, or Workspace membership. |
 | Port is already in use | Stop the other app instance, or select another `PORT`. Update addresses that include the port. |
 | "Frontend build not found" | Run `bun run build`, or verify `DOCUMENT_EXTRACTION_ASSETS_DIR`. |
 | "Workspace model not configured" | Open the Workspace's **Model gateway** settings. Global model environment variables no longer apply. |

@@ -1,5 +1,7 @@
 import { isJsonObject, parseJson, isString } from "../../shared/json";
 import { betterAuth } from "better-auth";
+import { createAuthMiddleware, APIError } from "better-auth/api";
+import { createLocalAccountAccess } from "./localAccountAccess";
 import { getMigrations } from "better-auth/db/migration";
 import { admin } from "better-auth/plugins/admin";
 import { jwt } from "better-auth/plugins/jwt";
@@ -77,6 +79,7 @@ export async function createLocalAuth({
   secret: string;
 }): Promise<LocalAuth> {
   const allowedOrigins = localTrustedOrigins(baseURL, trustedOrigins);
+  const access = createLocalAccountAccess(database, { signupEnabled, adminEmails });
 
   const configuredAdminEmails = new Set(
     adminEmails.flatMap((email) => {
@@ -95,7 +98,7 @@ export async function createLocalAuth({
           google: {
             clientId: configuredGoogleClientId,
             clientSecret: configuredGoogleClientSecret,
-            disableSignUp: !signupEnabled,
+            disableSignUp: false,
             prompt: "select_account" as const,
           },
         }
@@ -128,7 +131,7 @@ export async function createLocalAuth({
     trustedOrigins: allowedOrigins,
     emailAndPassword: {
       enabled: emailPasswordEnabled,
-      disableSignUp: !signupEnabled,
+      disableSignUp: false,
       minPasswordLength: 8,
       requireEmailVerification,
       resetPasswordTokenExpiresIn: 60 * 60,
@@ -173,9 +176,32 @@ export async function createLocalAuth({
         },
       }),
     ] as const,
+    hooks: {
+      before: createAuthMiddleware(async (context) => {
+        // With verification enabled, Better Auth deliberately masks 403s thrown
+        // during user creation as generic success. Reject before that catch.
+        if (context.path === "/sign-up/email" && isString(context.body?.email) && !access.canRegister(context.body.email)) {
+          throw new APIError("FORBIDDEN", { code: "INVITATION_REQUIRED", message: "Sign-up is by invitation only. Ask a workspace admin to invite this email address." });
+        }
+      }),
+    },
     databaseHooks: {
+      session: {
+        create: {
+          before: async (session) => {
+            if (!session.impersonatedBy && !access.qualifies(session.userId)) {
+              throw new APIError("FORBIDDEN", { code: "ACCESS_REQUIRED", message: "This account doesn't have access to any workspace. Ask a workspace admin to invite you." });
+            }
+          },
+        },
+      },
       user: {
         create: {
+          before: async (user) => {
+            if (!access.canRegister(user.email)) {
+              throw new APIError("FORBIDDEN", { code: "INVITATION_REQUIRED", message: "Sign-up is by invitation only. Ask a workspace admin to invite this email address." });
+            }
+          },
           after: async (user) => {
             if (configuredAdminEmails.has(user.email.trim().toLowerCase())) {
               database.query("UPDATE user SET role = 'admin' WHERE id = ?").run(user.id);
@@ -198,7 +224,7 @@ export async function createLocalAuth({
       if (request.headers.has("authorization")) return null;
       const session = await auth.api.getSession({ headers: localAuthRequestHeaders(request, trustedIpHeaders) });
 
-      if (!session?.user?.id) {
+      if (!session?.user?.id || (!("impersonatedBy" in session.session && session.session.impersonatedBy) && !access.qualifies(session.user.id))) {
         return null;
       }
 
@@ -209,7 +235,7 @@ export async function createLocalAuth({
         email: session.user.email,
         name: session.user.name,
         isActive: () =>
-          Boolean(
+          (Boolean("impersonatedBy" in session.session && session.session.impersonatedBy) || access.qualifies(session.user.id)) && Boolean(
             database
               .query(
                 `SELECT 1 FROM session s JOIN user u ON u.id = s.userId
@@ -233,6 +259,25 @@ export async function createLocalAuth({
       if (mcpRejection) return mcpRejection;
       const session = await auth.api.getSession({ headers: request.headers });
 
+      if (session && !("impersonatedBy" in session.session && session.session.impersonatedBy) && !access.qualifies(session.user.id)) {
+        const path = new URL(request.url).pathname;
+
+        if (path === "/api/auth/get-session") return Response.json(null);
+
+        if (path !== "/api/auth/sign-out") {
+          // Treat revoked browser authority as signed out while preserving OAuth
+          // state cookies and public recovery/sign-in routes.
+          const context = await auth.$context;
+          const sessionCookieName = context.authCookies.sessionToken.name;
+          const headers = new Headers(request.headers);
+          const remainingCookies = (headers.get("cookie") ?? "").split(";").filter((cookie) => cookie.trim().split("=", 1)[0] !== sessionCookieName);
+          headers.set("cookie", remainingCookies.join(";"));
+          request = new Request(request, { headers });
+
+          return auth.handler(request);
+        }
+      }
+
       return (await validateLocalAdminAction(request, session?.user)) ?? auth.handler(request);
     },
   };
@@ -255,6 +300,7 @@ export async function createLocalAuth({
         return { client_id: client.clientId, client_name: client.name, client_uri: client.uri };
       }),
       consent: async ({ request, oauthQuery, accept, grantId, scopes }) => {
+        if (!signupEnabled && !(await localAuth.getSession(request))) throw new HttpError(401, "unauthorized", "Sign in to continue.");
         const headers = localAuthRequestHeaders(request, trustedIpHeaders);
         headers.set("content-type", "application/json");
         headers.delete("content-length");

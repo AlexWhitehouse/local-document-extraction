@@ -223,7 +223,7 @@ Notes:
 | --- | --- | --- |
 | `AUTH_EMAIL_PASSWORD_ENABLED` | `true` | Allow email and password sign-in. |
 | `AUTH_GOOGLE_ENABLED` | `false` | Allow Google sign-in. Needs both Google settings below. |
-| `AUTH_SIGNUP_ENABLED` | `true` | Allow new accounts, including new Google accounts. Existing accounts can still sign in when this is off. |
+| `AUTH_SIGNUP_ENABLED` | `true` | `true`: open sign-up. `false`: invite-only sign-up for configured admin emails and pending, unexpired Workspace invitations; existing accounts need installation admin status, a pending invitation, or Workspace membership to sign in. |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION` | `false` | Require people to confirm their email before signing in. |
 | `GOOGLE_CLIENT_ID` | Not set | Google OAuth client ID. |
 | `GOOGLE_CLIENT_SECRET` | Not set | Google OAuth client secret. Never sent to the browser. |
@@ -231,7 +231,9 @@ Notes:
 Notes:
 
 - Enable at least one sign-in method. Supply both Google values or neither, even when Google sign-in is disabled.
-- The app has no built-in admin account or default password. Set `DOCUMENT_EXTRACTION_ADMIN_EMAILS` and create the required accounts before you disable signup.
+- In invite-only mode, only installation admins (Application admins or accounts whose emails are in `DOCUMENT_EXTRACTION_ADMIN_EMAILS`) can create Workspaces. Other accounts automatically accept pending invitations when they have no memberships, receive no personal Workspace, and cannot leave their last Workspace. Removing their last membership locks out existing sessions unless they still have a pending invitation. Listing an existing email grants installation access and Workspace creation without changing its Application admin role.
+- Without `AUTH_REQUIRE_EMAIL_VERIFICATION=true`, anyone who knows an admin or invited email address could register it first. Require email verification on shared installations.
+- The app has no built-in admin account or default password. Set `DOCUMENT_EXTRACTION_ADMIN_EMAILS` to allow those emails to register even in invite-only mode.
 - Passwords require at least eight characters, including an uppercase letter, a number, and a special character. Password reset links expire after one hour. A password change signs out the account’s other sessions.
 - The app generates its session signing key in `data/better-auth-secret`. Include this file in backups. The app does not use `BETTER_AUTH_SECRET`.
 

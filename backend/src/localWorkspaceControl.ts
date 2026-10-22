@@ -1,6 +1,8 @@
 import { type SQLQueryBindings, Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 
+import { createLocalAccountAccess } from "./localAccountAccess";
+
 import { newId, nowIso } from "./lib/ids";
 
 export type LocalWorkspace = {
@@ -65,7 +67,7 @@ export type LocalWorkspaceLeaveResult = {
 
 export class LocalWorkspaceControlError extends Error {
   constructor(
-    public readonly code: "forbidden" | "invite_exists" | "last_workspace" | "not_found",
+    public readonly code: "workspace_creation_restricted" | "forbidden" | "invite_exists" | "last_workspace" | "not_found",
     message: string,
   ) {
     super(message);
@@ -73,6 +75,7 @@ export class LocalWorkspaceControlError extends Error {
 }
 
 export type LocalWorkspaceControl = {
+  canCreateWorkspaces(userId: string): boolean;
   acceptInvitation(input: { invitationId: string; userId: string; userEmail: string }): {
     ok: true;
     workspace_id: string;
@@ -130,12 +133,14 @@ export type LocalWorkspaceControl = {
   workspaceExists(input: { workspaceId: string }): boolean;
 };
 
-export function createLocalWorkspaceControl(database: Database): LocalWorkspaceControl {
+export function createLocalWorkspaceControl(database: Database, settings: { signupEnabled?: boolean; adminEmails?: string[] } = {}): LocalWorkspaceControl {
+  const access = createLocalAccountAccess(database, settings);
   database.exec("PRAGMA foreign_keys = ON;");
   database.exec(CONTROL_SCHEMA);
   ensureControlSchemaColumns(database);
 
   return {
+    canCreateWorkspaces: access.canCreateWorkspaces,
     acceptInvitation: (input) => acceptInvitation(database, input),
     applyWorkspaceMemberAction: (input) => applyWorkspaceMemberAction(database, input),
     assertWorkspaceDeletion: (input) => assertWorkspaceDeletion(database, input),
@@ -149,7 +154,11 @@ export function createLocalWorkspaceControl(database: Database): LocalWorkspaceC
     completeStarterTemplateBootstrap: (input) => {
       database.query("DELETE FROM workspace_product_bootstraps WHERE workspace_id = ?").run(input.workspaceId);
     },
-    createWorkspace: (input) => createWorkspace(database, input),
+    createWorkspace: (input) => {
+      if (!access.canCreateWorkspaces(input.userId)) throw new LocalWorkspaceControlError("workspace_creation_restricted", "Only installation admins can create workspaces.");
+
+      return createWorkspace(database, input);
+    },
     deleteWorkspace: (input) => deleteWorkspace(database, input),
     revokeWorkspaceForDeletion: (input) => revokeWorkspaceForDeletion(database, input),
     getAcceptedWorkspaceContext: (input) => getAcceptedWorkspaceContext(database, input),
@@ -160,7 +169,7 @@ export function createLocalWorkspaceControl(database: Database): LocalWorkspaceC
           .get(input.workspaceId),
       ),
     listPendingInvitations: (input) => listPendingInvitations(database, input),
-    leaveWorkspace: (input) => leaveWorkspace(database, input),
+    leaveWorkspace: (input) => leaveWorkspace(database, input, access.canCreateWorkspaces(input.userId)),
     listWorkspaceInvitations: (input) => listWorkspaceInvitations(database, input),
     listWorkspaceUsers: (input) => listWorkspaceUsers(database, input),
     listWorkspaceDeletionIntents: () =>
@@ -175,7 +184,24 @@ export function createLocalWorkspaceControl(database: Database): LocalWorkspaceC
         .query("INSERT OR IGNORE INTO workspace_deletion_intents (workspace_id, requested_at) VALUES (?, ?)")
         .run(input.workspaceId, nowIso());
     },
-    listAcceptedWorkspaces: (input) => listAcceptedWorkspaces(database, input),
+    listAcceptedWorkspaces: (input) => {
+      if (access.canCreateWorkspaces(input.userId)) return listAcceptedWorkspaces(database, input);
+
+      return database.transaction(() => {
+        const existing = listMembershipWorkspaces(database, input.userId);
+
+        if (existing.length) return existing;
+        const user = database.query<{ email: string }, [string]>("SELECT email FROM user WHERE id = ?").get(input.userId);
+
+        if (user) {
+          for (const invitation of listPendingInvitations(database, { email: user.email })) {
+            acceptInvitation(database, { invitationId: invitation.id, userId: input.userId, userEmail: user.email });
+          }
+        }
+
+        return listMembershipWorkspaces(database, input.userId);
+      }).immediate();
+    },
     renameWorkspace: (input) => renameWorkspace(database, input),
     setWorkspaceSourceRetention: (input) => setWorkspaceSourceRetention(database, input),
     rotateApiKey: (input) => rotateApiKey(database, input),
@@ -349,6 +375,7 @@ function listWorkspaceInvitations(
 function leaveWorkspace(
   database: Database,
   input: { workspaceId: string; userId: string; userName?: string | null },
+  canCreateWorkspaces: boolean,
 ): LocalWorkspaceLeaveResult {
   const leave = database.transaction(() => {
     const membership = getMembership(database, input.workspaceId, input.userId);
@@ -362,6 +389,10 @@ function leaveWorkspace(
     }
 
     const acceptedWorkspaces = listMembershipWorkspaces(database, input.userId);
+
+    if (acceptedWorkspaces.length <= 1 && !canCreateWorkspaces) {
+      throw new LocalWorkspaceControlError("last_workspace", "You cannot leave your last workspace. Ask a workspace admin for an invitation to another workspace.");
+    }
 
     const replacementWorkspace =
       acceptedWorkspaces.length <= 1
