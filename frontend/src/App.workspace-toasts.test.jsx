@@ -452,6 +452,108 @@ describe("Workspace action toast feedback", () => {
     });
   });
 
+  describe("accounts that can't create workspaces", () => {
+    const restricted = (...workspaces) => jsonResponse({ workspaces, can_create_workspaces: false });
+
+    it("hides Create workspace", async () => {
+      routeFetch((url) => {
+        if (url.endsWith("/workspaces")) return restricted(workspace({ role: "member" }));
+      });
+
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+      await screen.findAllByRole("link", { name: /Research Workspace/ });
+      expect(screen.queryByRole("button", { name: "Create workspace" })).toBeNull();
+    });
+
+    it("locks Leave workspace on the only workspace", async () => {
+      const user = userEvent.setup();
+      routeFetch((url) => {
+        if (url.endsWith("/workspaces")) return restricted(workspace({ role: "member" }));
+      });
+
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+      await screen.findAllByRole("link", { name: /Research Workspace/ });
+      await user.click(screen.getByRole("button", { name: "More actions" }));
+      const leave = screen.getByRole("menuitem", { name: "Leave workspace" });
+
+      expect(leave.disabled).toBe(true);
+      expect(leave.getAttribute("title")).toBe("You can't leave your only workspace.");
+    });
+
+    it("keeps a refused last-workspace leave inline and then locks Leave", async () => {
+      const user = userEvent.setup();
+      let leaveRefused = false;
+      routeFetch((url, method) => {
+        if (url.endsWith("/workspaces/ws_1/leave") && method === "POST") {
+          leaveRefused = true;
+
+          return jsonResponse(
+            {
+              error: {
+                code: "last_workspace",
+                message: "You cannot leave your last workspace. Ask a workspace admin for an invitation to another workspace.",
+              },
+            },
+            { status: 409 },
+          );
+        }
+
+        if (url.endsWith("/workspaces")) {
+          return leaveRefused
+            ? restricted(workspace({ role: "member" }))
+            : restricted(
+                workspace({ role: "member" }),
+                workspace({ id: "ws_2", name: "Clinical Workspace", role: "member", created_at: "2026-01-02T00:00:00.000Z" }),
+              );
+        }
+      });
+
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+      await screen.findAllByRole("link", { name: /Clinical Workspace/ });
+      await chooseMoreAction(user, "Leave workspace");
+      await confirmInDialog(user, "Leave workspace");
+
+      const dialog = screen.getByRole("alertdialog");
+      expect(
+        await within(dialog).findByText(
+          "You cannot leave your last workspace. Ask a workspace admin for an invitation to another workspace.",
+        ),
+      ).toBeTruthy();
+      expect(toastMock.error).not.toHaveBeenCalled();
+
+      await waitFor(() => expect(screen.queryByRole("link", { name: /Clinical Workspace/ })).toBeNull());
+      await confirmInDialog(user, "Cancel");
+      expect(await moreActionDisabled(user, "Leave workspace")).toBe(true);
+    });
+
+    it("hides Create workspace after the server refuses one", async () => {
+      const user = userEvent.setup();
+      routeFetch((url, method) => {
+        if (url.endsWith("/workspaces") && method === "POST") {
+          return jsonResponse(
+            { error: { code: "workspace_creation_restricted", message: "Only installation admins can create workspaces." } },
+            { status: 403 },
+          );
+        }
+      });
+
+      render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+      await user.click(await screen.findByRole("button", { name: "Create workspace" }));
+
+      await waitFor(() =>
+        expect(toastMock.error).toHaveBeenCalledWith(
+          "Couldn't create workspace. Your account can't create workspaces.",
+          expect.anything(),
+        ),
+      );
+      expect(screen.queryByRole("button", { name: "Create workspace" })).toBeNull();
+    });
+  });
+
   it("confirms Workspace deletion by name and selects a remaining Workspace", async () => {
     const user = userEvent.setup();
     const remaining = workspace({ id: "ws_2", name: "Remaining Workspace", created_at: "2026-01-02T00:00:00.000Z" });

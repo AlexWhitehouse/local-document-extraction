@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { TourSpotlight } from "./TourSpotlight.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { CloseIcon } from "../layout/Icons.jsx";
-import { TOUR_STEPS, canContinueTour } from "./tourSteps.js";
+import { canContinueTour, canOfferTour, getTourSteps } from "./tourSteps.js";
 import "./onboarding.css";
 
 export function OnboardingTour({
@@ -14,6 +14,8 @@ export function OnboardingTour({
   model,
   upload,
   busy,
+  canCreateWorkspace = true,
+  workspaceRole = "",
   onStart,
   onActiveChange,
   renderProfile,
@@ -30,11 +32,14 @@ export function OnboardingTour({
   });
 
   const [index, setIndex] = useState(null);
+  // Fixed when the tour starts, so a change in what the user can do doesn't shift the steps.
+  const [steps, setSteps] = useState(() => getTourSteps({ canCreateWorkspace }));
   const initialWorkspaceId = useRef("");
   const activeChangeRef = useRef(onActiveChange);
   activeChangeRef.current = onActiveChange;
   useEffect(() => () => activeChangeRef.current(false), []);
-  const step = index === null ? null : TOUR_STEPS[index];
+  const step = index === null ? null : steps[index];
+  const available = canOfferTour({ canCreateWorkspace, workspaceRole });
 
   function remember(status) {
     setOffered(false);
@@ -51,6 +56,7 @@ export function OnboardingTour({
     remember("started");
     onStart();
     onActiveChange(true);
+    setSteps(getTourSteps({ canCreateWorkspace }));
     setIndex(0);
   }
 
@@ -86,7 +92,7 @@ export function OnboardingTour({
 
   return (
     <>
-      {ready && offered && index === null ? (
+      {ready && available && offered && index === null ? (
         <aside className="tour-invitation" aria-label="Welcome tour">
           <Button variant="secondary" size="sm" onClick={start} disabled={busy}>
             Take the tour
@@ -95,15 +101,17 @@ export function OnboardingTour({
         </aside>
       ) : null}
       {renderProfile?.(
-        <Button variant="secondary" disabled={!ready || busy || index !== null} onClick={start}>
-          Take a tour
-        </Button>,
+        available ? (
+          <Button variant="secondary" disabled={!ready || busy || index !== null} onClick={start}>
+            Take a tour
+          </Button>
+        ) : null,
       )}
       {step ? (
         <TourSpotlight
           step={step}
           index={index}
-          total={TOUR_STEPS.length}
+          total={steps.length}
           canContinue={canContinueTour(step.check, { workspace, template, model, upload, busy })}
           onNext={() => setIndex((current) => current + 1)}
           onExit={exit}

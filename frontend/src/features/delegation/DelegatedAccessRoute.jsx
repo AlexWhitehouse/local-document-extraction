@@ -70,6 +70,7 @@ export function DelegatedAccessRoute({
     sessionUserName: "",
     sessionUserEmail: "",
     continuationURL: continuationPath(route, search),
+    showSignInRedirectError: true,
     onClearWorkspaceScopedTemplates: () => {},
     onClearWorkspaceScopedDocuments: () => {},
     onClearSessionWorkspaceData: () => {},

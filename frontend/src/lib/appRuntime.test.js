@@ -112,4 +112,19 @@ describe("app runtime requests", () => {
       expect(options.headers.get("x-workspace-id")).toBe("ws_1");
     }
   });
+
+  it("reports a 401 so the caller can check whether the session ended", async () => {
+    const onUnauthorized = vi.fn();
+    const core = createAppRuntimeCore({ apiBase: "/v1", toast: { success: vi.fn(), error: vi.fn() }, onUnauthorized });
+
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "forbidden" } }), { status: 403 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "session_required" } }), { status: 401 }));
+
+    await expect(core.request("/workspaces")).rejects.toMatchObject({ status: 403 });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    await expect(core.request("/workspaces")).rejects.toMatchObject({ status: 401, code: "session_required" });
+    expect(onUnauthorized).toHaveBeenCalledOnce();
+  });
 });

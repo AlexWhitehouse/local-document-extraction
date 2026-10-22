@@ -181,6 +181,7 @@ _Avoid_: demo mode, sample data sandbox
 - The **Getting started tour** is offered after an authenticated user's Workspace context resolves, unless that Account has already started or dismissed it in this browser.
 - Tour preference is browser-local and keyed by Account; impersonated sessions do not show the tour.
 - Restart the tour from the profile modal in the left sidebar. Starting closes the modal and begins a new Workspace procedure. It does not resume earlier progress.
+- An Account that can't create Workspaces skips the tour's Workspace creation and naming steps and starts in its current Workspace. If that Account is a `member` there, as invited members usually are, the tour isn't offered, not even from the profile modal, because model setup needs an owner or admin.
 - On desktop, the navigation sidebar collapses to icons through its toggle or `[`. The browser stores this choice independently of Account.
 - The tour invitation card is hidden while the navigation sidebar is collapsed; the tour stays available from the profile modal.
 - Tour actions create real Workspaces, Templates, and Extraction jobs. Exiting or refreshing preserves saved data and discards unfinished drafts.
@@ -229,7 +230,9 @@ _Avoid_: demo mode, sample data sandbox
 - During **Loading workspace context**, workspace-scoped UI actions are unavailable until an accepted **Workspace** is resolved.
 - A **Workspace resolution error** keeps Workspace actions disabled. Offer retry without falling back to stored preference.
 - Unauthenticated users accessing the SPA are taken to the login page and do not have a **Workspace context**.
+- A session that ends without signing out here (expired, signed out in another tab, or access removed) clears session state and returns to sign-in at `/`. A request that gets 401 checks the session again.
 - Load public runtime capabilities before showing auth controls. Offer only enabled login methods and registration actions. Use the configured upload limit.
+- In invite-only mode (`signupEnabled` false), sign-up stays available for invited email addresses, with invitation copy. Refusals for an uninvited address or an Account without Workspace access are persistent toasts. A session that starts takes down the auth screen's toasts.
 - If verification is required, email/password signup shows **Account verification prompt** without resolving session or Workspace. Otherwise, resolve account access directly. Verification is disabled by default.
 - The **Account verification prompt** and password-reset feedback distinguish local captured links from actual inbox delivery.
 - After email/password sign-up, the **Account verification prompt** replaces the create-account form rather than appearing alongside it.

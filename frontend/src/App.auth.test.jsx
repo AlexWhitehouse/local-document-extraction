@@ -1,5 +1,5 @@
 import { toast as realToast } from "sonner";
-import React from "react";
+import React, { useSyncExternalStore } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -72,6 +72,37 @@ beforeEach(() => {
 function expectFormToast(message) {
   expect(toastMock.error).toHaveBeenLastCalledWith(message, expect.objectContaining({ id: "auth-form" }));
   expect(screen.queryByText(message)).toBeNull();
+}
+
+const SIGNED_IN_SESSION = {
+  user: { id: "user_1", name: "Ada Lovelace", email: "ada@example.com" },
+  session: { id: "s_1" },
+};
+
+// useSession reads a store, so a test can start or end the session the way the server would.
+function installSessionStore(session) {
+  const store = { session, listeners: new Set() };
+
+  store.setSession = (next) => {
+    store.session = next;
+
+    for (const listener of store.listeners) listener();
+  };
+
+  authClientMock.useSession.mockImplementation(() => ({
+    data: useSyncExternalStore(
+      (listener) => {
+        store.listeners.add(listener);
+
+        return () => store.listeners.delete(listener);
+      },
+      () => store.session,
+    ),
+    isPending: false,
+    refetch: authClientMock.refetchSession,
+  }));
+
+  return store;
 }
 
 async function fillSignUp(user, { name = "Ada Lovelace", password = "Password1!", confirmPassword = password } = {}) {
@@ -189,6 +220,7 @@ describe("auth sign-in feedback", () => {
     expect(authClientMock.signInSocial).toHaveBeenCalledWith({
       provider: "google",
       callbackURL: window.location.origin + callbackPath,
+      errorCallbackURL: window.location.origin + callbackPath,
     });
   });
 
@@ -613,20 +645,11 @@ describe("auth sign-up password policy feedback", () => {
 });
 
 describe("deployment auth configuration", () => {
-  it("hides unconfigured providers and closed registration", () => {
-    render(
-      <App
-        createAuthClient={createAuthClient}
-        notifications={toastMock}
-        configuration={{
-          ...DEFAULT_RUNTIME_CONFIGURATION,
-          auth: { ...DEFAULT_RUNTIME_CONFIGURATION.auth, signupEnabled: false },
-        }}
-      />,
-    );
+  it("hides unconfigured providers", () => {
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
     expect(screen.queryByRole("button", { name: "Sign in with Google" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Sign up" })).toBeNull();
-    expect(screen.getByText(/Account registration is closed/)).toBeTruthy();
+    expect(screen.getByText("Don't have an account?")).toBeTruthy();
   });
 
   it("shows only Google for a provider-only deployment", () => {
@@ -674,5 +697,111 @@ describe("deployment auth configuration", () => {
     await user.click(screen.getByRole("button", { name: "Create account" }));
     expect(authClientMock.refetchSession).toHaveBeenCalledOnce();
     expect(screen.queryByText(/verification link/)).toBeNull();
+  });
+});
+
+describe("invite-only sign-up", () => {
+  const inviteOnly = { ...configuration, auth: { ...configuration.auth, signupEnabled: false } };
+
+  it("keeps sign-up for invited email addresses", async () => {
+    const user = userEvent.setup();
+
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={inviteOnly} />);
+
+    expect(screen.queryByText(/registration is closed/)).toBeNull();
+    expect(screen.getByText("Have an invitation?")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Sign up" }));
+
+    expect(screen.getByRole("heading", { name: "Create account" })).toBeTruthy();
+    expect(screen.getByText("Create an account with the email address your invitation was sent to.")).toBeTruthy();
+  });
+
+  it("explains that Google sign-in needs an invitation", () => {
+    render(
+      <App
+        createAuthClient={createAuthClient}
+        notifications={toastMock}
+        configuration={{ ...inviteOnly, auth: { ...inviteOnly.auth, emailPasswordEnabled: false } }}
+      />,
+    );
+
+    expect(screen.getByText("You need an invitation to sign in. Use the Google account it was sent to.")).toBeTruthy();
+    expect(screen.queryByText(/registration is closed/)).toBeNull();
+  });
+
+  it.each([
+    ["ACCESS_REQUIRED", "This account doesn't have access to any workspace. Ask a workspace admin to invite you."],
+    ["unable_to_create_user", "Sign-up is by invitation only. Ask a workspace admin to invite your Google email address."],
+  ])("explains a Google sign-in that returned with %s and clears it from the address", (error, message) => {
+    window.history.replaceState(null, "", `/workspaces/ws_1?error=${error}&error_description=Server+wording`);
+
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={inviteOnly} />);
+
+    expect(toastMock.error).toHaveBeenCalledOnce();
+    expect(toastMock.error).toHaveBeenCalledWith(message, expect.objectContaining({ duration: Infinity }));
+    expect(window.location.pathname + window.location.search).toBe("/workspaces/ws_1");
+  });
+
+  it("takes down a sign-up refusal once an invited account signs in", async () => {
+    const user = userEvent.setup();
+    const refusal = "Sign-up is by invitation only. Ask a workspace admin to invite this email address.";
+    const store = installSessionStore(null);
+
+    authClientMock.signUpEmail.mockResolvedValue({
+      error: { code: "INVITATION_REQUIRED", message: "Server wording", status: 403 },
+    });
+    authClientMock.signInEmail.mockResolvedValue({ error: null });
+    authClientMock.refetchSession.mockImplementation(async () => store.setSession(SIGNED_IN_SESSION));
+    // The Workspace stays loading; only the toasts matter here.
+    globalThis.fetch = vi.fn(() => new Promise(() => {}));
+
+    // Real toasts, so the refusal stays on screen until something takes it down.
+    render(<App createAuthClient={createAuthClient} configuration={inviteOnly} />);
+
+    await fillSignUp(user);
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+    expect(await screen.findByText(refusal)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await user.type(screen.getByLabelText("Password"), "Password1!");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull());
+    await waitFor(() => expect(screen.queryByText(refusal)).toBeNull());
+  });
+
+  it("returns a refused Google sign-in to the same page", async () => {
+    window.history.replaceState(null, "", "/workspaces/ws_1/documents");
+    authClientMock.signInSocial.mockResolvedValue({ error: null });
+
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={inviteOnly} />);
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with Google" }));
+
+    expect(authClientMock.signInSocial).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCallbackURL: `${window.location.origin}/workspaces/ws_1/documents` }),
+    );
+  });
+});
+
+describe("a session that ends", () => {
+  it("shows sign-in at / when a request finds the session gone", async () => {
+    const store = installSessionStore(SIGNED_IN_SESSION);
+
+    // The server dropped the session (for example, access was removed); checking it again finds none.
+    authClientMock.refetchSession.mockImplementation(async () => store.setSession(null));
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { code: "session_required", message: "Sign in" } }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    window.history.replaceState(null, "", "/workspaces/ws_1/documents");
+
+    render(<App createAuthClient={createAuthClient} notifications={toastMock} configuration={configuration} />);
+
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/");
+    expect(screen.queryByText("Couldn't load workspace")).toBeNull();
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 });

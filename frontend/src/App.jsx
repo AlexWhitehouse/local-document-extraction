@@ -163,11 +163,30 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     readOnly: isImpersonating,
   });
 
+  // A 401 checks the session again, once however many requests saw it. An ended session shows sign-in.
+  const refetchSessionRef = useRef(refetchSession);
+  refetchSessionRef.current = refetchSession;
+
   const {
     request: coreRequest,
     showActionToast,
     showDocumentUploadToast,
-  } = useMemo(() => createAppRuntimeCore({ apiBase: API_BASE, toast }), [toast]);
+  } = useMemo(() => {
+    let sessionCheck = null;
+
+    return createAppRuntimeCore({
+      apiBase: API_BASE,
+      toast,
+      onUnauthorized: () => {
+        sessionCheck ||= Promise.resolve()
+          .then(() => refetchSessionRef.current())
+          .catch(() => {})
+          .finally(() => {
+            sessionCheck = null;
+          });
+      },
+    });
+  }, [toast]);
 
   const delegationRequests = useMemo(() => createDelegationRequests(coreRequest), [coreRequest]);
 
@@ -604,6 +623,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       navigate("/", { replace: true, force: true });
     },
     confirmSignOut: () => confirmLeavingUnsavedEdits({ page: "workspace", root: true }),
+    showSignInRedirectError: true,
     onSessionChanging: () => {
       evaluation.clear();
       documentController.actions.cancelPendingSubmissions();
@@ -902,6 +922,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
               model={workspaceModel}
               upload={documentController.uploadModal}
               busy={workspaceToolbar.isCreatingWorkspace}
+              canCreateWorkspace={workspaceToolbar.canCreateWorkspace}
+              workspaceRole={workspaceContext.selectedWorkspaceRole}
               onActiveChange={setIsTourActive}
               returnFocusRef={profileMenu.panelRef}
               renderProfile={(tourAction) => (
@@ -976,6 +998,7 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             workspaceId={workspaceToolbar.workspaceId}
             workspacePrimaryAction={workspaceToolbar.workspacePrimaryAction}
             isDeletingWorkspace={workspaceToolbar.isDeletingWorkspace}
+            canCreateWorkspace={workspaceToolbar.canCreateWorkspace}
             isCreatingWorkspace={workspaceToolbar.isCreatingWorkspace}
             isDeletingTemplate={templateController.toolbar.isDeletingTemplate}
             isDeletingDocument={documentToolbar.isDeletingDocument}

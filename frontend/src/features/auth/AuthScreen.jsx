@@ -38,8 +38,9 @@ export function AuthScreen({
   onProviderSignIn,
   onSwitchMode,
 }) {
+  // With sign-up off, only invited email addresses can create an account.
   const { emailPasswordEnabled, googleEnabled, signupEnabled } = authOptions;
-  const isSignUp = emailPasswordEnabled && signupEnabled && mode === "signup";
+  const isSignUp = emailPasswordEnabled && mode === "signup";
   const isResetRequest = emailPasswordEnabled && mode === "reset-request";
   const isSignIn = !isSignUp && !isResetRequest;
   const formTitle = isResetRequest ? "Reset password" : isSignIn ? "Sign in" : "Create account";
@@ -62,7 +63,9 @@ export function AuthScreen({
                 ? "Sign in to continue."
                 : isResetRequest
                   ? "We'll email you a reset link."
-                  : "Create an account to start extracting data from documents."}
+                  : signupEnabled
+                    ? "Create an account to start extracting data from documents."
+                    : "Create an account with the email address your invitation was sent to."}
             </p>
           </div>
 
@@ -151,16 +154,12 @@ export function AuthScreen({
                     <Button type="submit" className="auth-primary-action" pending={isSigningIn} pendingLabel="Signing in…">
                       Sign in
                     </Button>
-                    {signupEnabled ? (
-                      <p className="auth-switch-copy">
-                        Don&apos;t have an account?{" "}
-                        <SwitchModeButton mode="signup" disabled={isAuthPending} onSwitchMode={onSwitchMode}>
-                          Sign up
-                        </SwitchModeButton>
-                      </p>
-                    ) : (
-                      <p className="muted">Account registration is closed. Contact the administrator for access.</p>
-                    )}
+                    <p className="auth-switch-copy">
+                      {signupEnabled ? "Don't have an account?" : "Have an invitation?"}{" "}
+                      <SwitchModeButton mode="signup" disabled={isAuthPending} onSwitchMode={onSwitchMode}>
+                        Sign up
+                      </SwitchModeButton>
+                    </p>
                   </>
                 ) : isResetRequest ? (
                   <>
@@ -200,7 +199,7 @@ export function AuthScreen({
                   Sign in with Google
                 </Button>
                 {!emailPasswordEnabled && !signupEnabled ? (
-                  <p className="muted">Account registration is closed. Contact the administrator for access.</p>
+                  <p className="muted">You need an invitation to sign in. Use the Google account it was sent to.</p>
                 ) : null}
               </>
             ) : null}

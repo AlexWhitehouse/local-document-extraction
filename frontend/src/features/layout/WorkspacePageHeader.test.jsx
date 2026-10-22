@@ -96,4 +96,30 @@ describe("WorkspacePageHeader", () => {
     await user.click(screen.getByRole("menuitem", { name: "Delete workspace" }));
     expect(onWorkspacePrimaryAction).toHaveBeenCalledTimes(1);
   });
+
+  it("hides Create workspace for an account that can't create workspaces", () => {
+    renderHeader({ activePage: "workspace", title: "Acme", canCreateWorkspace: false, onCreateWorkspace: () => {} });
+
+    expect(screen.queryByRole("button", { name: "Create workspace" })).toBeNull();
+  });
+
+  it("disables Leave workspace with its reason when leaving isn't possible", async () => {
+    const user = userEvent.setup();
+    renderHeader({
+      activePage: "workspace",
+      title: "Acme",
+      workspacePrimaryAction: {
+        type: "leave",
+        label: "Leave workspace",
+        unavailableReason: "You can't leave your only workspace.",
+      },
+      onWorkspacePrimaryAction: () => {},
+    });
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    const leave = screen.getByRole("menuitem", { name: "Leave workspace" });
+
+    expect(leave.disabled).toBe(true);
+    expect(leave.getAttribute("title")).toBe("You can't leave your only workspace.");
+  });
 });

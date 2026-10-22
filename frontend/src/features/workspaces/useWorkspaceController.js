@@ -54,6 +54,8 @@ export function useWorkspaceController({
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
   const [userWorkspaces, setUserWorkspaces] = useState([]);
   const [userWorkspaceInvitations, setUserWorkspaceInvitations] = useState([]);
+  // Invite-only installations let only their admins create workspaces. Older servers don't say, so allow it.
+  const [canCreateWorkspaces, setCanCreateWorkspaces] = useState(true);
   const [workspaceResolutionStatus, setWorkspaceResolutionStatus] = useState("idle");
   const [resolvedSessionId, setResolvedSessionId] = useState("");
   const [unavailableRoute, setUnavailableRoute] = useState(false);
@@ -163,7 +165,9 @@ export function useWorkspaceController({
   const selectedWorkspaceRole = String(selectedWorkspace?.role || "");
   const selectedWorkspaceHasApiKey = Boolean(selectedWorkspace?.has_api_key);
   const canRotateWorkspaceApiKey = ["owner", "admin"].includes(selectedWorkspaceRole.trim().toLowerCase());
-  const workspacePrimaryAction = getWorkspacePrimaryAction(selectedWorkspaceRole);
+  // Someone who can't create workspaces can't leave their only one: nothing would replace it.
+  const canLeaveWorkspace = canCreateWorkspaces || userWorkspaces.length > 1;
+  const workspacePrimaryAction = getWorkspacePrimaryAction(selectedWorkspaceRole, { canLeave: canLeaveWorkspace });
 
   const memberPermissions = getWorkspaceMemberPermissions(isWorkspaceInvitationSelected ? "" : selectedWorkspaceRole);
 
@@ -269,6 +273,9 @@ export function useWorkspaceController({
         storedWorkspacePreference: { workspaceId: createdWorkspaceId, workspaceName: createdWorkspaceName },
       });
     } catch (error) {
+      // A stale list offered creation; hide it now that the server has refused.
+      if (error.code === "workspace_creation_restricted") setCanCreateWorkspaces(false);
+
       showActionToast("workspace.create", "failure", { error });
     }
   }
@@ -348,6 +355,7 @@ export function useWorkspaceController({
         if (!isCurrent()) return null;
         const workspaces = Array.isArray(workspaceData?.workspaces) ? workspaceData.workspaces : [];
         const invitations = Array.isArray(invitationData?.invitations) ? invitationData.invitations : [];
+        setCanCreateWorkspaces(workspaceData?.can_create_workspaces !== false);
         setUserWorkspaces(workspaces);
         setUserWorkspaceInvitations(invitations);
 
@@ -776,7 +784,7 @@ export function useWorkspaceController({
   }
 
   async function leaveWorkspace() {
-    if (!normalizedWorkspaceId || isDeletingWorkspace) {
+    if (!normalizedWorkspaceId || isDeletingWorkspace || !canLeaveWorkspace) {
       return;
     }
 
@@ -788,7 +796,14 @@ export function useWorkspaceController({
       confirmLabel: "Leave workspace",
       pendingLabel: "Leaving…",
       action: async () => {
-        leaveResult = await workspaceRequests.leaveWorkspace(normalizedWorkspaceId);
+        try {
+          leaveResult = await workspaceRequests.leaveWorkspace(normalizedWorkspaceId);
+        } catch (error) {
+          // The dialog explains a refused last workspace; a fresh list then locks Leave.
+          if (error.code === "last_workspace") void listWorkspaces().catch(() => {});
+
+          throw error;
+        }
       },
     });
 
@@ -864,6 +879,7 @@ export function useWorkspaceController({
     clearWorkspaceScopedData({ sessionEnded: true });
     setUserWorkspaces([]);
     setUserWorkspaceInvitations([]);
+    setCanCreateWorkspaces(true);
     setSelectedWorkspaceInvitationId("");
     setWorkspaceResolutionStatus("idle");
     setUnavailableRoute(false);
@@ -950,6 +966,7 @@ export function useWorkspaceController({
       workspaceId,
       workspacePrimaryAction,
       isDeletingWorkspace,
+      canCreateWorkspace: canCreateWorkspaces,
       isCreatingWorkspace,
       onCreateWorkspace: runCreateWorkspace,
       onWorkspacePrimaryAction: workspacePrimaryAction.type === "leave" ? leaveWorkspace : deleteWorkspace,

@@ -12,7 +12,7 @@ const COMPACT_QUERY = "(max-width: 600px)";
 // The one page header: linked breadcrumbs, title, an optional one-line description,
 // actions, and an overflow menu for destructive or rare actions.
 // titleText is the plain-text title for the truncation tooltip when `title` is not a string.
-// breadcrumbs: [{ label, href?, onClick? }]; overflowActions: [{ key, label, onSelect, danger?, disabled? }]
+// breadcrumbs: [{ label, href?, onClick? }]; overflowActions: [{ key, label, onSelect, danger?, disabled?, title? }]
 // compactActions: [{ key, label, onSelect, disabled?, ...buttonProps }] are buttons above 600px and move into the
 // overflow menu at 600px and below.
 // Below 1120px, a toggle for the context list drawer appears first in the actions (see MainLayout).

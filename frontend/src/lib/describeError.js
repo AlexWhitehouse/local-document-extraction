@@ -42,6 +42,8 @@ const CODE_MESSAGES = {
   source_storage_move_nothing_to_move: "Every original is already in the current location.",
   source_storage_move_not_running: "The move has already finished.",
   insufficient_workspace_role: "Only workspace owners and admins can do that.",
+  workspace_creation_restricted: "Your account can't create workspaces.",
+  last_workspace: "You can't leave or delete your only workspace.",
   operation_conflict: "Another change is in progress. Try again in a moment.",
   capacity_exhausted: "Studio is busy. Try again in a moment.",
   request_body_too_large: "This is too large to upload.",

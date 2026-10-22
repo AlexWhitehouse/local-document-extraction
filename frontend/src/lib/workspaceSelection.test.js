@@ -194,6 +194,15 @@ describe("Workspace roles", () => {
     expect(getWorkspacePrimaryAction("")).toEqual({ type: "none", label: "" });
   });
 
+  it("keeps Leave workspace with a reason when there's nothing to replace the only workspace", () => {
+    expect(getWorkspacePrimaryAction("member", { canLeave: false })).toEqual({
+      type: "leave",
+      label: "Leave workspace",
+      unavailableReason: "You can't leave your only workspace.",
+    });
+    expect(getWorkspacePrimaryAction("owner", { canLeave: false })).toEqual({ type: "delete", label: "Delete workspace" });
+  });
+
   it.each([
     ["owner", { canListUsers: true, canManage: true, isOwner: true }],
     ["admin", { canListUsers: true, canManage: true, isOwner: false }],
