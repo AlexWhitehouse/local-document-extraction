@@ -252,7 +252,30 @@ async function execute(context: McpToolContext, operation: McpOperation, action:
   switch (action.action) {
     case "workspace.rename": return controlMutation(() => toolResult(product.workspaceControl.renameWorkspace({ workspaceId, userId, name: action.name })));
     case "workspace.retention": return controlMutation(() => toolResult(product.workspaceControl.setWorkspaceSourceRetention({ workspaceId, userId, disabled: action.disabled })));
-    case "workspace.invite": return controlMutation(() => toolResult(product.workspaceControl.createInvitation({ workspaceId, inviterUserId: userId, email: action.email, role: action.role })));
+    case "workspace.invite": {
+      const value = { workspaceId, inviterUserId: userId, email: action.email, role: action.role };
+
+      if (!product.invitationEmails) return controlMutation(() => toolResult(product.workspaceControl.createInvitation(value)));
+
+      const invitation = await product.invitationEmails.create(value, () => {
+        let created: ReturnType<typeof product.workspaceControl.createInvitation> | undefined;
+        controlMutation(() => {
+          created = product.workspaceControl.createInvitation(value);
+
+          return toolResult({ ...created, email_delivery: { status: "failed" } });
+        });
+
+        if (!created) throw new Error("Invitation creation did not complete");
+
+        return created;
+      });
+
+      const result = toolResult(invitation);
+      operations.settleInvitationEmail(operation.id, result);
+
+      return { result };
+    }
+
     case "workspace.cancel_invitation": return controlMutation(() => toolResult(product.workspaceControl.cancelInvitation({ workspaceId, userId, invitationId: action.invitation_id })));
     case "workspace.member": return controlMutation(() => toolResult(product.workspaceControl.applyWorkspaceMemberAction({ workspaceId, actorUserId: userId, targetUserId: action.user_id, action: action.change })));
     case "workspace.transfer_ownership": return controlMutation(() => toolResult(product.workspaceControl.applyWorkspaceMemberAction({ workspaceId, actorUserId: userId, targetUserId: action.user_id, action: "make_owner" })));

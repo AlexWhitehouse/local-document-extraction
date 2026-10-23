@@ -216,7 +216,7 @@ Before deleting a source checkout, move `.local/` and `.env` to a safe location.
 
 | Problem | Action |
 | --- | --- |
-| No verification email | Verification is disabled by default. Without Cloudflare, read saved links with the launcher's `mail` command or server log. |
+| No verification email | Verification is enabled by default. Without Cloudflare, read saved links with the launcher's `mail` command or server log. |
 | Email or Google links use the wrong address | Set `BETTER_AUTH_URL` to the browser address, including its port. Then request a new link. |
 | No Google sign-in button | Set `AUTH_GOOGLE_ENABLED=true`. Supply both Google credentials. Restart the app. |
 | Account creation fails | With `AUTH_SIGNUP_ENABLED=false`, register using a configured admin email or an email with a pending, unexpired Workspace invitation. Existing accounts need installation admin status, a pending invitation, or Workspace membership. |

@@ -24,7 +24,7 @@ test("a clean local install has usable private defaults and a secret-free public
       emailPasswordEnabled: true,
       googleEnabled: false,
       signupEnabled: true,
-      requireEmailVerification: false,
+      requireEmailVerification: true,
       mailDelivery: "local",
     },
     limits: { maxSourceFileBytes: 10485760 },

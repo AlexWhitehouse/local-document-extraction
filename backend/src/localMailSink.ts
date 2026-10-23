@@ -6,7 +6,7 @@ import { assertRegularStateFile, ensurePrivateStateDirectory } from "./localStat
 export type LocalMailAddress = string | { email: string; name?: string };
 
 export type LocalMailMessage = {
-  type: "account_email_verification" | "account_password_reset";
+  type: "account_email_verification" | "account_password_reset" | "workspace_invitation";
   to: string;
   from: LocalMailAddress;
   subject: string;

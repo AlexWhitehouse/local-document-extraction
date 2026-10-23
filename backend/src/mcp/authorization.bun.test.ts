@@ -1,3 +1,4 @@
+import { createWorkspaceInvitationEmails } from "../workspaceInvitationEmails";
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -36,8 +37,9 @@ async function fixture() {
     mcp: { enabled: true, sensitiveActions: true },
   });
 
-  const control = createLocalWorkspaceControl(database);
-  fetchApplication = createLocalApplication({ auth, workspaceControl: control, stateDirectory });
+  const control = createLocalWorkspaceControl(database, { baseURL: origin });
+  const invitationEmails = createWorkspaceInvitationEmails({ database, control, provider: "local", from: { email: "no-reply@example.com", name: "Document Extraction" }, mailSink: { capture: async (message) => { messages.push(message); } } });
+  fetchApplication = createLocalApplication({ auth, workspaceControl: control, stateDirectory, invitationEmails });
   cleanups.push(async () => { await server.stop(true); database.close(); await rm(stateDirectory, { recursive: true, force: true }); });
 
   async function request(path: string, body?: JsonObject, cookie?: string, method = body ? "POST" : "GET") {
@@ -610,4 +612,45 @@ test("a delegated connection may read costs for search only with the costs scope
   expect(canRead()).toBe(true);
   app.database.query("UPDATE workspace_memberships SET role = 'member' WHERE workspace_id = ? AND user_id = ?").run(app.workspace.id, app.userId);
   expect(canRead()).toBe(false);
+});
+
+test("MCP workspace invite returns email delivery and an inviter-safe URL", async () => {
+  const app = await fixture();
+  const token = await app.connect("workspace:read workspace:invitations");
+
+  const proposal = await output(await app.mcp(token.access_token, "request_action_approval", {
+    operation_id: "invitation-email", request: { action: "workspace.invite", email: "invited@example.com", role: "member" },
+  }));
+
+  const response = await app.request(`/v1/mcp/approvals/${proposal.request_id}`, { decision: "approve" }, app.cookie);
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(JSON.stringify(result)).toContain('"email_delivery":{"status":"captured"}');
+  const mail = app.messages.find((message) => message.type === "workspace_invitation");
+  expect(mail?.text).toContain("auth=signup");
+  const status = await app.mcp(token.access_token, "get_operation", { request_id: z.string().parse(proposal.request_id) });
+  const statusText = await status.text();
+  expect(statusText).toContain("email_delivery");
+  expect(statusText).not.toContain("auth=signup");
+});
+
+test("MCP invitation creation errors propagate without attempting delivery", async () => {
+  const app = await fixture();
+  const token = await app.connect("workspace:read workspace:invitations");
+
+  for (const operationId of ["first-invite", "duplicate-invite"]) {
+    const proposal = await output(await app.mcp(token.access_token, "request_action_approval", {
+      operation_id: operationId, request: { action: "workspace.invite", email: "duplicate@example.com", role: "member" },
+    }));
+
+    const response = await app.request(`/v1/mcp/approvals/${proposal.request_id}`, { decision: "approve" }, app.cookie);
+
+    if (operationId === "first-invite") expect(response.status).toBe(200);
+    else {
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: "mcp_request_failed", message: "The request could not be completed. Try again." } });
+    }
+  }
+
+  expect(app.messages.filter((message) => message.type === "workspace_invitation")).toHaveLength(1);
 });

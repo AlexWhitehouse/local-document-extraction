@@ -181,13 +181,20 @@ describe("macOS/Linux release installer", () => {
       ),
     );
     const metadata = JSON.parse(await readFile(join(root, "installation.json"), "utf8"));
-    const running = JSON.parse(await readFile(join(root, "running.json"), "utf8"));
+    let running = JSON.parse(await readFile(join(root, "running.json"), "utf8"));
     const response = await fetch(`${running.origin}/v1/health`);
     expect(await response.json()).toMatchObject({ ok: true });
     expect(await (await fetch(running.origin)).text()).toContain('id="root"');
     expect(await (await fetch(`${running.origin}/v1/config`)).json()).toMatchObject({
-      auth: { requireEmailVerification: false },
+      auth: { requireEmailVerification: true },
     });
+
+    // The remaining installation and backup checks need an unverified account with an immediate session.
+    passed(await command([launcher, "stop"]));
+    const configFile = join(config, "config.env");
+    await writeFile(configFile, (await readFile(configFile, "utf8")).replace("AUTH_REQUIRE_EMAIL_VERIFICATION=true", "AUTH_REQUIRE_EMAIL_VERIFICATION=false"));
+    passed(await command([launcher, "start"]));
+    running = JSON.parse(await readFile(join(root, "running.json"), "utf8"));
 
     const signup = await fetch(`${running.origin}/api/auth/sign-up/email`, {
       method: "POST",

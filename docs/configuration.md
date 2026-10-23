@@ -68,7 +68,9 @@ To permit only Google sign-in, set `AUTH_EMAIL_PASSWORD_ENABLED=false` after you
 
 ## Transactional email
 
-The app sends account verification and password reset emails. Workspace invitations appear in the app. The app does not email invitations.
+The app sends account verification, password reset and Workspace invitation emails. Invitation email is best effort: if delivery fails, the invitation still exists and its link can be shared directly. Each Workspace can attempt 20 invitation emails in a rolling 24 hours. Each invitation allows 3 resends, at least 10 minutes apart; resending refreshes expiry to 7 days.
+
+Invitation emails reveal the Workspace name and the inviter’s name and email address to the invited address. Check the recipient before sending. Cancelling an invitation sends no email.
 
 **By default, the app does not send emails.** It saves them on this machine. Email links appear in the server log and in `mail/YYYY-MM-DD.jsonl` inside the data folder. Installer users can read them with the launcher’s `mail` command.
 
@@ -101,15 +103,15 @@ BETTER_AUTH_URL=https://documents.your-domain.example
 
 ### Require email verification
 
-By default, new accounts can sign in immediately. To require email verification before sign-in, set:
+By default, new accounts must verify their email before signing in:
 
 ```dotenv
 AUTH_REQUIRE_EMAIL_VERIFICATION=true
 ```
 
-With local email, use the `mail` command to retrieve verification links and give them to the account owners. Cloudflare delivery sends these links directly. An unverified account receives a new link when its owner tries to sign in. Existing signed-in sessions remain active.
+With local email, use the `mail` command to retrieve verification links and give them to the account owners. Cloudflare delivery sends these links directly. An unverified account receives a new link when its owner tries to sign in. Existing signed-in sessions remain active. Operators who explicitly set `AUTH_REQUIRE_EMAIL_VERIFICATION=false` keep immediate sign-in and accept that someone could register an invited or admin address they do not control. Verification protects the email match used by invitations.
 
-An installation from v0.1.0 can retain that release’s enabled verification default. To disable verification, set the value to `false` and restart.
+Upgrades preserve explicit installation settings. Remove an explicit `false` or set it to `true` to enable verification on an existing installation.
 
 ## Allow larger uploads
 
@@ -224,7 +226,7 @@ Notes:
 | `AUTH_EMAIL_PASSWORD_ENABLED` | `true` | Allow email and password sign-in. |
 | `AUTH_GOOGLE_ENABLED` | `false` | Allow Google sign-in. Needs both Google settings below. |
 | `AUTH_SIGNUP_ENABLED` | `true` | `true`: open sign-up. `false`: invite-only sign-up for configured admin emails and pending, unexpired Workspace invitations; existing accounts need installation admin status, a pending invitation, or Workspace membership to sign in. |
-| `AUTH_REQUIRE_EMAIL_VERIFICATION` | `false` | Require people to confirm their email before signing in. |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION` | `true` | Require people to confirm their email before signing in. |
 | `GOOGLE_CLIENT_ID` | Not set | Google OAuth client ID. |
 | `GOOGLE_CLIENT_SECRET` | Not set | Google OAuth client secret. Never sent to the browser. |
 

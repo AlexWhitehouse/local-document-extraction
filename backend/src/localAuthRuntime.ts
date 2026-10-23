@@ -1,3 +1,4 @@
+import { createWorkspaceInvitationEmails, type WorkspaceInvitationEmails } from "./workspaceInvitationEmails";
 import { hasFilesystemErrorCode, assertRegularStateFile } from "./localStatePaths";
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
@@ -22,6 +23,7 @@ import { ensureLocalStateDirectories } from "./localRuntime";
 
 export type LocalAuthRuntime = {
   auth: LocalAuth;
+  invitationEmails: WorkspaceInvitationEmails;
   close(): void;
   workspaceControl: LocalWorkspaceControl;
   sourceObjectManifest: LocalSourceObjectManifest;
@@ -84,6 +86,10 @@ export async function createLocalAuthRuntime({
   try {
     database.exec("PRAGMA foreign_keys = ON;");
 
+    const mailSink = email.provider === "cloudflare"
+      ? createCloudflareMailSink({ accountId: email.cloudflareAccountId ?? "", apiToken: email.cloudflareApiToken ?? "" })
+      : createLocalMailSink({ directory: mailDirectory, logger });
+
     const auth = await createLocalAuth({
       ...settings,
       adminEmails,
@@ -93,22 +99,20 @@ export async function createLocalAuthRuntime({
       googleClientSecret,
       logger,
       emailFrom: { email: email.fromAddress, name: email.fromName },
-      mailSink:
-        email.provider === "cloudflare"
-          ? createCloudflareMailSink({
-              accountId: email.cloudflareAccountId ?? "",
-              apiToken: email.cloudflareApiToken ?? "",
-            })
-          : createLocalMailSink({ directory: mailDirectory, logger }),
+      mailSink,
       secret: await readOrCreateSecret(secretPath),
     });
+
+    const workspaceControl = createLocalWorkspaceControl(database, { signupEnabled: settings.signupEnabled, adminEmails, baseURL });
+    const invitationEmails = createWorkspaceInvitationEmails({ database, control: workspaceControl, mailSink, provider: email.provider, from: { email: email.fromAddress, name: email.fromName } });
 
     const sourceObjectManifest = createLocalSourceObjectManifest(database);
 
     return {
       auth,
       close: () => database.close(),
-      workspaceControl: createLocalWorkspaceControl(database, { signupEnabled: settings.signupEnabled, adminEmails }),
+      workspaceControl,
+      invitationEmails,
       sourceObjectManifest,
       sourceObjectMoves: createLocalSourceObjectMoves({ database, manifest: sourceObjectManifest }),
       sourceStorageDestinations: createLocalSourceStorageDestinations({

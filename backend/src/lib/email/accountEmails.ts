@@ -143,3 +143,26 @@ export function renderAccountPasswordResetEmail({ resetUrl, from = DEFAULT_SENDE
     disclaimer: "If you did not request a Document Extraction password reset, you can ignore this email. Your password will not change.",
   });
 }
+
+export function renderWorkspaceInvitationEmail(input: {
+  workspaceName: string; inviterName: string; inviterEmail: string; email: string;
+  role: "member" | "admin"; expiresAt: string; url: string; existingAccount: boolean; from?: EmailSender;
+}): AccountEmail {
+  const truncate = (value: string) => value.length > 80 ? value.slice(0, 80) + "…" : value;
+  const expiry = new Intl.DateTimeFormat("en-GB", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" }).format(new Date(input.expiresAt));
+
+  const content: AccountLinkEmailContent = {
+    subject: "You've been invited to a Workspace on Document Extraction",
+    preheader: "You have a Workspace invitation.",
+    heading: "Workspace invitation",
+    body: `${truncate(input.inviterName)} (${input.inviterEmail}) invited you to ${truncate(input.workspaceName)} as ${input.role === "admin" ? "Admin" : "Member"}. ${input.existingAccount ? "Sign in and accept" : "Create an account with this address"}: ${input.email}.`,
+    actionLabel: "Accept invitation",
+    url: input.url,
+    expiry: `This invitation expires on ${expiry} UTC.`,
+    disclaimer: `Access requires an account or sign-in with this exact address: ${input.email}. You can ignore this email.`,
+  };
+
+  const rendered = renderAccountLinkEmail(input.from ?? DEFAULT_SENDER, content);
+
+  return { ...rendered, text: `${content.actionLabel}:\n${input.url}\n\n${content.heading}\n\n${content.body}\n\n${content.expiry}\n\n${content.disclaimer}\n\n— ${PRODUCT_NAME}` };
+}

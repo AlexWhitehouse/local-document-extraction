@@ -6,6 +6,7 @@ type WorkspaceProductAnalyticsEventBase = {
 };
 
 export type LocalWorkspaceProductAnalyticsEvent =
+  | (WorkspaceProductAnalyticsEventBase & { type: "workspace_invitation_email_sent" | "workspace_invitation_email_failed" | "workspace_invitation_email_rate_limited"; trigger: "create" | "resend"; provider: "local" | "cloudflare" })
   | (WorkspaceProductAnalyticsEventBase & {
       type: "template_created" | "template_updated";
       templateId: string;
@@ -55,9 +56,11 @@ type SerializedAnalyticsEvent = {
   occurred_at: string;
   type: string;
   workspace_id: string;
-  template_id: string;
-  template_version: number;
-  status: string;
+  trigger?: string;
+  provider?: string;
+  template_id?: string;
+  template_version?: number;
+  status?: string;
   field_count?: number;
   extraction_job_id?: string;
   attempt?: number;
@@ -153,6 +156,8 @@ export function createLocalProductAnalytics({
 }
 
 function serializeEvent(event: LocalWorkspaceProductAnalyticsEvent, occurredAt: Date): SerializedAnalyticsEvent {
+  if ("trigger" in event) return { occurred_at: occurredAt.toISOString(), type: event.type, workspace_id: event.workspaceId, trigger: event.trigger, provider: event.provider };
+
   const record: SerializedAnalyticsEvent = {
     occurred_at: occurredAt.toISOString(),
     type: event.type,

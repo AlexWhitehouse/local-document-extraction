@@ -39,7 +39,7 @@ describe("first-install configuration", () => {
       AUTH_GOOGLE_ENABLED: "false",
       AUTH_EMAIL_PASSWORD_ENABLED: "true",
       EMAIL_PROVIDER: "local",
-      AUTH_REQUIRE_EMAIL_VERIFICATION: "false",
+      AUTH_REQUIRE_EMAIL_VERIFICATION: "true",
     });
     expect(fixture.questions).toHaveLength(3);
   });
@@ -98,7 +98,7 @@ describe("first-install configuration", () => {
 
     expect(await collectInstallerConfiguration(fixture.prompt)).toMatchObject({
       AUTH_EMAIL_PASSWORD_ENABLED: "false",
-      AUTH_REQUIRE_EMAIL_VERIFICATION: "false",
+      AUTH_REQUIRE_EMAIL_VERIFICATION: "true",
       EMAIL_PROVIDER: "cloudflare",
     });
     expect(fixture.questions.some((q) => q.question.startsWith("Require email verification"))).toBe(false);
