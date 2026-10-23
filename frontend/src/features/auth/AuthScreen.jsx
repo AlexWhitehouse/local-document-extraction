@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "../../lib/runtimeConfiguration";
 import { Button } from "../ui/Button.jsx";
+import { Callout } from "../ui/Callout.jsx";
 import { Field, TextInput } from "../ui/Field.jsx";
 import "./AuthScreen.css";
 
@@ -28,6 +29,8 @@ export function AuthScreen({
   focusRequest,
   shouldShowPasswordRequirements,
   unmetPasswordRequirements,
+  invitation = null,
+  verificationEmail = "",
   onSubmit,
   onNameChange,
   onEmailChange,
@@ -63,11 +66,23 @@ export function AuthScreen({
                 ? "Sign in to continue."
                 : isResetRequest
                   ? "We'll email you a reset link."
-                  : signupEnabled
-                    ? "Create an account to start extracting data from documents."
-                    : "Create an account with the email address your invitation was sent to."}
+                  : invitation
+                    ? "Create an account to continue."
+                    : signupEnabled
+                      ? "Create an account to start extracting data from documents."
+                      : "Create an account with the email address your invitation was sent to."}
             </p>
           </div>
+
+          {invitation && !isResetRequest ? (
+            <InvitationContext
+              email={invitation.email}
+              verificationEmail={verificationEmail}
+              isSignUp={isSignUp}
+              emailPasswordEnabled={emailPasswordEnabled}
+              mailDelivery={authOptions.mailDelivery}
+            />
+          ) : null}
 
           <form className="panel auth-panel" onSubmit={onSubmit} noValidate>
             <h2>{formTitle}</h2>
@@ -207,6 +222,32 @@ export function AuthScreen({
         </section>
       </div>
     </>
+  );
+}
+
+// Why this screen opened from an invite link, and which address to use. After sign-up it says to
+// verify first, since the verification link is what brings the person back to the invitation.
+function InvitationContext({ email, verificationEmail, isSignUp, emailPasswordEnabled, mailDelivery }) {
+  if (verificationEmail) {
+    return (
+      <Callout tone="info" className="auth-invitation" title="Check your email">
+        {mailDelivery === "local"
+          ? `Run \`document-extraction mail\` to open the verification link for ${verificationEmail}. It brings you back to your invitation.`
+          : `Open the verification link we sent to ${verificationEmail}. It brings you back to your invitation.`}
+      </Callout>
+    );
+  }
+
+  const address = email || "the email address the invitation was sent to";
+
+  return (
+    <Callout tone="info" className="auth-invitation" title="You're invited to a workspace">
+      {!emailPasswordEnabled
+        ? `Sign in with the Google account for ${address} to accept it.`
+        : isSignUp
+          ? `Create an account with ${address} to accept it.`
+          : `Sign in with ${address} to accept it.`}
+    </Callout>
   );
 }
 

@@ -30,7 +30,8 @@ The tests require the Bun version specified in `package.json`. If your version d
 - Starts the app on loopback with a new temporary data folder.
 - Deletes that folder after the tests.
 - Runs a fake model gateway on loopback.
-- Verifies accounts through locally captured email.
+- Verifies accounts through locally captured email. Installations verify email by default, but the harness turns verification off unless a test passes `requireEmailVerification: true`, so most journeys sign up straight into a session.
+- Reads captured Workspace invitation emails, and can end the 10-minute resend cooldown with `endInvitationEmailCooldown()`.
 - Blocks browser access to the public internet. External stylesheet requests receive an empty response.
 
 ## Results

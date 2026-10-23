@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { appPath, followAppLink, parseAppRoute } from "./appRoutes";
+import { appPath, followAppLink, invitationContinuationPath, parseAppRoute, readInvitationLink } from "./appRoutes";
 
 describe("app routes", () => {
   it.each([
@@ -33,5 +33,20 @@ describe("app routes", () => {
     followAppLink(event, navigate);
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("invite links", () => {
+  it.each([
+    ["?email=grace%40example.com&auth=signin", { email: "grace@example.com", auth: "signin" }],
+    ["?email=grace%40example.com&auth=signup", { email: "grace@example.com", auth: "signup" }],
+    ["?email=%20grace%40example.com%20", { email: "grace@example.com", auth: "" }],
+    ["?auth=admin", { email: "", auth: "" }],
+    ["", { email: "", auth: "" }],
+  ])("reads %s", (search, link) => expect(readInvitationLink(search)).toEqual(link));
+
+  it("returns to the invitation with its address and without the account hint", () => {
+    expect(invitationContinuationPath("inv 1", "grace+x@example.com")).toBe("/invitations/inv%201?email=grace%2Bx%40example.com");
+    expect(invitationContinuationPath("inv_1", "")).toBe("/invitations/inv_1");
   });
 });

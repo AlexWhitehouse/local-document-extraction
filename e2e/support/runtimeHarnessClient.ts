@@ -22,12 +22,16 @@ export type RuntimeHarness = Awaited<ReturnType<typeof startRuntimeHarness>>;
 
 export async function startRuntimeHarness({
   timeoutMs = 20_000,
-  requireEmailVerification,
+  requireEmailVerification = false,
+  signupEnabled = true,
   sourceStorage,
   mcp,
 }: {
   timeoutMs?: number;
+  /** Installations verify email by default; journeys opt in so most can sign up straight into a session. */
   requireEmailVerification?: boolean;
+  /** `false` makes sign-up invite-only. */
+  signupEnabled?: boolean;
   sourceStorage?: "local";
   mcp?: { sensitiveActions?: boolean };
 } = {}) {
@@ -35,7 +39,8 @@ export async function startRuntimeHarness({
 
   const environment = {
     ...process.env,
-    AUTH_REQUIRE_EMAIL_VERIFICATION: requireEmailVerification === undefined ? "" : String(requireEmailVerification),
+    AUTH_REQUIRE_EMAIL_VERIFICATION: String(requireEmailVerification),
+    AUTH_SIGNUP_ENABLED: String(signupEnabled),
     E2E_PARENT_PID: String(process.pid),
   };
 
@@ -160,6 +165,20 @@ export async function startRuntimeHarness({
         stateDirectory: payload.stateDirectory,
         type: "account_password_reset",
       }),
+    waitForInvitationMail: (email: string) =>
+      waitForTransactionalMail({
+        email,
+        expectedPath: "/invitations/",
+        pathMatch: "prefix",
+        origin: payload.origin,
+        stateDirectory: payload.stateDirectory,
+        type: "workspace_invitation",
+      }),
+    async endInvitationEmailCooldown(): Promise<void> {
+      const response = await fetch(`${payload.controlOrigin}/__e2e/invitation-email-cooldown`, { method: "POST" });
+
+      if (!response.ok) throw new Error(`Couldn't end the invitation email cooldown (${response.status})`);
+    },
     stop(): Promise<void> {
       stopPromise ??= stopHarness(child, exited, payload.controlOrigin, () => ({ stderr, stdout }));
 
@@ -180,7 +199,7 @@ async function waitForTransactionalMail({
   expectedPath: string;
   origin: string;
   stateDirectory: string;
-  type: "account_email_verification" | "account_password_reset";
+  type: "account_email_verification" | "account_password_reset" | "workspace_invitation";
   pathMatch?: "exact" | "prefix";
 }): Promise<{ actionUrl: string }> {
   const mailDirectory = join(stateDirectory, "mail");

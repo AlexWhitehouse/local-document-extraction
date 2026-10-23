@@ -115,7 +115,10 @@ async function invite(page: Page, email: string) {
   await expect(inviteEmail).toBeVisible();
   await inviteEmail.fill(email);
   await page.getByRole("button", { name: "Invite user", exact: true }).click();
-  await expect(page.getByText(`Invitation sent: ${email}`)).toBeVisible();
+  // The harness captures mail locally, so the inviter is asked to share the link.
+  await expect(
+    page.getByText(`Invitation created for ${email}. This setup doesn't send email, so share the invite link.`),
+  ).toBeVisible();
 }
 
 async function selectInvitation(page: Page, workspaceName: string) {

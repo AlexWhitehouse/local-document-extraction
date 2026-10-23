@@ -129,6 +129,24 @@ export function ExternalIcon(props) {
   );
 }
 
+export function LinkIcon(props) {
+  return (
+    <Icon {...props}>
+      <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.4 1.4" />
+      <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.4-1.4" />
+    </Icon>
+  );
+}
+
+export function MailIcon(props) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="5" width="18" height="14" />
+      <path d="m3 6 9 7 9-7" />
+    </Icon>
+  );
+}
+
 export function PacketIcon(props) {
   return (
     <Icon {...props}>

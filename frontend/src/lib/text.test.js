@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pluralize } from "./text";
+import { formatWait, pluralize } from "./text";
 
 describe("pluralize", () => {
   it("uses the singular form for one", () => {
@@ -13,5 +13,17 @@ describe("pluralize", () => {
 
   it("uses an explicit plural form", () => {
     expect(pluralize(2, "entry", "entries")).toBe("2 entries");
+  });
+});
+
+describe("formatWait", () => {
+  it.each([
+    [0, "1 minute"],
+    [61, "2 minutes"],
+    [3599, "1 hour"],
+    [3600, "1 hour"],
+    [5400, "2 hours"],
+  ])("rounds %s seconds up to %s", (seconds, text) => {
+    expect(formatWait(seconds)).toBe(text);
   });
 });

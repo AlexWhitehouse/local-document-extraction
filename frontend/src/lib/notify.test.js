@@ -3,7 +3,7 @@ import { createNotifier } from "./notify";
 import { copyWithFeedback } from "./copyWithFeedback";
 
 function fakeToast() {
-  return { success: vi.fn(), error: vi.fn() };
+  return { success: vi.fn(), warning: vi.fn(), error: vi.fn() };
 }
 
 describe("createNotifier", () => {
@@ -16,6 +16,18 @@ describe("createNotifier", () => {
 
     expect(toast.success.mock.calls[0][1]).toEqual({ duration: 4000 });
     expect(toast.error.mock.calls[0][1]).toEqual({ duration: 8000 });
+  });
+
+  it("shows partial successes as warnings that stay as long as failures", () => {
+    const toast = fakeToast();
+    const notify = createNotifier(toast);
+
+    notify("workspaceInvitation.create", "warning", { targetEmail: "ada@example.com", delivery: "failed" });
+
+    expect(toast.warning).toHaveBeenCalledWith(
+      "Invitation created, but the email to ada@example.com couldn't be sent. Share the invite link with them directly.",
+      { duration: 8000 },
+    );
   });
 
   it("adds the mapped reason to failures and never the raw message", () => {

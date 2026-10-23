@@ -1,5 +1,5 @@
 import { describeError } from "./describeError";
-import { pluralize } from "./text";
+import { formatWait, pluralize } from "./text";
 
 // Success: "{Thing} {past verb}: {target}" when a name is known, otherwise "{Thing} {past verb}".
 // Failure: "Couldn't {verb} {target}." Mapped reasons are appended by withReason.
@@ -19,7 +19,20 @@ const successMessages = {
   "template.create": ({ target }) => withTarget("Template created", target),
   "template.applyDraft": ({ target }) =>
     `Changes applied to ${target || "the draft"}. Save the template to keep them.`,
-  "workspaceInvitation.create": ({ target }) => withTarget("Invitation sent", target),
+  // The invitation exists either way; `delivery` says whether its email went out. Failures warn.
+  "workspaceInvitation.create": ({ target, delivery }) =>
+    delivery === "sent"
+      ? `Invitation emailed to ${target}. They have 7 days to accept.`
+      : delivery === "captured"
+        ? `Invitation created for ${target}. This setup doesn't send email, so share the invite link.`
+        : withTarget("Invitation created", target),
+  // A resend also renews the invitation for 7 days.
+  "workspaceInvitation.resend": ({ target, delivery }) =>
+    delivery === "sent"
+      ? `Invitation emailed again to ${target}. It now expires in 7 days.`
+      : delivery === "captured"
+        ? `Invitation renewed for ${target}. This setup doesn't send email, so share the invite link.`
+        : withTarget("Invitation renewed", target),
   "workspaceInvitation.cancel": ({ target }) => withTarget("Invitation cancelled", target),
   "workspaceInvitation.accept": () => "Invitation accepted",
   "workspaceInvitation.decline": () => "Invitation declined",
@@ -104,6 +117,14 @@ const failureMessages = {
   "template.save": ({ target }) => (target ? `Couldn't save ${target}.` : "Couldn't save template."),
   "template.delete": ({ target }) => (target ? `Couldn't delete ${target}.` : "Couldn't delete template."),
   "workspaceInvitation.create": ({ target }) => (target ? `Couldn't invite ${target}.` : "Couldn't send invitation."),
+  // A refused resend says when to try again, or that this invitation has no resends left.
+  "workspaceInvitation.resend": ({ target, retryAfterSeconds }) => {
+    const message = target ? `Couldn't resend the email to ${target}.` : "Couldn't resend the email.";
+
+    if (retryAfterSeconds === null) return `${message} It has no resends left, so share the invite link.`;
+
+    return Number.isFinite(retryAfterSeconds) ? `${message} Try again in ${formatWait(retryAfterSeconds)}.` : message;
+  },
   "workspaceInvitation.cancel": () => "Couldn't cancel invitation.",
   "workspaceInvitation.accept": () => "Couldn't accept invitation.",
   "workspaceInvitation.decline": () => "Couldn't decline invitation.",
@@ -165,6 +186,16 @@ const failureMessages = {
   "evaluation.testChanges": () => "Couldn't create a copy to test the changes.",
 };
 
+// Partial successes: the action happened, but something the user relies on didn't.
+const warningMessages = {
+  "workspaceInvitation.create": ({ target, delivery }) =>
+    delivery === "rate_limited"
+      ? `Invitation created for ${target}. The daily limit for invitation emails is reached, so share the invite link directly.`
+      : `Invitation created, but the email to ${target} couldn't be sent. Share the invite link with them directly.`,
+  "workspaceInvitation.resend": ({ target }) =>
+    `Invitation renewed, but the email to ${target} couldn't be sent. Share the invite link with them directly.`,
+};
+
 const validationMessages = {
   "template.save": {
     draft: "Template draft is incomplete. Fix required fields before saving.",
@@ -191,6 +222,10 @@ export function getActionToast(action, outcome, options = {}) {
 
   if (outcome === "success" && successMessages[action]) {
     return { severity: "success", message: successMessages[action]({ ...options, target }) };
+  }
+
+  if (outcome === "warning" && warningMessages[action]) {
+    return { severity: "warning", message: warningMessages[action]({ ...options, target }) };
   }
 
   if (outcome === "alreadyRemoved" && alreadyRemovedMessages[action]) {

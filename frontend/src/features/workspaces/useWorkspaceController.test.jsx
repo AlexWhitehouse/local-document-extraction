@@ -135,3 +135,175 @@ describe("workspace creation permission", () => {
     expect(result.current.toolbar.canCreateWorkspace).toBe(true);
   });
 });
+
+describe("invite links", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  function renderInvitationRoute({ email, sessionUserEmail = "ada@example.com", canCreateWorkspaces }) {
+    const onWorkspaceNavigation = vi.fn();
+
+    const coreRequest = vi.fn(async (path) =>
+      path === "/workspaces"
+        ? { workspaces: [{ id: "ws_invited", name: "Invited", role: "member" }], can_create_workspaces: canCreateWorkspaces }
+        : { invitations: [], users: [] },
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspaceController({
+        coreRequest,
+        hasSession: true,
+        sessionUserId: "user_1",
+        sessionId: "session_1",
+        sessionUserEmail,
+        requestedInvitationId: "inv_1",
+        requestedInvitationEmail: email,
+        onWorkspaceNavigation,
+        showActionToast: vi.fn(),
+        onActivePageChange: vi.fn(),
+        onClearWorkspaceScopedData: vi.fn(),
+      }),
+    );
+
+    return { result, onWorkspaceNavigation };
+  }
+
+  it("opens the joined workspace when the invitation was accepted at first sign-in", async () => {
+    const { result, onWorkspaceNavigation } = renderInvitationRoute({ email: "ADA@example.com", canCreateWorkspaces: false });
+
+    await waitFor(() =>
+      expect(onWorkspaceNavigation).toHaveBeenCalledWith("ws_invited", { force: true, replace: true }),
+    );
+    expect(result.current.context.unavailableRoute).toBe(false);
+  });
+
+  it.each([
+    ["someone who can create workspaces", { email: "ada@example.com", canCreateWorkspaces: true }],
+    ["a link for another address", { email: "grace@example.com", canCreateWorkspaces: false }],
+  ])("reports the invitation unavailable for %s", async (_, route) => {
+    const { result, onWorkspaceNavigation } = renderInvitationRoute(route);
+
+    await waitFor(() => expect(result.current.context.unavailableRoute).toBe(true));
+    expect(onWorkspaceNavigation).not.toHaveBeenCalled();
+  });
+});
+
+describe("invitation emails", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  const pending = {
+    id: "inv_1",
+    email: "grace@example.com",
+    role: "member",
+    status: "pending",
+    invite_url: "https://studio.example.com/invitations/inv_1?email=grace%40example.com",
+    expired: true,
+    email_last_sent_at: "2026-01-01T00:00:00.000Z",
+    email_resends_remaining: 3,
+    email_resend_available_at: null,
+    expires_at: "2026-01-08T00:00:00.000Z",
+  };
+
+  function renderOwner(handle) {
+    const showActionToast = vi.fn();
+
+    const coreRequest = vi.fn(async (path, options = {}) => {
+      const handled = await handle?.(path, options);
+
+      if (handled !== undefined) return handled;
+
+      if (path === "/workspaces") return { workspaces: [workspaces[0]] };
+
+      if (path === "/workspaces/workspace_a/invitations") return { invitations: [pending] };
+
+      return { invitations: [], users: [] };
+    });
+
+    const view = renderHook(() =>
+      useWorkspaceController({
+        coreRequest,
+        hasSession: true,
+        sessionUserId: "user_1",
+        sessionId: "session_1",
+        showActionToast,
+        onActivePageChange: vi.fn(),
+        onClearWorkspaceScopedData: vi.fn(),
+      }),
+    );
+
+    return { ...view, coreRequest, showActionToast };
+  }
+
+  it("keeps a new invitation's link and its email outcome until dismissed", async () => {
+    const { result, showActionToast } = renderOwner((path, options) =>
+      path === "/workspaces/workspace_a/invitations" && options.method === "POST"
+        ? { ...pending, expired: false, email_delivery: { status: "failed" } }
+        : undefined,
+    );
+
+    await waitFor(() => expect(result.current.acceptedPage.workspaceInvitations).toHaveLength(1));
+    act(() => result.current.acceptedPage.onInviteEmailChange("grace@example.com"));
+    await act(() => result.current.acceptedPage.onInviteUser());
+
+    expect(showActionToast).toHaveBeenCalledWith("workspaceInvitation.create", "warning", {
+      targetEmail: "grace@example.com",
+      delivery: "failed",
+    });
+    expect(result.current.acceptedPage.createdInvitation).toEqual({
+      email: "grace@example.com",
+      inviteUrl: pending.invite_url,
+      delivery: "failed",
+    });
+
+    act(() => result.current.actions.dismissCreatedInvitation());
+    expect(result.current.acceptedPage.createdInvitation).toBeNull();
+  });
+
+  it("renews a resent invitation in place without reloading the list", async () => {
+    const renewed = { ...pending, expired: false, expires_at: "2026-12-30T00:00:00.000Z", email_resends_remaining: 2 };
+
+    const { result, coreRequest, showActionToast } = renderOwner((path, options) =>
+      path === "/workspaces/workspace_a/invitations/inv_1" && options.method === "POST"
+        ? { ...renewed, email_delivery: { status: "sent" } }
+        : undefined,
+    );
+
+    await waitFor(() => expect(result.current.acceptedPage.workspaceInvitations).toHaveLength(1));
+    const listCalls = coreRequest.mock.calls.filter(([path]) => path === "/workspaces/workspace_a/invitations").length;
+
+    await act(() => result.current.acceptedPage.onResendWorkspaceInvitation(pending));
+
+    expect(result.current.acceptedPage.workspaceInvitations).toEqual([renewed]);
+    expect(showActionToast).toHaveBeenCalledWith("workspaceInvitation.resend", "success", {
+      targetEmail: "grace@example.com",
+      delivery: "sent",
+    });
+    expect(coreRequest.mock.calls.filter(([path]) => path === "/workspaces/workspace_a/invitations")).toHaveLength(
+      listCalls,
+    );
+    expect(result.current.acceptedPage.resendingInvitationId).toBe("");
+  });
+
+  it("reloads the list when the invitation changed elsewhere", async () => {
+    const { result, coreRequest, showActionToast } = renderOwner((path, options) =>
+      path === "/workspaces/workspace_a/invitations/inv_1" && options.method === "POST"
+        ? Promise.reject(Object.assign(new Error("gone"), { status: 404, code: "not_found" }))
+        : undefined,
+    );
+
+    await waitFor(() => expect(result.current.acceptedPage.workspaceInvitations).toHaveLength(1));
+    const listCalls = coreRequest.mock.calls.filter(([path]) => path === "/workspaces/workspace_a/invitations").length;
+
+    await act(() => result.current.acceptedPage.onResendWorkspaceInvitation(pending));
+
+    expect(showActionToast).toHaveBeenCalledWith(
+      "workspaceInvitation.resend",
+      "failure",
+      expect.objectContaining({ targetEmail: "grace@example.com", error: expect.any(Error) }),
+    );
+    await waitFor(() =>
+      expect(coreRequest.mock.calls.filter(([path]) => path === "/workspaces/workspace_a/invitations")).toHaveLength(
+        listCalls + 1,
+      ),
+    );
+  });
+});

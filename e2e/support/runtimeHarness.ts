@@ -1,4 +1,5 @@
 import { isJsonObject, isString, parseJson } from "../../shared/json";
+import { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -36,6 +37,22 @@ try {
         requestShutdown();
 
         return new Response(null, { status: 202 });
+      }
+
+      // Journeys can't wait out the 10-minute resend cooldown, so this moves every recorded
+      // invitation email attempt 11 minutes back. Quotas still count them.
+      if (url.pathname === "/__e2e/invitation-email-cooldown" && request.method === "POST") {
+        const control = new Database(join(stateDirectory, "data", "control.sqlite"));
+
+        try {
+          control
+            .query("UPDATE workspace_invitation_email_attempts SET attempted_at = ?")
+            .run(new Date(Date.now() - 11 * 60 * 1000).toISOString());
+        } finally {
+          control.close();
+        }
+
+        return new Response(null, { status: 204 });
       }
 
       if (url.pathname !== "/chat/completions" || request.method !== "POST") {

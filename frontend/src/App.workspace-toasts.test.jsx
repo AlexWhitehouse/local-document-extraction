@@ -12,6 +12,7 @@ const authClientMock = {
 const toastMock = {
   error: vi.fn(),
   success: vi.fn(),
+  warning: vi.fn(),
 };
 
 const createAuthClient = () => ({
@@ -741,7 +742,227 @@ describe("Workspace action toast feedback", () => {
       await inviteTeammate("grace@example.com");
 
       await waitFor(() => {
-        expect(toastMock.success).toHaveBeenCalledWith("Invitation sent: grace@example.com", expect.anything());
+        expect(toastMock.success).toHaveBeenCalledWith("Invitation created: grace@example.com", expect.anything());
+      });
+      // An older server returns no invite link, so there is nothing to share.
+      expect(screen.queryByRole("textbox", { name: /Invite link/ })).toBeNull();
+    });
+
+    const INVITE_URL = "https://studio.example.com/invitations/inv_1?email=grace%40example.com";
+
+    function createdInvitation(status) {
+      return jsonResponse(
+        { ...pendingInvitation({ invite_url: INVITE_URL }), email_delivery: { status } },
+        { status: 201 },
+      );
+    }
+
+    it("emails a new invitation and keeps its link on screen to copy", async () => {
+      routeInvitationCreate(createdInvitation("sent"));
+
+      await inviteTeammate("grace@example.com");
+
+      await waitFor(() =>
+        expect(toastMock.success).toHaveBeenCalledWith(
+          "Invitation emailed to grace@example.com. They have 7 days to accept.",
+          expect.anything(),
+        ),
+      );
+      const link = screen.getByRole("textbox", { name: "Invite link for grace@example.com" });
+      expect(link.value).toBe(INVITE_URL);
+      expect(link.readOnly).toBe(true);
+      expect(screen.getByText("We emailed this link to grace@example.com. You can also share it yourself.")).toBeTruthy();
+      expect(screen.getByText("Only someone signed in as grace@example.com can accept it.")).toBeTruthy();
+
+      const user = userEvent.setup();
+      // After setup, which installs its own clipboard.
+      const writeText = installClipboard();
+      await user.click(screen.getByRole("button", { name: "Copy link" }));
+      expect(writeText).toHaveBeenCalledWith(INVITE_URL);
+      expect(toastMock.success).toHaveBeenCalledWith("Invite link copied", expect.anything());
+      expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+
+      await user.click(screen.getByRole("button", { name: "Dismiss invite link" }));
+      expect(screen.queryByRole("textbox", { name: "Invite link for grace@example.com" })).toBeNull();
+    });
+
+    it.each([
+      [
+        "captured",
+        "success",
+        "Invitation created for grace@example.com. This setup doesn't send email, so share the invite link.",
+        "This setup doesn't send email, so share this link with grace@example.com yourself.",
+      ],
+      [
+        "failed",
+        "warning",
+        "Invitation created, but the email to grace@example.com couldn't be sent. Share the invite link with them directly.",
+        "The email couldn't be sent, so share this link with grace@example.com yourself.",
+      ],
+      [
+        "rate_limited",
+        "warning",
+        "Invitation created for grace@example.com. The daily limit for invitation emails is reached, so share the invite link directly.",
+        "The daily limit for invitation emails is reached, so share this link with grace@example.com yourself.",
+      ],
+    ])("asks the inviter to share the link when the email is %s", async (status, severity, toastMessage, note) => {
+      routeInvitationCreate(createdInvitation(status));
+
+      await inviteTeammate("grace@example.com");
+
+      await waitFor(() => expect(toastMock[severity]).toHaveBeenCalledWith(toastMessage, expect.anything()));
+      expect(screen.getByText(note)).toBeTruthy();
+      expect(screen.getByRole("textbox", { name: "Invite link for grace@example.com" }).value).toBe(INVITE_URL);
+      expect(screen.getByLabelText("Invite email").value).toBe("");
+    });
+
+    describe("pending invitation rows", () => {
+      const soon = () => new Date(Date.now() + 9 * 60 * 1000).toISOString();
+
+      function emailFields(overrides = {}) {
+        return {
+          invite_url: INVITE_URL,
+          expired: false,
+          email_last_sent_at: "2026-01-01T00:00:00.000Z",
+          email_resends_remaining: 3,
+          email_resend_available_at: null,
+          ...overrides,
+        };
+      }
+
+      function routeInvitationRows(invitation, resendResponse) {
+        routeFetch((url, method) => {
+          if (url.endsWith("/workspaces/ws_1/invitations") && method === "GET") {
+            return jsonResponse({ invitations: [pendingInvitation(emailFields(invitation))] });
+          }
+
+          if (url.endsWith("/workspaces/ws_1/invitations/inv_1") && method === "POST") return resendResponse?.();
+        });
+      }
+
+      async function findRow() {
+        return within(await screen.findByRole("region", { name: "Pending invitations" })).getByRole("row", {
+          name: /grace@example\.com/,
+        });
+      }
+
+      it("copies an invitation's link from its row", async () => {
+        const user = userEvent.setup();
+        const writeText = installClipboard();
+        routeInvitationRows();
+        render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+        const row = await findRow();
+        expect(within(row).getByText("Pending")).toBeTruthy();
+        expect(within(row).getByText(/^Last emailed /)).toBeTruthy();
+        await user.click(within(row).getByRole("button", { name: "Copy link for grace@example.com" }));
+
+        expect(writeText).toHaveBeenCalledWith(INVITE_URL);
+        expect(toastMock.success).toHaveBeenCalledWith("Invite link copied", expect.anything());
+      });
+
+      it("resends an expired invitation's email and renews the row in place", async () => {
+        let resendBody = null;
+        const renewedExpiry = "2026-12-30T00:00:00.000Z";
+
+        routeInvitationRows({ expired: true }, () => jsonResponse({
+          ...pendingInvitation(
+            emailFields({ expires_at: renewedExpiry, email_resends_remaining: 2, email_resend_available_at: soon() }),
+          ),
+          email_delivery: { status: "sent" },
+        }));
+        const fetchImplementation = globalThis.fetch.getMockImplementation();
+        globalThis.fetch.mockImplementation((input, options = {}) => {
+          if (String(input).endsWith("/workspaces/ws_1/invitations/inv_1") && options.method === "POST") {
+            resendBody = JSON.parse(options.body);
+          }
+
+          return fetchImplementation(input, options);
+        });
+        render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+        const row = await findRow();
+        expect(within(row).getByText("Expired")).toBeTruthy();
+        expect(within(row).getByText(/Resend to renew it$/)).toBeTruthy();
+        await userEvent.setup().click(within(row).getByRole("button", { name: "Resend email to grace@example.com" }));
+
+        await waitFor(() =>
+          expect(toastMock.success).toHaveBeenCalledWith(
+            "Invitation emailed again to grace@example.com. It now expires in 7 days.",
+            expect.anything(),
+          ),
+        );
+        expect(resendBody).toEqual({ action: "resend" });
+
+        const renewedRow = await findRow();
+        expect(within(renewedRow).getByText("Pending")).toBeTruthy();
+        expect(within(renewedRow).getByText(new Date(renewedExpiry).toLocaleDateString())).toBeTruthy();
+        const resend = within(renewedRow).getByRole("button", { name: "Resend email to grace@example.com" });
+        expect(resend.disabled).toBe(true);
+        expect(document.getElementById(resend.getAttribute("aria-describedby")).textContent).toMatch(/Resend from /);
+      });
+
+      it("keeps Resend closed and says why when no resends are left", async () => {
+        routeInvitationRows({ email_resends_remaining: 0 });
+        render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+        const resend = within(await findRow()).getByRole("button", { name: "Resend email to grace@example.com" });
+        expect(resend.disabled).toBe(true);
+        expect(document.getElementById(resend.getAttribute("aria-describedby")).textContent).toMatch(
+          /No resends left$/,
+        );
+      });
+
+      it("reports a rate-limited resend with its wait and closes Resend until then", async () => {
+        routeInvitationRows({}, () =>
+          jsonResponse(
+            {
+              error: {
+                code: "invitation_email_rate_limited",
+                message: "Invitation email limit reached",
+                retry_after_seconds: 540,
+              },
+            },
+            { status: 429 },
+          ),
+        );
+        render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+        await userEvent
+          .setup()
+          .click(within(await findRow()).getByRole("button", { name: "Resend email to grace@example.com" }));
+
+        await waitFor(() =>
+          expect(toastMock.error).toHaveBeenCalledWith(
+            "Couldn't resend the email to grace@example.com. Try again in 9 minutes.",
+            expect.anything(),
+          ),
+        );
+        const resend = within(await findRow()).getByRole("button", { name: "Resend email to grace@example.com" });
+        expect(resend.disabled).toBe(true);
+        expect(document.getElementById(resend.getAttribute("aria-describedby")).textContent).toMatch(/Resend from /);
+      });
+
+      it("says a resend has none left when the server refuses without a wait", async () => {
+        routeInvitationRows({}, () =>
+          jsonResponse(
+            { error: { code: "invitation_email_rate_limited", message: "limit", retry_after_seconds: null } },
+            { status: 429 },
+          ),
+        );
+        render(<App createAuthClient={createAuthClient} notifications={toastMock} />);
+
+        await userEvent
+          .setup()
+          .click(within(await findRow()).getByRole("button", { name: "Resend email to grace@example.com" }));
+
+        await waitFor(() =>
+          expect(toastMock.error).toHaveBeenCalledWith(
+            "Couldn't resend the email to grace@example.com. It has no resends left, so share the invite link.",
+            expect.anything(),
+          ),
+        );
+        expect(within(await findRow()).getByText(/No resends left$/)).toBeTruthy();
       });
     });
 

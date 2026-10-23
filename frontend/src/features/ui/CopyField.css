@@ -1,0 +1,67 @@
+/* One bordered control: an optional icon, the read-only value, then Copy. The value keeps one
+   line and ends in an ellipsis; the whole control shows the focus ring while the value has focus. */
+.ui-copy-field-control {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  height: var(--control-h-md);
+  border: 1px solid var(--rule-strong);
+  background: var(--field-bg);
+  transition: border-color 120ms ease;
+}
+
+.ui-copy-field-control:has(input:focus) {
+  border-color: var(--accent);
+}
+
+.ui-copy-field-control:has(input:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.ui-copy-field-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding-left: 9px;
+  color: var(--text-3);
+}
+
+.ui-copy-field-control input {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  border: 0;
+  padding: 0 9px;
+  background: transparent;
+  color: var(--text-1);
+  font: var(--font-size-3) var(--font-mono);
+  text-overflow: ellipsis;
+}
+
+.ui-copy-field-control input:focus-visible {
+  outline: none;
+}
+
+.ui-copy-field-control button.ui-copy-field-button {
+  flex: none;
+  height: auto;
+  border: 0;
+  border-left: 1px solid var(--rule-strong);
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.ui-copy-field-control button.ui-copy-field-button:focus-visible {
+  outline-offset: -2px;
+}
+
+.ui-copy-field-control button.ui-copy-field-button[data-copied] {
+  color: var(--tone-success-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-copy-field-control {
+    transition: none;
+  }
+}

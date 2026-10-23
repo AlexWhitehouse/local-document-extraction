@@ -4,7 +4,7 @@ import { createWorkspaceRequestLayer } from "../../lib/appRuntime";
 import { copyWithFeedback } from "../../lib/copyWithFeedback";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { useAsyncAction } from "../ui/useAsyncAction";
-import { createWorkspaceRequestAdapter } from "./workspaceRequestAdapter";
+import { createWorkspaceRequestAdapter, readResendRetryAfter } from "./workspaceRequestAdapter";
 import {
   canShowWorkspaceUserAction,
   getWorkspaceContextDisplay,
@@ -44,6 +44,8 @@ export function useWorkspaceController({
   beforeWorkspaceSelection,
   requestedWorkspaceId = "",
   requestedInvitationId = "",
+  requestedInvitationEmail = "",
+  sessionUserEmail = "",
   onWorkspaceNavigation,
 }) {
   const [storedWorkspacePreference] = useState(loadStoredWorkspacePreference);
@@ -60,7 +62,14 @@ export function useWorkspaceController({
   const [resolvedSessionId, setResolvedSessionId] = useState("");
   const [unavailableRoute, setUnavailableRoute] = useState(false);
   const routeRef = useRef(null);
-  routeRef.current = { requestedWorkspaceId, requestedInvitationId, onWorkspaceNavigation, sessionId };
+  routeRef.current = {
+    requestedWorkspaceId,
+    requestedInvitationId,
+    requestedInvitationEmail,
+    sessionUserEmail,
+    onWorkspaceNavigation,
+    sessionId,
+  };
   const [selectedWorkspaceInvitationId, setSelectedWorkspaceInvitationId] = useState("");
   const [workspaceUsers, setWorkspaceUsers] = useState([]);
   const [workspaceInvitations, setWorkspaceInvitations] = useState([]);
@@ -70,6 +79,9 @@ export function useWorkspaceController({
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
   const [isInvitingUser, setIsInvitingUser] = useState(false);
+  // The invitation just created, so its link stays on screen to share: { email, inviteUrl, delivery }.
+  const [createdInvitation, setCreatedInvitation] = useState(null);
+  const [resendingInvitationId, setResendingInvitationId] = useState("");
   const [workspaceUsersStatus, setWorkspaceUsersStatus] = useState("loading");
   const [workspaceUsersError, setWorkspaceUsersError] = useState(null);
   const [workspaceInvitationsStatus, setWorkspaceInvitationsStatus] = useState("loading");
@@ -186,6 +198,7 @@ export function useWorkspaceController({
     setWorkspaceInvitationsStatus("idle");
     setWorkspaceInvitationsError(null);
     setWorkspaceInvitations([]);
+    setCreatedInvitation(null);
   }
 
   // Applies only the keys present in the update, so an invitation selection
@@ -376,9 +389,22 @@ export function useWorkspaceController({
         const invitation =
           target.requestedInvitationId && invitations.find((item) => item.id === target.requestedInvitationId);
 
+        const followsRoute = !options.ignoreRoute && !options.storedWorkspacePreference;
+
+        // Someone who can't create workspaces has their invitations accepted at first sign-in, so an
+        // invite link for their own address that is no longer pending opens the workspace it joined.
+        const invitationAcceptedOnSignIn =
+          followsRoute &&
+          Boolean(target.requestedInvitationId) &&
+          !invitation &&
+          workspaceData?.can_create_workspaces === false &&
+          workspaces.length > 0 &&
+          (!target.requestedInvitationEmail ||
+            target.requestedInvitationEmail.toLowerCase() === target.sessionUserEmail.toLowerCase());
+
         const unavailable =
-          !options.ignoreRoute &&
-          !options.storedWorkspacePreference &&
+          followsRoute &&
+          !invitationAcceptedOnSignIn &&
           Boolean(
             (target.requestedWorkspaceId && !workspaces.some((item) => item.id === target.requestedWorkspaceId)) ||
             (target.requestedInvitationId && !invitation),
@@ -409,6 +435,8 @@ export function useWorkspaceController({
 
         if (options.ignoreRoute || options.storedWorkspacePreference)
           target.onWorkspaceNavigation?.(resolvedWorkspace?.id || "", { force: true });
+        else if (invitationAcceptedOnSignIn)
+          target.onWorkspaceNavigation?.(resolvedWorkspace?.id || "", { force: true, replace: true });
 
         return resolvedWorkspace;
       } catch (error) {
@@ -611,12 +639,17 @@ export function useWorkspaceController({
     setIsInvitingUser(true);
 
     try {
-      await request(`/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/invitations`, {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ email, role: inviteRole }),
+      const { invitation, delivery } = await workspaceRequests.createWorkspaceInvitation({
+        workspaceId: normalizedWorkspaceId,
+        email,
+        role: inviteRole,
       });
-      showActionToast("workspaceInvitation.create", "success", { targetEmail: email });
+
+      const invitedEmail = String(invitation.email || email);
+      const inviteUrl = String(invitation.invite_url || "");
+
+      notifyInvitationDelivery("workspaceInvitation.create", delivery, invitedEmail);
+      setCreatedInvitation(inviteUrl ? { email: invitedEmail, inviteUrl, delivery } : null);
       setInviteEmail("");
       void listWorkspaceInvitations(normalizedWorkspaceId);
     } catch (error) {
@@ -626,7 +659,74 @@ export function useWorkspaceController({
     }
   }
 
+  // A failed or skipped email is a warning: the invitation exists, but the inviter has to share its link.
+  function notifyInvitationDelivery(action, delivery, email) {
+    const outcome = delivery === "failed" || delivery === "rate_limited" ? "warning" : "success";
 
+    showActionToast(action, outcome, { targetEmail: email, delivery });
+  }
+
+  const copyInvitationLink = (inviteUrl) => copyWithFeedback(toast, inviteUrl, "Invite link");
+
+  function updateWorkspaceInvitation(invitationId, changes) {
+    setWorkspaceInvitations((previous) =>
+      previous.map((invitation) => (invitation.id === invitationId ? { ...invitation, ...changes } : invitation)),
+    );
+  }
+
+  async function resendWorkspaceInvitation(invitation) {
+    const invitationId = String(invitation.id || "").trim();
+
+    if (!normalizedWorkspaceId || !invitationId || resendingInvitationId) {
+      return;
+    }
+
+    const email = String(invitation.email || "").trim();
+    const targetWorkspaceId = normalizedWorkspaceId;
+    const isCurrent = () => workspaceIdRef.current.trim() === targetWorkspaceId;
+
+    setResendingInvitationId(invitationId);
+
+    try {
+      const { invitation: refreshed, delivery } = await workspaceRequests.resendWorkspaceInvitation({
+        workspaceId: targetWorkspaceId,
+        invitationId,
+      });
+
+      // The row updates in place with the renewed expiry and resend allowance.
+      if (isCurrent()) updateWorkspaceInvitation(invitationId, refreshed);
+      notifyInvitationDelivery("workspaceInvitation.resend", delivery, email);
+    } catch (error) {
+      if (error.code !== "invitation_email_rate_limited") {
+        showActionToast("workspaceInvitation.resend", "failure", { targetEmail: email, error });
+
+        // The invitation was cancelled, accepted or replaced elsewhere; show the current list.
+        if (isCurrent() && (error.status === 404 || error.status === 409)) void listWorkspaceInvitations(targetWorkspaceId);
+
+        return;
+      }
+
+      const retryAfterSeconds = readResendRetryAfter(error);
+
+      // The row explains the wait until it passes, so the refusal isn't repeated on the next click.
+      if (isCurrent() && retryAfterSeconds === null) {
+        updateWorkspaceInvitation(invitationId, { email_resends_remaining: 0, email_resend_available_at: null });
+      } else if (isCurrent() && retryAfterSeconds !== undefined) {
+        updateWorkspaceInvitation(invitationId, {
+          email_resend_available_at: new Date(Date.now() + retryAfterSeconds * 1000).toISOString(),
+        });
+      }
+
+      // A known wait is the whole reason; without one, the mapped error explains the refusal.
+      const failure = { targetEmail: email, retryAfterSeconds };
+
+      if (retryAfterSeconds === undefined) failure.error = error;
+
+      showActionToast("workspaceInvitation.resend", "failure", failure);
+    } finally {
+      setResendingInvitationId("");
+    }
+  }
 
   async function cancelWorkspaceInvitation(invitation) {
     const invitationId = String(invitation.id || "").trim();
@@ -657,6 +757,8 @@ export function useWorkspaceController({
     }
 
     await listWorkspaceInvitations(normalizedWorkspaceId);
+    // A cancelled invitation's link no longer works, so it stops being offered for sharing.
+    setCreatedInvitation((current) => (current?.email === invitation.email ? null : current));
     showActionToast("workspaceInvitation.cancel", "success", { targetEmail: invitationEmail });
   }
 
@@ -889,6 +991,7 @@ export function useWorkspaceController({
   }
 
   const dismissApiKey = useCallback(() => setApiKey(""), []);
+  const dismissCreatedInvitation = useCallback(() => setCreatedInvitation(null), []);
 
   useEffect(() => {
     if (!hasSession) {
@@ -1005,6 +1108,11 @@ export function useWorkspaceController({
       workspaceInvitationsError,
       onRetryWorkspaceInvitations: () => listWorkspaceInvitations(normalizedWorkspaceId),
       onCancelWorkspaceInvitation: cancelWorkspaceInvitation,
+      createdInvitation,
+      onDismissCreatedInvitation: dismissCreatedInvitation,
+      onCopyInvitationLink: copyInvitationLink,
+      resendingInvitationId,
+      onResendWorkspaceInvitation: resendWorkspaceInvitation,
     },
     invitationPage: {
       invitation: selectedWorkspaceInvitation,
@@ -1026,6 +1134,7 @@ export function useWorkspaceController({
       recoverForbiddenWorkspaceAccess,
       refreshSelectedWorkspaceContext,
       dismissApiKey,
+      dismissCreatedInvitation,
     },
   };
 }
