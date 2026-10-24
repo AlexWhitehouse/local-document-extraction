@@ -139,7 +139,7 @@ test("existing accounts get sign-in links, templates escape hostile content and 
     }));
     const invitation = await app.emails.create({ ...app.value, email: "existing@example.com" });
     expect(app.messages[0]?.text).toContain(`${invitation.invite_url}&auth=signin`);
-    expect(app.messages[0]?.text).toContain("Sign in and accept");
+    expect(app.messages[0]?.text).toContain("Sign in to accept.");
     const content = renderWorkspaceInvitationEmail({ workspaceName: '<img src="https://evil.example">', inviterName: "A".repeat(100), inviterEmail: "owner@example.com", email: "new@example.com", role: "admin", expiresAt: "2030-01-02T03:04:00.000Z", url: `${origin}/invitations/example?email=new%40example.com&auth=signup`, existingAccount: false });
     expect(content.subject).toBe("You've been invited to a Workspace on Document Extraction");
     expect(content.html).toContain("&lt;img src=&quot;https://evil.example&quot;&gt;");
@@ -147,8 +147,29 @@ test("existing accounts get sign-in links, templates escape hostile content and 
     expect(content.text.match(/https?:\/\/\S+/)?.[0]).toContain("/invitations/example?");
     expect(content.text).toContain("2 January 2030 at 03:04 UTC");
     expect(content.text).toContain("A".repeat(80) + "…");
-    expect(content.text).toContain("Create an account with this address");
+    expect(content.text).toContain("Create an account with this email address to accept.");
   } finally { app.database.close(); }
+});
+
+test.each([false, true])("invitation copy includes the recipient once for existingAccount=%s", (existingAccount) => {
+  const content = renderWorkspaceInvitationEmail({ workspaceName: "Research Department", inviterName: "Olivia Owner", inviterEmail: "owner@example.test", email: "grace.hopper@example.test", role: "member", expiresAt: "2030-01-02T03:04:00.000Z", url: `${origin}/invitations/example`, existingAccount });
+  const bodyText = content.html.replace(/<[^>]*>/g, "");
+
+  expect(content.text).toContain(`Olivia Owner invited you to join Research Department as a Member. ${existingAccount ? "Sign in to accept." : "Create an account with this email address to accept."}`);
+  expect(bodyText.split("grace.hopper@example.test")).toHaveLength(2);
+  expect(content.text).toContain("This invitation was sent to grace.hopper@example.test at the request of owner@example.test. Only an account with this email address can accept it. If you weren't expecting it, you can ignore this email.");
+});
+
+test("invitation copy falls back to the inviter email and escapes hostile names", () => {
+  const input = { workspaceName: "Research Department", inviterName: "", inviterEmail: "owner@example.test", email: "grace.hopper@example.test", role: "admin", expiresAt: "2030-01-02T03:04:00.000Z", url: `${origin}/invitations/example`, existingAccount: false } as const;
+  const content = renderWorkspaceInvitationEmail(input);
+  const hostile = renderWorkspaceInvitationEmail({ ...input, inviterName: '<script>alert("inviter")</script>' });
+
+  expect(content.text).toContain("owner@example.test invited you to join Research Department as an Admin.");
+  expect(content.text).not.toContain("(owner@example.test)");
+  expect(hostile.html).toContain("&lt;script&gt;alert(&quot;inviter&quot;)&lt;/script&gt;");
+  expect(hostile.html).not.toContain('<script>alert("inviter")</script>');
+  expect(hostile.subject).toBe("You've been invited to a Workspace on Document Extraction");
 });
 
 test("invitation analytics serializes only approved fields", async () => {

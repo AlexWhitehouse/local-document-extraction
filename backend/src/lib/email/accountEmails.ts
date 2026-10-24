@@ -155,11 +155,11 @@ export function renderWorkspaceInvitationEmail(input: {
     subject: "You've been invited to a Workspace on Document Extraction",
     preheader: "You have a Workspace invitation.",
     heading: "Workspace invitation",
-    body: `${truncate(input.inviterName)} (${input.inviterEmail}) invited you to ${truncate(input.workspaceName)} as ${input.role === "admin" ? "Admin" : "Member"}. ${input.existingAccount ? "Sign in and accept" : "Create an account with this address"}: ${input.email}.`,
+    body: `${truncate(input.inviterName || input.inviterEmail)} invited you to join ${truncate(input.workspaceName)} as ${input.role === "admin" ? "an Admin" : "a Member"}. ${input.existingAccount ? "Sign in to accept." : "Create an account with this email address to accept."}`,
     actionLabel: "Accept invitation",
     url: input.url,
     expiry: `This invitation expires on ${expiry} UTC.`,
-    disclaimer: `Access requires an account or sign-in with this exact address: ${input.email}. You can ignore this email.`,
+    disclaimer: `This invitation was sent to ${input.email} at the request of ${input.inviterEmail}. Only an account with this email address can accept it. If you weren't expecting it, you can ignore this email.`,
   };
 
   const rendered = renderAccountLinkEmail(input.from ?? DEFAULT_SENDER, content);
