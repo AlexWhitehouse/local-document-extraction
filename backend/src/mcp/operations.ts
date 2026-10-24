@@ -134,6 +134,11 @@ export function createMcpOperationStore(database: Database) {
       database.query("UPDATE mcp_operations SET status = 'completed', result_json = ? WHERE id = ? AND status = 'executing'")
         .run(JSON.stringify(result), id);
     },
+    /** Invitation creation commits before best-effort delivery; retain its final delivery result on replay. */
+    settleInvitationEmail(id: string, result: JsonObject): void {
+      database.query("UPDATE mcp_operations SET result_json = ? WHERE id = ? AND status = 'completed' AND action = 'workspace.invite'")
+        .run(JSON.stringify(result), id);
+    },
     fail(id: string, code: string): void {
       database.query("UPDATE mcp_operations SET status = 'failed', result_json = ? WHERE id = ? AND status = 'executing'")
         .run(JSON.stringify({ error: { code } }), id);

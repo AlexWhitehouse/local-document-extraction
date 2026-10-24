@@ -3,7 +3,7 @@ import { getActionToast, getDocumentUploadToast } from "./toastNotifications";
 
 // The only module that talks to the toast library. Messages come from
 // toastNotifications.js so every action reports the same way.
-export const TOAST_DURATION = { success: 4000, error: 8000 };
+export const TOAST_DURATION = { success: 4000, warning: 8000, error: 8000 };
 
 export const defaultToast = sonnerToast;
 

@@ -19,6 +19,7 @@ test("the real server publishes runtime capabilities and keeps analytics disable
         PATH: process.env.PATH,
         DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
         LOCAL_ANALYTICS_ENABLED: "false",
+        AUTH_REQUIRE_EMAIL_VERIFICATION: "false",
         MAX_SOURCE_FILE_BYTES: "512",
         MAX_JSON_REQUEST_BYTES: "1048576",
         GOOGLE_CLIENT_ID: "private-client",

@@ -40,7 +40,16 @@ export type LocalWorkspaceInvitation = {
   created_at: string;
   updated_at: string;
   expires_at: string;
+  invite_url: string;
+  expired: boolean;
+  email_last_sent_at: string | null;
+  email_resends_remaining: number;
+  email_resend_available_at: string | null;
 };
+
+type WorkspaceInvitationRow = Omit<LocalWorkspaceInvitation,
+  "invite_url" | "expired" | "email_last_sent_at" | "email_resends_remaining" | "email_resend_available_at"
+>;
 
 export type LocalWorkspaceMember = {
   user_id: string;
@@ -74,7 +83,20 @@ export class LocalWorkspaceControlError extends Error {
   }
 }
 
+export type InvitationEmailAttempt = {
+  id: string;
+  workspace_id: string;
+  invitation_id: string;
+  actor_user_id: string;
+  trigger: "create" | "resend";
+  outcome: "sent" | "captured" | "failed" | "rate_limited";
+  attempted_at: string;
+};
+
 export type LocalWorkspaceControl = {
+  invitationEmailAttempts(invitationId: string, workspaceId: string, actorUserId: string): InvitationEmailAttempt[];
+  recordInvitationEmailAttempt(input: InvitationEmailAttempt): void;
+  refreshInvitation(input: { workspaceId: string; invitationId: string; userId: string }): LocalWorkspaceInvitation;
   canCreateWorkspaces(userId: string): boolean;
   acceptInvitation(input: { invitationId: string; userId: string; userEmail: string }): {
     ok: true;
@@ -133,19 +155,27 @@ export type LocalWorkspaceControl = {
   workspaceExists(input: { workspaceId: string }): boolean;
 };
 
-export function createLocalWorkspaceControl(database: Database, settings: { signupEnabled?: boolean; adminEmails?: string[] } = {}): LocalWorkspaceControl {
+export function createLocalWorkspaceControl(database: Database, settings: { signupEnabled?: boolean; adminEmails?: string[]; baseURL?: string } = {}): LocalWorkspaceControl {
   const access = createLocalAccountAccess(database, settings);
   database.exec("PRAGMA foreign_keys = ON;");
   database.exec(CONTROL_SCHEMA);
   ensureControlSchemaColumns(database);
 
+  const decorate = (invitation: WorkspaceInvitationRow) => invitationEmailFields(database, invitation, settings.baseURL ?? "http://127.0.0.1:8787");
+
   return {
+    invitationEmailAttempts: (invitationId, workspaceId, actorUserId) => database.query<InvitationEmailAttempt, SQLQueryBindings[]>("SELECT * FROM workspace_invitation_email_attempts WHERE invitation_id = ? OR (workspace_id = ? AND attempted_at > ?) OR (actor_user_id = ? AND attempted_at > ?) ORDER BY attempted_at").all(invitationId, workspaceId, new Date(Date.now() - 86400000).toISOString(), actorUserId, new Date(Date.now() - 86400000).toISOString()),
+    recordInvitationEmailAttempt: (input) => {
+      database.query("DELETE FROM workspace_invitation_email_attempts WHERE id IN (SELECT id FROM workspace_invitation_email_attempts WHERE attempted_at < ? ORDER BY attempted_at LIMIT 500)").run(new Date(Date.now() - 7 * 86400000).toISOString());
+      database.query("INSERT INTO workspace_invitation_email_attempts (id, workspace_id, invitation_id, actor_user_id, trigger, outcome, attempted_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET outcome = excluded.outcome").run(input.id, input.workspace_id, input.invitation_id, input.actor_user_id, input.trigger, input.outcome, input.attempted_at);
+    },
+    refreshInvitation: (input) => decorate(refreshInvitation(database, input)),
     canCreateWorkspaces: access.canCreateWorkspaces,
     acceptInvitation: (input) => acceptInvitation(database, input),
     applyWorkspaceMemberAction: (input) => applyWorkspaceMemberAction(database, input),
     assertWorkspaceDeletion: (input) => assertWorkspaceDeletion(database, input),
     authorizeApiKey: (input) => authorizeApiKey(database, input),
-    createInvitation: (input) => createInvitation(database, input),
+    createInvitation: (input) => decorate(createInvitation(database, input)),
     cancelInvitation: (input) => cancelInvitation(database, input),
     completeWorkspaceDeletionIntent: (input) => {
       database.query("DELETE FROM workspace_deletion_intents WHERE workspace_id = ?").run(input.workspaceId);
@@ -168,9 +198,9 @@ export function createLocalWorkspaceControl(database: Database, settings: { sign
           .query("SELECT 1 FROM workspace_product_bootstraps WHERE workspace_id = ? LIMIT 1")
           .get(input.workspaceId),
       ),
-    listPendingInvitations: (input) => listPendingInvitations(database, input),
+    listPendingInvitations: (input) => listPendingInvitations(database, input).map(decorate),
     leaveWorkspace: (input) => leaveWorkspace(database, input, access.canCreateWorkspaces(input.userId)),
-    listWorkspaceInvitations: (input) => listWorkspaceInvitations(database, input),
+    listWorkspaceInvitations: (input) => listWorkspaceInvitations(database, input).map(decorate),
     listWorkspaceUsers: (input) => listWorkspaceUsers(database, input),
     listWorkspaceDeletionIntents: () =>
       database
@@ -309,7 +339,7 @@ function acceptInvitation(
 function createInvitation(
   database: Database,
   input: { workspaceId: string; inviterUserId: string; email: string; role?: string },
-): LocalWorkspaceInvitation {
+): WorkspaceInvitationRow {
   requireManager(database, input.workspaceId, input.inviterUserId, "Only owners/admins can invite users");
   const email = normalizeEmail(input.email);
 
@@ -334,6 +364,8 @@ function createInvitation(
     throw new LocalWorkspaceControlError("invite_exists", "A pending invitation already exists for this user");
   }
 
+  database.query("UPDATE workspace_invitations SET status = 'cancelled', updated_at = ? WHERE workspace_id = ? AND email = ? AND status = 'pending' AND expires_at <= ?").run(nowIso(), input.workspaceId, email, nowIso());
+
   const id = newId("invite");
   const createdAt = nowIso();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -346,13 +378,13 @@ function createInvitation(
     .run(id, input.workspaceId, email, role, input.inviterUserId, createdAt, createdAt, expiresAt);
 
   return database
-    .query<LocalWorkspaceInvitation, SQLQueryBindings[]>(INVITATION_SELECT + " WHERE i.id = ? LIMIT 1")
+    .query<WorkspaceInvitationRow, SQLQueryBindings[]>(INVITATION_SELECT + " WHERE i.id = ? LIMIT 1")
     .get(id)!;
 }
 
-function listPendingInvitations(database: Database, input: { email: string }): LocalWorkspaceInvitation[] {
+function listPendingInvitations(database: Database, input: { email: string }): WorkspaceInvitationRow[] {
   return database
-    .query<LocalWorkspaceInvitation, SQLQueryBindings[]>(
+    .query<WorkspaceInvitationRow, SQLQueryBindings[]>(
       INVITATION_SELECT + " WHERE i.email = ? AND i.status = 'pending' AND i.expires_at > ? ORDER BY i.updated_at DESC",
     )
     .all(normalizeEmail(input.email), nowIso());
@@ -361,15 +393,15 @@ function listPendingInvitations(database: Database, input: { email: string }): L
 function listWorkspaceInvitations(
   database: Database,
   input: { workspaceId: string; userId: string },
-): LocalWorkspaceInvitation[] {
+): WorkspaceInvitationRow[] {
   requireManager(database, input.workspaceId, input.userId, "Only owners/admins can manage invitations");
 
   return database
-    .query<LocalWorkspaceInvitation, SQLQueryBindings[]>(
+    .query<WorkspaceInvitationRow, SQLQueryBindings[]>(
       INVITATION_SELECT +
-        " WHERE i.workspace_id = ? AND i.status = 'pending' AND i.expires_at > ? ORDER BY i.updated_at DESC",
+        " WHERE i.workspace_id = ? AND i.status = 'pending' ORDER BY i.updated_at DESC",
     )
-    .all(input.workspaceId, nowIso());
+    .all(input.workspaceId);
 }
 
 function leaveWorkspace(
@@ -832,8 +864,50 @@ const CONTROL_SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_workspace_invitations_workspace_status
     ON workspace_invitations(workspace_id, status);
 
+  CREATE TABLE IF NOT EXISTS workspace_invitation_email_attempts (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    invitation_id TEXT NOT NULL,
+    actor_user_id TEXT NOT NULL,
+    trigger TEXT NOT NULL CHECK(trigger IN ('create', 'resend')),
+    outcome TEXT NOT NULL CHECK(outcome IN ('sent', 'captured', 'failed', 'rate_limited')),
+    attempted_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_invitation_email_time ON workspace_invitation_email_attempts(attempted_at);
+  CREATE INDEX IF NOT EXISTS idx_invitation_email_invitation_time ON workspace_invitation_email_attempts(invitation_id, attempted_at);
+  CREATE INDEX IF NOT EXISTS idx_invitation_email_actor_time ON workspace_invitation_email_attempts(actor_user_id, attempted_at);
+  CREATE INDEX IF NOT EXISTS idx_invitation_email_workspace_time ON workspace_invitation_email_attempts(workspace_id, attempted_at);
+
   CREATE TABLE IF NOT EXISTS workspace_deletion_intents (
     workspace_id TEXT PRIMARY KEY,
     requested_at TEXT NOT NULL
   );
 `;
+
+function refreshInvitation(database: Database, input: { workspaceId: string; invitationId: string; userId: string }): WorkspaceInvitationRow {
+  const invitation = listWorkspaceInvitations(database, input).find((item) => item.id === input.invitationId);
+
+  if (!invitation) throw new LocalWorkspaceControlError("not_found", "Invitation not found");
+
+  const conflict = database.query("SELECT 1 FROM workspace_invitations WHERE workspace_id = ? AND email = ? AND status = 'pending' AND expires_at > ? AND id != ?").get(input.workspaceId, invitation.email, nowIso(), invitation.id);
+
+  if (conflict) throw new LocalWorkspaceControlError("invite_exists", "A pending invitation already exists for this user");
+
+  invitation.expires_at = new Date(Date.now() + 7 * 86400000).toISOString();
+  invitation.updated_at = nowIso();
+  database.query("UPDATE workspace_invitations SET expires_at = ?, updated_at = ? WHERE id = ?").run(invitation.expires_at, invitation.updated_at, invitation.id);
+
+  return invitation;
+}
+
+function invitationEmailFields(database: Database, invitation: WorkspaceInvitationRow, baseURL: string): LocalWorkspaceInvitation {
+  const attempts = database.query<InvitationEmailAttempt, SQLQueryBindings[]>("SELECT * FROM workspace_invitation_email_attempts WHERE invitation_id = ? AND outcome != 'rate_limited' ORDER BY attempted_at DESC").all(invitation.id);
+  const last = attempts[0];
+  const successful = attempts.find((attempt) => attempt.outcome === "sent" || attempt.outcome === "captured");
+  const remaining = Math.max(0, 3 - attempts.filter((attempt) => attempt.trigger === "resend").length);
+  const available = last ? Date.parse(last.attempted_at) + 600000 : 0;
+  const url = new URL(`/invitations/${invitation.id}`, baseURL);
+  url.searchParams.set("email", invitation.email);
+
+  return { ...invitation, invite_url: url.href, expired: Date.parse(invitation.expires_at) <= Date.now(), email_last_sent_at: successful?.attempted_at ?? null, email_resends_remaining: remaining, email_resend_available_at: remaining && available > Date.now() ? new Date(available).toISOString() : null };
+}

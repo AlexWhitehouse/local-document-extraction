@@ -17,6 +17,7 @@ async function withServer(trustedIpHeaders: string, run: (origin: string) => Pro
         PATH: process.env.PATH,
         DOCUMENT_EXTRACTION_STATE_DIR: stateDirectory,
         LOCAL_ANALYTICS_ENABLED: "false",
+        AUTH_REQUIRE_EMAIL_VERIFICATION: "false",
         AUTH_TRUSTED_IP_HEADERS: trustedIpHeaders,
       },
     });

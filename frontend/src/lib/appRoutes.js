@@ -62,6 +62,21 @@ export function parseAppRoute(pathname) {
   }
 }
 
+// An invite link (`/invitations/:id?email=…&auth=signup|signin`) names the invited address and,
+// in the emailed copy, whether it already has an account. Neither grants anything.
+export function readInvitationLink(search) {
+  const params = new URLSearchParams(search);
+  const auth = params.get("auth");
+
+  return { email: params.get("email")?.trim() || "", auth: auth === "signup" || auth === "signin" ? auth : "" };
+}
+
+// Where sign-in, sign-up and email verification return to from an invite link. The account
+// question is settled by then, so `auth` is dropped; the address stays for the mismatch check.
+export function invitationContinuationPath(invitationId, email) {
+  return `${appPath({ invitationId })}${email ? `?${new URLSearchParams({ email })}` : ""}`;
+}
+
 export function appPath({
   page = "workspace",
   workspaceId,

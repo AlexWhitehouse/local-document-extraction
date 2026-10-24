@@ -12,6 +12,7 @@ These rules keep the SPA consistent. Issue #64 introduced them. When a change co
 | Field validation on the sign-in, sign-up and reset password screens | Toast, with the field outlined | The one exception to inline validation: these screens show no inline text except the password requirements list. Use `Field`'s `invalid` prop to outline the field without text. Focus the first invalid field and toast its message. Each new problem replaces the last toast (shared id `auth-form`). Sent-link confirmations are persistent success toasts. |
 | Form-level submit failure | Failure toast | Keep the user's input. Text comes from `describeError`. |
 | Completed user action | Action toast through `lib/notify.js` | Name the target. Show it as soon as the mutation succeeds and refresh in the background. Don't also show the outcome inline. |
+| Partial success (the action happened, but something it relies on didn't, such as an invitation whose email couldn't be sent) | Warning toast: `notify(action, "warning")` | Say what happened and what the user should do instead. |
 | Result of a check the user ran (for example a connection test) | Toast | Never inline text beside the button. The button may flash a brief state, such as a success tick, then return to its label. |
 | Cheaply reversible removal (draft-only) | Toast with **Undo** | No confirmation dialog. |
 | Retryable action failure | Failure toast, with **Try again** where it helps | The mapped reason is appended automatically. Give counts for partial bulk failures. |
@@ -50,6 +51,7 @@ Use these before writing new markup. Most live in `frontend/src/features/ui/`.
 | Toasts | `createNotifier(toast)` from `lib/notify.js`, the only module that imports `sonner`. Messages live in `lib/toastNotifications.js`, one per action. |
 | Errors | `describeError` from `lib/describeError.js`. Never render `error.message`, response bodies, HTML or stack traces. |
 | Copy to clipboard | `copyWithFeedback` from `lib/copyWithFeedback.js` |
+| A read-only value to copy (a link, an address) | `CopyField` from `features/ui/CopyField.jsx` (`label`, `labelHidden`, `value`, `hint`, `icon`, `copyLabel`, `onCopy`, which calls `copyWithFeedback`). Never show the value as a bare block of text. |
 | Unsaved edits | `useUnsavedGuard(isDirty, label, { leaves, onDiscard })` from `lib/unsavedChanges.js`. Navigation and page unload then ask through `DISCARD_CHANGES`. Custom Cancel or close controls inside a dirty `ModalDialog` use `ModalDismiss`. |
 | Counts | `pluralize(count, singular, plural?)` from `lib/text.js` |
 | Search and actions across the app | The command palette in `features/palette/` (⌘K / Ctrl+K, or **Search** in the sidebar). New actions join its fixed list in `paletteSearch.js` and, when they need a step, a flow in `flows/index.js`. The Documents, Templates and Workspaces lists have no search field of their own. |

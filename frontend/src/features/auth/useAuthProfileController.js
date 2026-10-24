@@ -52,6 +52,7 @@ export function useAuthProfileController({
   confirmSignOut,
   continuationURL = "",
   showSignInRedirectError = false,
+  invitationLink = null,
 }) {
   const [authMode, setAuthMode] = useState(initialAuthMode);
   const [isStartingGoogleSignIn, setIsStartingGoogleSignIn] = useState(false);
@@ -63,7 +64,30 @@ export function useAuthProfileController({
   const [signUpSubmitAttempted, setSignUpSubmitAttempted] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
   const [focusRequest, setFocusRequest] = useState(null);
+  // The address a just-created account must verify, while the screen says to check email.
+  const [verificationEmail, setVerificationEmail] = useState("");
   const notify = useMemo(() => createNotifier(toast), [toast]);
+
+  // An invite link opens the form it asks for with the invited address filled in. It applies again
+  // each time the link changes or the screen returns after a session, but never over the user's edits.
+  const invitationLinkKey = !hasSession && invitationLink ? JSON.stringify(invitationLink) : "";
+  const [appliedInvitationLinkKey, setAppliedInvitationLinkKey] = useState("");
+
+  if (invitationLinkKey !== appliedInvitationLinkKey) {
+    setAppliedInvitationLinkKey(invitationLinkKey);
+
+    if (invitationLink && invitationLinkKey) {
+      setAuthMode(getInvitationAuthMode(invitationLink, authOptions));
+      setAuthPassword("");
+      setAuthConfirmPassword("");
+      setAuthPasswordTouched(false);
+      setSignUpSubmitAttempted(false);
+      setFieldErrors({});
+      setVerificationEmail("");
+
+      if (invitationLink.email) setAuthEmail(invitationLink.email);
+    }
+  }
 
   // A delegated access page asks sign-in, verification and Google to return to it.
   const callback = continuationURL
@@ -257,6 +281,7 @@ export function useAuthProfileController({
           ...MUST_ACT_TOAST,
         });
         switchAuthMode("signin");
+        setVerificationEmail(signedUpEmail);
       } else {
         await refetchSession();
       }
@@ -345,6 +370,7 @@ export function useAuthProfileController({
 
   function switchAuthMode(nextMode) {
     setAuthMode(nextMode);
+    setVerificationEmail("");
     setAuthPassword("");
     setAuthConfirmPassword("");
     setAuthPasswordTouched(false);
@@ -445,9 +471,14 @@ export function useAuthProfileController({
       focusRequest,
       shouldShowPasswordRequirements: shouldShowAccountPasswordRequirements,
       unmetPasswordRequirements: unmetAccountPasswordRequirements,
+      invitation: invitationLink ? { email: invitationLink.email } : null,
+      verificationEmail,
       onSubmit: submitAuthForm,
       onNameChange: (value) => updateField("name", setAuthName, value),
-      onEmailChange: (nextEmail) => updateField("email", setAuthEmail, nextEmail),
+      onEmailChange: (nextEmail) => {
+        updateField("email", setAuthEmail, nextEmail);
+        setVerificationEmail("");
+      },
       onPasswordChange: (value) => {
         updateField("password", setAuthPassword, value);
 
@@ -485,6 +516,14 @@ export function useAuthProfileController({
       },
     },
   };
+}
+
+// The link's `auth` when it names one the screen offers; otherwise sign-up, which an invited
+// address can always use, or sign-in when only an identity provider is available.
+function getInvitationAuthMode(invitationLink, authOptions) {
+  if (!authOptions.emailPasswordEnabled) return "signin";
+
+  return invitationLink.auth || "signup";
 }
 
 function compactErrors(errors) {

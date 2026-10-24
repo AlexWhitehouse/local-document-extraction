@@ -195,6 +195,8 @@ const localProductAnalytics = configuration.analyticsEnabled
   ? createLocalProductAnalytics({ stateDirectory })
   : undefined;
 
+localAuth.invitationEmails.setAnalytics(localProductAnalytics);
+
 const localWorkspaceProductOperations = createLocalWorkspaceProductOperations();
 
 const localProductStoreRegistry = createLocalWorkspaceProductStoreRegistry({ stateDirectory });
@@ -469,6 +471,7 @@ const application = createLocalApplication({
   sourceObjects: retainedSourceObjects,
   stateDirectory,
   workspaceControl: localAuth.workspaceControl,
+  invitationEmails: localAuth.invitationEmails,
   workspaceDeletion: localWorkspaceDeletion,
   workspaceProductOperations: localWorkspaceProductOperations,
   productStoreRegistry: localProductStoreRegistry,

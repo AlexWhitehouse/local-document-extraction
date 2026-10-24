@@ -4,6 +4,8 @@ The public distribution must start without a maintainer account, deployment doma
 
 This decision extends ADR-0005. Local email capture remains the default. Cloudflare Email REST transport is an explicit option for account-email delivery. Deployment configuration supplies the sender identity to templates in the code. The application waits for each bounded delivery attempt. External delivery does not also capture usable account links locally.
 
+The invitation email behavior and verification default below are superseded by [ADR 0032](0032-workspace-invitation-emails.md).
+
 Workspace invitations remain in the app. Email/password login and registration are enabled by default. Email verification is disabled by default. `AUTH_REQUIRE_EMAIL_VERIFICATION=true` makes verification mandatory.
 
 The verification default changed on 2026-09-23 to permit immediate account access in local installations. Earlier releases required verification by default. Upgrades keep explicit installation settings. Google OAuth is disabled by default. It requires explicit enablement and a complete credential pair.

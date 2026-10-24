@@ -1,14 +1,16 @@
-import React, { useId, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import { formatRoleLabel } from "../../lib/workspaceSelection";
 import { pluralize } from "../../lib/text";
+import { getInvitationEmailState, nextResendOpening } from "./invitationEmail";
 import { WorkspaceModelConfiguration } from "./WorkspaceModelConfiguration.jsx";
 import { WorkspaceDocumentProcessingSettings } from "./WorkspaceDocumentProcessingSettings.jsx";
 import { WorkspaceSourceStorage } from "./WorkspaceSourceStorage.jsx";
 import { ModalDialog, ModalHeader } from "../layout/ModalDialog.jsx";
 import { confirmDialog } from "../ui/confirm.jsx";
 import { ErrorState, ListStatus, Skeleton } from "../ui/States.jsx";
-import { CloseIcon, CopyIcon, EditIcon, PlusIcon } from "../layout/Icons.jsx";
+import { CloseIcon, CopyIcon, EditIcon, LinkIcon, MailIcon, PlusIcon } from "../layout/Icons.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
+import { CopyField } from "../ui/CopyField.jsx";
 import { Badge } from "../ui/Status.jsx";
 import { DataTable } from "../ui/DataTable.jsx";
 import { CheckboxField, Field, Select, TextInput } from "../ui/Field.jsx";
@@ -204,6 +206,11 @@ export function AcceptedWorkspacePage({
   workspaceInvitationsError,
   onRetryWorkspaceInvitations,
   onCancelWorkspaceInvitation,
+  createdInvitation,
+  onDismissCreatedInvitation,
+  onCopyInvitationLink,
+  resendingInvitationId,
+  onResendWorkspaceInvitation,
 }) {
   const [inviteOpen, setInviteOpen] = useState(false);
   // Remembers which key was copied, so the one-time callout hides for that key only.
@@ -362,6 +369,13 @@ export function AcceptedWorkspacePage({
             onSubmit={onInviteUser}
           />
         ) : null}
+        {createdInvitation ? (
+          <CreatedInvitationLink
+            invitation={createdInvitation}
+            onCopy={onCopyInvitationLink}
+            onDismiss={onDismissCreatedInvitation}
+          />
+        ) : null}
         <ListStatus
           status={workspaceUsersStatus}
           error={workspaceUsersError}
@@ -423,54 +437,186 @@ export function AcceptedWorkspacePage({
             isEmpty={workspaceInvitations.length === 0}
             emptyMessage="No pending invitations."
           >
-            <div
-              className="table-scroll studio-invitation-list"
-              role="region"
-              aria-label="Pending invitations"
-              tabIndex={0}
-            >
-              <DataTable label="Pending invitations">
-                <thead>
-                  <tr>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>Inviter</th>
-                    <th>Invited</th>
-                    <th>Expires</th>
-                    <th className="table-actions">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workspaceInvitations.map((invitation) => (
-                    <tr key={String(invitation.id || invitation.email || "")}>
-                      <td>{String(invitation.email || "—")}</td>
-                      <td>{formatRoleLabel(invitation.role)}</td>
-                      <td>{formatRoleLabel(invitation.status)}</td>
-                      <td>
-                        {String(invitation.inviter_display || invitation.inviter_name || invitation.inviter_email || "—")}
-                      </td>
-                      <td>{formatJoinedAt(invitation.created_at)}</td>
-                      <td>{formatJoinedAt(invitation.expires_at)}</td>
-                      <td className="table-actions">
-                        <IconButton
-                          size="sm"
-                          variant="danger"
-                          label={`Cancel invitation for ${String(invitation.email || "invitee")}`}
-                          icon={CloseIcon}
-                          onClick={() => onCancelWorkspaceInvitation(invitation)}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </DataTable>
-            </div>
+            <PendingInvitationsTable
+              invitations={workspaceInvitations}
+              resendingInvitationId={resendingInvitationId}
+              onCopyLink={onCopyInvitationLink}
+              onResend={onResendWorkspaceInvitation}
+              onCancel={onCancelWorkspaceInvitation}
+            />
           </ListStatus>
         </section>
       ) : null}
     </div>
   );
+}
+
+// What the inviter does with the link depends on whether its email went out.
+const INVITE_LINK_NOTES = {
+  sent: { tone: "info", message: (email) => `We emailed this link to ${email}. You can also share it yourself.` },
+  captured: { tone: "info", message: (email) => `This setup doesn't send email, so share this link with ${email} yourself.` },
+  failed: { tone: "warning", message: (email) => `The email couldn't be sent, so share this link with ${email} yourself.` },
+  rate_limited: {
+    tone: "warning",
+    message: (email) => `The daily limit for invitation emails is reached, so share this link with ${email} yourself.`,
+  },
+  unknown: { tone: "info", message: (email) => `Share this link with ${email} so they can accept.` },
+};
+
+// Stays until dismissed, the next invitation replaces it, or the page changes. Rows keep a Copy link action.
+function CreatedInvitationLink({ invitation, onCopy, onDismiss }) {
+  const note = INVITE_LINK_NOTES[invitation.delivery] || INVITE_LINK_NOTES.unknown;
+
+  return (
+    <Callout
+      tone={note.tone}
+      title="Invite link"
+      className="studio-invite-link"
+      action={<IconButton size="sm" label="Dismiss invite link" icon={CloseIcon} onClick={onDismiss} />}
+    >
+      <p>{note.message(invitation.email)}</p>
+      <CopyField
+        label={`Invite link for ${invitation.email}`}
+        labelHidden
+        value={invitation.inviteUrl}
+        icon={LinkIcon}
+        copyLabel="Copy link"
+        hint={`Only someone signed in as ${invitation.email} can accept it.`}
+        onCopy={() => onCopy(invitation.inviteUrl)}
+      />
+    </Callout>
+  );
+}
+
+// Re-renders when the soonest resend cooldown ends, so its Resend opens without a reload.
+function useClockUntil(nextAt) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (nextAt === null) return undefined;
+
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, nextAt - Date.now()) + 250);
+
+    return () => clearTimeout(timer);
+  }, [nextAt]);
+
+  return now;
+}
+
+function PendingInvitationsTable({ invitations, resendingInvitationId, onCopyLink, onResend, onCancel }) {
+  const now = useClockUntil(nextResendOpening(invitations, Date.now()));
+
+  return (
+    <div className="table-scroll studio-invitation-list" role="region" aria-label="Pending invitations" tabIndex={0}>
+      <DataTable label="Pending invitations">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Inviter</th>
+            <th>Invited</th>
+            <th>Expires</th>
+            <th className="table-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {invitations.map((invitation) => (
+            <PendingInvitationRow
+              key={String(invitation.id || invitation.email || "")}
+              invitation={invitation}
+              now={now}
+              isResending={resendingInvitationId === invitation.id}
+              resendBusy={Boolean(resendingInvitationId)}
+              onCopyLink={onCopyLink}
+              onResend={onResend}
+              onCancel={onCancel}
+            />
+          ))}
+        </tbody>
+      </DataTable>
+    </div>
+  );
+}
+
+function PendingInvitationRow({ invitation, now, isResending, resendBusy, onCopyLink, onResend, onCancel }) {
+  const noteId = useId();
+  const target = String(invitation.email || "invitee");
+  const email = getInvitationEmailState(invitation, now);
+  const note = describeInvitationEmail(email, now);
+
+  return (
+    <tr>
+      <td>
+        <div className="studio-invitation-email">
+          <span>{String(invitation.email || "—")}</span>
+          {note ? <small id={noteId}>{note}</small> : null}
+        </div>
+      </td>
+      <td>{formatRoleLabel(invitation.role)}</td>
+      <td>{email.expired ? <Badge tone="warning">Expired</Badge> : <Badge>Pending</Badge>}</td>
+      <td>{String(invitation.inviter_display || invitation.inviter_name || invitation.inviter_email || "—")}</td>
+      <td>{formatJoinedAt(invitation.created_at)}</td>
+      <td>{formatJoinedAt(invitation.expires_at)}</td>
+      <td className="table-actions">
+        <div className="studio-invitation-actions">
+          {email.inviteUrl ? (
+            <IconButton
+              size="sm"
+              label={`Copy link for ${target}`}
+              icon={LinkIcon}
+              onClick={() => onCopyLink(email.inviteUrl)}
+            />
+          ) : null}
+          {email.supportsResend ? (
+            <IconButton
+              size="sm"
+              label={`Resend email to ${target}`}
+              icon={MailIcon}
+              disabled={!email.canResend || resendBusy}
+              aria-busy={isResending || undefined}
+              aria-describedby={!email.canResend && note ? noteId : undefined}
+              onClick={() => onResend(invitation)}
+            />
+          ) : null}
+          <IconButton
+            size="sm"
+            variant="danger"
+            label={`Cancel invitation for ${target}`}
+            icon={CloseIcon}
+            onClick={() => onCancel(invitation)}
+          />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// The line under the email: when it was last emailed, then why Resend is closed or what it does.
+function describeInvitationEmail(email, now) {
+  if (!email.supportsResend) return "";
+
+  const sent = email.lastEmailedAt === null ? "Not emailed yet" : `Last emailed ${formatShortDateTime(email.lastEmailedAt, now)}`;
+
+  const resend = email.noResendsLeft
+    ? "No resends left"
+    : email.resendBlockedUntil !== null
+      ? `Resend from ${formatShortDateTime(email.resendBlockedUntil, now)}`
+      : email.expired
+        ? "Resend to renew it"
+        : "";
+
+  return resend ? `${sent} · ${resend}` : sent;
+}
+
+// "14:05" today, "21 Oct, 14:05" on other days, in the viewer's locale.
+function formatShortDateTime(time, now) {
+  const date = new Date(time);
+  const clock = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+  if (date.toDateString() === new Date(now).toDateString()) return clock;
+
+  return `${date.toLocaleDateString(undefined, { day: "numeric", month: "short" })}, ${clock}`;
 }
 
 function formatJoinedAt(value) {

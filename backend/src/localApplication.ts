@@ -1,3 +1,4 @@
+import { InvitationEmailRateLimitError, type WorkspaceInvitationEmails } from "./workspaceInvitationEmails";
 import { commitProductWrite } from "./localProductWriteBatch";
 import { isJsonObject, parseJson, type JsonObject, type JsonValue, isString, isBoolean } from "../../shared/json";
 import { effectiveDocumentProcessingPolicy } from "./workspaceDocumentProcessing";
@@ -95,6 +96,7 @@ export type ProductServices = {
   sourceObjects: LocalRetainedSourceObjects | undefined;
   stateDirectory: string;
   workspaceControl: LocalWorkspaceControl;
+  invitationEmails?: WorkspaceInvitationEmails;
 };
 
 type AuthorizedWorkspace = {
@@ -132,6 +134,7 @@ export function createLocalApplication({
   sourceObjects,
   stateDirectory,
   workspaceControl,
+  invitationEmails,
   workspaceDeletion,
   workspaceProductOperations,
   submissionAdmission,
@@ -161,6 +164,7 @@ export function createLocalApplication({
   sourceObjects?: LocalRetainedSourceObjects;
   stateDirectory?: string;
   workspaceControl?: LocalWorkspaceControl;
+  invitationEmails?: WorkspaceInvitationEmails;
   workspaceDeletion?: LocalWorkspaceDeletion;
   workspaceProductOperations?: LocalWorkspaceProductOperations;
   submissionAdmission?: Pick<ReturnType<typeof createLocalSubmissionAdmission>, "run">;
@@ -201,6 +205,8 @@ export function createLocalApplication({
         stateDirectory,
         workspaceControl,
       };
+
+      if (invitationEmails) product.invitationEmails = invitationEmails;
     }
   }
 
@@ -367,6 +373,7 @@ export function createLocalApplication({
           workspaceSourceStorage,
           sourceStorageControl,
           liveUpdateHub,
+          invitationEmails,
         );
       } catch (error) {
         return workspaceErrorResponse(error);
@@ -1386,6 +1393,7 @@ async function handleControlRequest(
   sourceStorage: WorkspaceSourceStorageResolver,
   sourceStorageControl: WorkspaceSourceStorageHttp | undefined,
   liveUpdateHub?: LocalLiveUpdateHub,
+  invitationEmails?: WorkspaceInvitationEmails,
 ): Promise<Response> {
   const { method } = request;
 
@@ -1487,7 +1495,17 @@ async function handleControlRequest(
 
       if (isString(role)) invitation.role = role;
 
-      return Response.json(workspaceControl.createInvitation(invitation), { status: 201 });
+      return Response.json(invitationEmails ? await invitationEmails.create(invitation) : workspaceControl.createInvitation(invitation), { status: 201 });
+    }
+
+    case "POST invitations :id": {
+      const body = await readJsonObject(request);
+
+      if (body.action !== "resend") return errorResponse(400, "invalid_action", "Unknown invitation action");
+
+      if (!invitationEmails) return routeNotFound();
+
+      return Response.json(await invitationEmails.resend({ workspaceId, invitationId: resourceId!, userId }));
     }
 
     case "DELETE invitations :id":
@@ -2098,6 +2116,8 @@ const productStoreUnavailable = () =>
   );
 
 function workspaceErrorResponse(cause: unknown): Response {
+  if (cause instanceof InvitationEmailRateLimitError) return Response.json({ error: { code: "invitation_email_rate_limited", message: cause.message, retry_after_seconds: cause.retryAfterSeconds } }, { status: 429, headers: cause.retryAfterSeconds === null ? {} : { "Retry-After": String(cause.retryAfterSeconds) } });
+
   if (!(cause instanceof LocalWorkspaceControlError))
     return errorResponse(500, "internal_error", "Unexpected server error");
 

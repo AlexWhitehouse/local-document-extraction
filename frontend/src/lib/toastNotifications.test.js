@@ -129,7 +129,7 @@ describe("app action toast notifications", () => {
       }),
     ).toEqual({
       severity: "success",
-      message: "Invitation sent: ada@example.com",
+      message: "Invitation created: ada@example.com",
     });
     expect(
       getActionToast("workspaceInvitation.cancel", "success", {
@@ -146,6 +146,59 @@ describe("app action toast notifications", () => {
     expect(getActionToast("workspaceInvitation.decline", "success")).toEqual({
       severity: "success",
       message: "Invitation declined",
+    });
+  });
+
+  it.each([
+    ["create", "success", "sent", "success", "Invitation emailed to ada@example.com"],
+    ["create", "success", "captured", "success", "Invitation created for ada@example.com"],
+    ["create", "warning", "failed", "warning", "Invitation created for ada@example.com, but the email couldn't be sent"],
+    [
+      "create",
+      "warning",
+      "rate_limited",
+      "warning",
+      "Invitation created for ada@example.com. The daily email limit is reached.",
+    ],
+    ["resend", "success", "sent", "success", "Invitation emailed again to ada@example.com. It now expires in 7 days."],
+    [
+      "resend",
+      "success",
+      "captured",
+      "success",
+      "Invitation renewed for ada@example.com. This setup doesn't send email, so share the invite link.",
+    ],
+    [
+      "resend",
+      "warning",
+      "failed",
+      "warning",
+      "Invitation renewed, but the email to ada@example.com couldn't be sent. Share the invite link with them directly.",
+    ],
+    ["resend", "success", "unknown", "success", "Invitation renewed: ada@example.com"],
+  ])("reports a %s invitation as %s when its email is %s", (action, outcome, delivery, severity, message) => {
+    expect(
+      getActionToast(`workspaceInvitation.${action}`, outcome, { targetEmail: "ada@example.com", delivery }),
+    ).toEqual({ severity, message });
+  });
+
+  it.each([
+    [540, "Couldn't resend the email to ada@example.com. Try again in 9 minutes."],
+    [30, "Couldn't resend the email to ada@example.com. Try again in 1 minute."],
+    [7200, "Couldn't resend the email to ada@example.com. Try again in 2 hours."],
+    [null, "Couldn't resend the email to ada@example.com. It has no resends left, so share the invite link."],
+  ])("says when a refused resend can be tried again (%s seconds)", (retryAfterSeconds, message) => {
+    expect(
+      getActionToast("workspaceInvitation.resend", "failure", { targetEmail: "ada@example.com", retryAfterSeconds }),
+    ).toEqual({ severity: "error", message });
+  });
+
+  it("explains a refused resend with no known wait through its error code", () => {
+    const error = Object.assign(new Error("raw limit detail"), { status: 429, code: "invitation_email_rate_limited" });
+
+    expect(getActionToast("workspaceInvitation.resend", "failure", { targetEmail: "ada@example.com", error })).toEqual({
+      severity: "error",
+      message: "Couldn't resend the email to ada@example.com. Too many invitation emails. Try again later.",
     });
   });
 

@@ -81,7 +81,7 @@ export async function collectInstallerConfiguration(prompt: SetupPrompt, localOr
     GOOGLE_CLIENT_ID: "",
     GOOGLE_CLIENT_SECRET: "",
     AUTH_EMAIL_PASSWORD_ENABLED: "true",
-    AUTH_REQUIRE_EMAIL_VERIFICATION: "false",
+    AUTH_REQUIRE_EMAIL_VERIFICATION: "true",
     EMAIL_PROVIDER: "local",
     CLOUDFLARE_ACCOUNT_ID: "",
     CLOUDFLARE_EMAIL_API_TOKEN: "",
@@ -114,7 +114,7 @@ export async function collectInstallerConfiguration(prompt: SetupPrompt, localOr
     settings.AUTH_EMAIL_PASSWORD_ENABLED = String(await yesNo("Also enable email and password login?", true));
   }
 
-  if (await yesNo("Send account emails with Cloudflare?")) {
+  if (await yesNo("Send transactional emails with Cloudflare?")) {
     prompt.say(
       "First enable Email Sending for your sender domain: https://developers.cloudflare.com/email-service/get-started/send-emails/",
     );
@@ -153,7 +153,7 @@ export async function collectInstallerConfiguration(prompt: SetupPrompt, localOr
       "Cloudflare delivery is configured; credentials and domain readiness are checked when sending, not during installation.",
     );
   } else {
-    prompt.say("Account emails stay in the private local mail log. Signup email verification is off.");
+    prompt.say("Transactional emails stay in the private local mail log. Read signup verification links with the launcher’s mail command.");
   }
 
   readLocalConfiguration({ environment: settings });

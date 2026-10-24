@@ -25,14 +25,14 @@ const TEMPLATE = {
   ],
 };
 
-test("a new user completes a Document Extraction job without email verification by default", async ({
+test("a new user completes a Document Extraction job when email verification is off", async ({
   page,
 }, testInfo) => {
   const evidence = await createBrowserEvidence(page);
   let harness: RuntimeHarness | undefined;
 
   try {
-    harness = await startRuntimeHarness();
+    harness = await startRuntimeHarness({ requireEmailVerification: false });
     await submitSignUp(page, harness, ACCOUNT);
     await expect(page.getByRole("heading", { name: "Workspace details" })).toBeVisible();
     await expect(page.getByText("Verify your account", { exact: true })).toHaveCount(0);

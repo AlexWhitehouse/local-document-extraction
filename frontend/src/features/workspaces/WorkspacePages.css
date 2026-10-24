@@ -10,3 +10,15 @@
 .workspace-key-input input { padding-right: 38px; }
 .studio-main .workspace-key-row > button { height: var(--control-h-md); white-space: nowrap; }
 .workspace-key-copy-button { position: absolute; top: 2px; right: 2px; }
+
+/* The link to share after inviting: a note, then the link field. Dismiss sits top right. */
+.studio-invite-link { align-items: flex-start; flex-wrap: nowrap; margin: 0 0 14px; }
+.studio-invite-link .ui-callout-body { flex: 1; }
+.studio-invite-link .ui-callout-body > div { display: grid; gap: 8px; }
+.studio-invite-link p { margin: 0; }
+
+/* Pending invitations: the email carries a second line about its email and resend; actions sit in one row. */
+.studio-invitation-email { display: grid; gap: 2px; min-width: 0; white-space: normal; }
+.studio-invitation-email span { overflow-wrap: anywhere; }
+.studio-invitation-email small { color: var(--text-2); font-size: var(--font-size-2); }
+.studio-invitation-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }

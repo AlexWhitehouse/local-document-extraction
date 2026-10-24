@@ -44,6 +44,8 @@ const CODE_MESSAGES = {
   insufficient_workspace_role: "Only workspace owners and admins can do that.",
   workspace_creation_restricted: "Your account can't create workspaces.",
   last_workspace: "You can't leave or delete your only workspace.",
+  invite_exists: "This email already has a pending invitation.",
+  invitation_email_rate_limited: "Too many invitation emails. Try again later.",
   operation_conflict: "Another change is in progress. Try again in a moment.",
   capacity_exhausted: "Studio is busy. Try again in a moment.",
   request_body_too_large: "This is too large to upload.",

@@ -3,7 +3,7 @@ import { Toaster } from "sonner";
 import { createNotifier, defaultToast } from "./lib/notify";
 import { createDelegatedAuthClient as createRuntimeDelegatedAuthClient, createRuntimeAuthClient } from "./lib/authClient";
 import { DEFAULT_RUNTIME_CONFIGURATION } from "./lib/runtimeConfiguration";
-import { appPath, parseAppRoute } from "./lib/appRoutes";
+import { appPath, invitationContinuationPath, parseAppRoute, readInvitationLink } from "./lib/appRoutes";
 import { templateImprovementRequest } from "./features/documents/templateImprovement.js";
 import { useAppNavigation } from "./lib/useAppNavigation";
 import { createAppRuntimeCore, createWorkspaceRequestLayer } from "./lib/appRuntime";
@@ -139,6 +139,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
   const authClient = useMemo(() => createAuthClient(), [createAuthClient]);
 
   const { data: session, isPending: isSessionPending, refetch: refetchSession } = authClient.useSession();
+  // Set while signing out from an invite link meant for another address, so sign-in returns to it.
+  const signOutReturnPathRef = useRef("");
 
   const [isTourActive, setIsTourActive] = useState(false);
   const [isStoppingImpersonation, setIsStoppingImpersonation] = useState(false);
@@ -153,6 +155,16 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
   const sessionUserName = String(session?.user?.name || "").trim();
   const sessionUserEmail = String(session?.user?.email || "").trim();
   const isImpersonating = Boolean(impersonatedBy);
+
+  const invitationLink = route.invitationId
+    ? { invitationId: route.invitationId, ...readInvitationLink(new URL(navigation.location, window.location.origin).search) }
+    : null;
+
+  // An invite link for one address opened while signed in as another explains that instead of failing.
+  const invitationEmailMismatch = Boolean(
+    hasSession && invitationLink?.email && invitationLink.email.toLowerCase() !== sessionUserEmail.toLowerCase(),
+  );
+
   const isApplicationAdmin = String(session?.user?.role || "").trim() === "admin";
   const visiblePage = activePage === "admin" && !isApplicationAdmin ? "workspace" : activePage;
   const maxSourceFileBytes = configuration.limits.maxSourceFileBytes;
@@ -200,6 +212,8 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     onActivePageChange: setActivePage,
     requestedWorkspaceId: route.workspaceId,
     requestedInvitationId: route.invitationId,
+    requestedInvitationEmail: invitationLink?.email || "",
+    sessionUserEmail,
     onWorkspaceNavigation: (id, options = {}) =>
       navigate(appPath({ workspaceId: id, invitationId: options.invitationId }), options),
     beforeWorkspaceSelection: () => evaluation.confirmDiscard(),
@@ -565,10 +579,13 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     navigateDocument,
   ]);
 
-  const dismissApiKey = workspaceController.actions.dismissApiKey;
+  const { dismissApiKey, dismissCreatedInvitation } = workspaceController.actions;
   useEffect(() => {
-    if (activePage !== "workspace") dismissApiKey();
-  }, [activePage, dismissApiKey]);
+    if (activePage === "workspace") return;
+
+    dismissApiKey();
+    dismissCreatedInvitation();
+  }, [activePage, dismissApiKey, dismissCreatedInvitation]);
 
   async function handleImpersonationStarted() {
     workspaceController.actions.clearSessionWorkspaceData();
@@ -617,13 +634,17 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
     sessionUserEmail,
     onClearWorkspaceScopedTemplates: templateController.actions.clearWorkspaceScopedTemplates,
     onClearWorkspaceScopedDocuments: documentController.actions.clearWorkspaceScopedDocuments,
-    // The next account signs in at /, not at a Workspace route that belonged to the last one.
+    // The next account signs in at /, not at a Workspace route that belonged to the last one,
+    // unless it signs out to open an invite link with the right address.
     onClearSessionWorkspaceData: () => {
       workspaceController.actions.clearSessionWorkspaceData();
-      navigate("/", { replace: true, force: true });
+      navigate(signOutReturnPathRef.current || "/", { replace: true, force: true });
     },
     confirmSignOut: () => confirmLeavingUnsavedEdits({ page: "workspace", root: true }),
     showSignInRedirectError: true,
+    // An invite link opens sign-up or sign-in for its address, and every way in returns to it.
+    invitationLink,
+    continuationURL: invitationLink ? invitationContinuationPath(invitationLink.invitationId, invitationLink.email) : "",
     onSessionChanging: () => {
       evaluation.clear();
       documentController.actions.cancelPendingSubmissions();
@@ -639,6 +660,16 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
       navigate(appPath({ page: "connected-apps" }));
     },
   };
+
+  async function signOutForInvitation() {
+    signOutReturnPathRef.current = navigation.location;
+
+    try {
+      await profileMenu.onSignOut();
+    } finally {
+      signOutReturnPathRef.current = "";
+    }
+  }
 
   function handleSidebarNavigation(pageId) {
     if (pageId === "admin" && !isApplicationAdmin) {
@@ -706,7 +737,20 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             message: "This page is not available to your account.",
             icon: AdminIcon,
           }
-        : workspaceUnavailable
+        : workspaceUnavailable && route.invitationId
+          ? invitationEmailMismatch
+            ? {
+                title: "Invitation for another email",
+                message: `This invitation was sent to ${invitationLink.email}, but you're signed in as ${sessionUserEmail}. Sign out, then use ${invitationLink.email} to accept it.`,
+                icon: WorkspaceIcon,
+                signOut: true,
+              }
+            : {
+                title: "Invitation unavailable",
+                message: "This invitation has expired, was cancelled or was already used. Ask whoever invited you to send it again.",
+                icon: WorkspaceIcon,
+              }
+          : workspaceUnavailable
           ? {
               title: "Workspace unavailable",
               message: "This workspace or invitation is unavailable. You may no longer have access.",
@@ -1037,8 +1081,13 @@ function AuthenticatedApp({ configuration, navigation, createAuthClient, toast }
             actions={
               <>
                 {routeState.retry ? <Button onClick={routeState.retry}>Try again</Button> : null}
+                {routeState.signOut ? (
+                  <Button pending={profileMenu.isSigningOut} pendingLabel="Signing out…" onClick={signOutForInvitation}>
+                    Sign out
+                  </Button>
+                ) : null}
                 <Button
-                  variant={routeState.retry ? "secondary" : "primary"}
+                  variant={routeState.retry || routeState.signOut ? "secondary" : "primary"}
                   onClick={() =>
                     navigate(
                       appPath({

@@ -323,20 +323,21 @@ _Avoid_: nested field limit, table array field limit, max table fields
 - Authentication throttling is enabled in all runtime environments. One authentication runtime owns its bounded atomic counters. Client identity comes from the socket peer or explicitly trusted proxy headers containing one address. Untrusted caller-supplied identity headers are prohibited.
 - Before each delivery, **Workspace live updates** revalidate persisted sessions, ban state, and accepted **Workspace membership**. Access loss closes the subscription before the pending event is delivered.
 - Password changes enforce the same password complexity rules as sign-up and reset.
-- Expired **Workspace invitations** do not prevent a new invitation for the same workspace and email.
+- Expired pending **Workspace invitations** remain manageable and can be resent. Creating a replacement cancels old expired pending invitations for the same Workspace and email.
+- **Workspace invitations** attempt best-effort email through the configured mail sink. A Workspace permits 20 email attempts per rolling 24 hours; each invitation permits 3 resends at least 10 minutes apart. Resending refreshes expiry to 7 days. Inviter-visible links conceal account existence.
 - **Document** deletion commits durable Source-file cleanup intent with metadata deletion. The intent survives crashes and unlink failures until immediate cleanup or retention removes the binary.
 - Numeric **Extraction results** accept finite numbers, signed decimal/scientific strings, and decimal currency amounts. Amounts can have `$`, `£`, or `€` prefixes and comma groups of three digits. Unsupported formats keep the raw answer with `invalid_type`.
 - Malformed Model gateway result envelopes or entries are retryable failures, including JSON `null`.
 - Extraction accepts JSON enclosed by one complete Markdown code fence, either unlabeled or labeled `json`. Surrounding prose, multiple blocks, and malformed JSON or result entries remain retryable failures. Evaluations identify response-format failures with a fixed message that excludes model output.
 
 - **Account password policy** requires at least 8 characters, one ASCII uppercase letter, one ASCII number, and one special character.
-- **Account email verification** is optional and disabled by default; `AUTH_REQUIRE_EMAIL_VERIFICATION=true` requires it before email/password access.
+- **Account email verification** is enabled by default; `AUTH_REQUIRE_EMAIL_VERIFICATION=true` requires it before email/password access.
 - A trusted social provider's verified email claim satisfies **Account email verification** without a separate Document Extraction verification email.
 - Email/password login is enabled by default; Google OAuth is explicitly enabled with a complete credential pair. At least one login method must remain enabled.
 - Deployment settings control new-account registration consistently for password and Google signup; existing accounts retain their configured sign-in path.
 - **Account email verification** and password-reset mail use deployment-configured sender name/address, with a neutral local default.
 - Email render modules receive the configured sender identity explicitly.
-- The **Local mail sink** is the default transactional delivery surface; optional Cloudflare REST delivery sends actual account email.
+- The **Local mail sink** is the default transactional delivery surface; optional Cloudflare REST delivery sends actual transactional email.
 - Local capture exposes action links to the machine operator; Cloudflare delivery does not duplicate those links into local capture.
 - After successful **Account email verification**, users return to the application root.
 - Successful **Account email verification** signs the user in automatically.

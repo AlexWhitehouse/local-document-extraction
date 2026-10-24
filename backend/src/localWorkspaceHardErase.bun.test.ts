@@ -79,10 +79,16 @@ test("the Workspace deletion adapter preserves policy errors and hard-erases an 
 
     workspaceControl.createWorkspace({ userId: session!.id, name: "Remaining Workspace" });
     const apiKey = workspaceControl.rotateApiKey({ workspaceId: doomedWorkspace.id, userId: session!.id }).api_key;
-    workspaceControl.createInvitation({
+
+    const invitation = workspaceControl.createInvitation({
       workspaceId: doomedWorkspace.id,
       inviterUserId: session!.id,
       email: "grace@example.com",
+    });
+
+    workspaceControl.recordInvitationEmailAttempt({
+      id: "retained_attempt", workspace_id: doomedWorkspace.id, invitation_id: invitation.id,
+      actor_user_id: session!.id, trigger: "create", outcome: "captured", attempted_at: new Date().toISOString(),
     });
     const productStore = createLocalWorkspaceProductStore({ stateDirectory, workspaceId: doomedWorkspace.id });
     productStore.createTemplate({
@@ -119,6 +125,7 @@ test("the Workspace deletion adapter preserves policy errors and hard-erases an 
       workspace_id: doomedWorkspace.id,
     });
 
+    expect(workspaceControl.invitationEmailAttempts(invitation.id, doomedWorkspace.id, session!.id)).toHaveLength(1);
     expect(workspaceControl.authorizeApiKey({ apiKey })).toBeNull();
     expect(workspaceControl.listPendingInvitations({ email: "grace@example.com" })).toEqual([]);
     expect(workspaceControl.listWorkspaceDeletionIntents()).toEqual([]);

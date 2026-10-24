@@ -261,7 +261,7 @@ export function readLocalConfiguration({
       googleClientId,
       googleClientSecret,
       signupEnabled: boolean("AUTH_SIGNUP_ENABLED", true),
-      requireEmailVerification: boolean("AUTH_REQUIRE_EMAIL_VERIFICATION", false),
+      requireEmailVerification: boolean("AUTH_REQUIRE_EMAIL_VERIFICATION", true),
     },
     email,
   };
