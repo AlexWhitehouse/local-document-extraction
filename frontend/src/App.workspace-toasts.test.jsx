@@ -763,10 +763,7 @@ describe("Workspace action toast feedback", () => {
       await inviteTeammate("grace@example.com");
 
       await waitFor(() =>
-        expect(toastMock.success).toHaveBeenCalledWith(
-          "Invitation emailed to grace@example.com. They have 7 days to accept.",
-          expect.anything(),
-        ),
+        expect(toastMock.success).toHaveBeenCalledWith("Invitation emailed to grace@example.com", expect.anything()),
       );
       const link = screen.getByRole("textbox", { name: "Invite link for grace@example.com" });
       expect(link.value).toBe(INVITE_URL);
@@ -790,19 +787,19 @@ describe("Workspace action toast feedback", () => {
       [
         "captured",
         "success",
-        "Invitation created for grace@example.com. This setup doesn't send email, so share the invite link.",
+        "Invitation created for grace@example.com",
         "This setup doesn't send email, so share this link with grace@example.com yourself.",
       ],
       [
         "failed",
         "warning",
-        "Invitation created, but the email to grace@example.com couldn't be sent. Share the invite link with them directly.",
+        "Invitation created for grace@example.com, but the email couldn't be sent",
         "The email couldn't be sent, so share this link with grace@example.com yourself.",
       ],
       [
         "rate_limited",
         "warning",
-        "Invitation created for grace@example.com. The daily limit for invitation emails is reached, so share the invite link directly.",
+        "Invitation created for grace@example.com. The daily email limit is reached.",
         "The daily limit for invitation emails is reached, so share this link with grace@example.com yourself.",
       ],
     ])("asks the inviter to share the link when the email is %s", async (status, severity, toastMessage, note) => {

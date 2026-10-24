@@ -150,27 +150,15 @@ describe("app action toast notifications", () => {
   });
 
   it.each([
-    ["create", "success", "sent", "success", "Invitation emailed to ada@example.com. They have 7 days to accept."],
-    [
-      "create",
-      "success",
-      "captured",
-      "success",
-      "Invitation created for ada@example.com. This setup doesn't send email, so share the invite link.",
-    ],
-    [
-      "create",
-      "warning",
-      "failed",
-      "warning",
-      "Invitation created, but the email to ada@example.com couldn't be sent. Share the invite link with them directly.",
-    ],
+    ["create", "success", "sent", "success", "Invitation emailed to ada@example.com"],
+    ["create", "success", "captured", "success", "Invitation created for ada@example.com"],
+    ["create", "warning", "failed", "warning", "Invitation created for ada@example.com, but the email couldn't be sent"],
     [
       "create",
       "warning",
       "rate_limited",
       "warning",
-      "Invitation created for ada@example.com. The daily limit for invitation emails is reached, so share the invite link directly.",
+      "Invitation created for ada@example.com. The daily email limit is reached.",
     ],
     ["resend", "success", "sent", "success", "Invitation emailed again to ada@example.com. It now expires in 7 days."],
     [

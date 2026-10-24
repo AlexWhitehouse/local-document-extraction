@@ -24,10 +24,9 @@ describe("createNotifier", () => {
 
     notify("workspaceInvitation.create", "warning", { targetEmail: "ada@example.com", delivery: "failed" });
 
-    expect(toast.warning).toHaveBeenCalledWith(
-      "Invitation created, but the email to ada@example.com couldn't be sent. Share the invite link with them directly.",
-      { duration: 8000 },
-    );
+    expect(toast.warning).toHaveBeenCalledWith("Invitation created for ada@example.com, but the email couldn't be sent", {
+      duration: 8000,
+    });
   });
 
   it("adds the mapped reason to failures and never the raw message", () => {

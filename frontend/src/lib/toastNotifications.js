@@ -20,11 +20,12 @@ const successMessages = {
   "template.applyDraft": ({ target }) =>
     `Changes applied to ${target || "the draft"}. Save the template to keep them.`,
   // The invitation exists either way; `delivery` says whether its email went out. Failures warn.
+  // These give only the outcome. The invite link callout says how to share the link.
   "workspaceInvitation.create": ({ target, delivery }) =>
     delivery === "sent"
-      ? `Invitation emailed to ${target}. They have 7 days to accept.`
+      ? `Invitation emailed to ${target}`
       : delivery === "captured"
-        ? `Invitation created for ${target}. This setup doesn't send email, so share the invite link.`
+        ? `Invitation created for ${target}`
         : withTarget("Invitation created", target),
   // A resend also renews the invitation for 7 days.
   "workspaceInvitation.resend": ({ target, delivery }) =>
@@ -190,8 +191,8 @@ const failureMessages = {
 const warningMessages = {
   "workspaceInvitation.create": ({ target, delivery }) =>
     delivery === "rate_limited"
-      ? `Invitation created for ${target}. The daily limit for invitation emails is reached, so share the invite link directly.`
-      : `Invitation created, but the email to ${target} couldn't be sent. Share the invite link with them directly.`,
+      ? `Invitation created for ${target}. The daily email limit is reached.`
+      : `Invitation created for ${target}, but the email couldn't be sent`,
   "workspaceInvitation.resend": ({ target }) =>
     `Invitation renewed, but the email to ${target} couldn't be sent. Share the invite link with them directly.`,
 };

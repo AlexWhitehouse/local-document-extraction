@@ -123,9 +123,7 @@ async function invite(page: Page, email: string) {
   if (!(await inviteEmail.count())) await page.getByRole("button", { name: "Invite user", exact: true }).click();
   await inviteEmail.fill(email);
   await page.getByRole("button", { name: "Invite user", exact: true }).click();
-  await expect(
-    page.getByText(`Invitation created for ${email}. This setup doesn't send email, so share the invite link.`),
-  ).toBeVisible();
+  await expect(page.getByText(`Invitation created for ${email}`, { exact: true })).toBeVisible();
   await expect(page.getByRole("textbox", { name: `Invite link for ${email}` })).toBeVisible();
 }
 
